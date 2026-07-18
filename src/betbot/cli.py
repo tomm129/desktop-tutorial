@@ -15,8 +15,24 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
+
+
+def _carregar_env(caminho: str = ".env") -> None:
+    """Carrega variáveis de um arquivo .env simples, sem sobrescrever as existentes."""
+    p = Path(caminho)
+    if not p.exists():
+        return
+    for linha in p.read_text(encoding="utf-8").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        chave, _, valor = linha.partition("=")
+        chave, valor = chave.strip(), valor.strip().strip('"').strip("'")
+        if chave and valor and chave not in os.environ:
+            os.environ[chave] = valor
 
 from .analysis.analyzer import Analisador, encontrar_value_bets
 from .bankroll.manager import GestorBanca
@@ -128,6 +144,72 @@ def cmd_apostar(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_teste(args: argparse.Namespace) -> int:
+    """Modo teste (paper trading): prevê os jogos do dia e depois confere o acerto."""
+    from .data.oddsapi import buscar_jogos, buscar_resultados
+    from .paper import ModoTeste
+
+    mt = ModoTeste(args.banca_db)
+
+    if args.conferir:
+        print(f"Buscando resultados da liga '{args.liga}' (últimos {args.dias} dias)...")
+        resultados = buscar_resultados(args.liga, dias=args.dias)
+        n = mt.conferir(resultados)
+        print(f"{n} previsão(ões) liquidada(s).\n")
+        _imprimir_relatorio_teste(mt)
+        return 0
+
+    if args.relatorio:
+        _imprimir_relatorio_teste(mt)
+        return 0
+
+    print(f"Buscando jogos da liga '{args.liga}' nas próximas {args.horas}h...")
+    jogos = buscar_jogos(args.liga, horas=args.horas)
+    if not jogos:
+        print("Nenhum jogo encontrado no período. Tente --horas 48 ou outra liga.")
+        return 0
+    print(f"{len(jogos)} jogo(s) encontrado(s).\n")
+
+    analisador = Analisador()
+    total_novas = 0
+    for jogo in jogos:
+        print(f"Analisando: {jogo.time_casa} x {jogo.time_fora} ({jogo.data_hora})")
+        analise = analisador.analisar(jogo)
+        print(f"  Resumo: {analise.resumo}")
+        for alerta in analise.alertas:
+            print(f"  [alerta] {alerta}")
+        vbs = encontrar_value_bets(
+            jogo, analise, ev_minimo=args.ev_minimo, confianca_minima=args.confianca_minima
+        )
+        for vb in vbs:
+            print(f"  [VALUE] {vb.mercado.value}/{vb.selecao} @ {vb.odd:.2f} (EV {vb.ev:+.1%})")
+        novas = mt.registrar(jogo, analise, vbs)
+        total_novas += novas
+        print(f"  {novas} previsão(ões) registrada(s).\n")
+
+    print(f"Total: {total_novas} previsão(ões) novas registradas (nenhuma aposta feita).")
+    print("Depois dos jogos, rode:  python -m betbot teste --conferir")
+    return 0
+
+
+def _imprimir_relatorio_teste(mt) -> None:
+    rel = mt.relatorio()
+    print("--- RELATÓRIO DO MODO TESTE ---")
+    p, v = rel["palpite"], rel["value"]
+    print(f"Palpite principal (1X2): {p['acertos']}/{p['liquidadas']} "
+          f"({p['taxa']:.0%}) | ROI stake fixa: {p['roi']:+.1%}")
+    print(f"Value bets:              {v['acertos']}/{v['liquidadas']} "
+          f"({v['taxa']:.0%}) | ROI stake fixa: {v['roi']:+.1%}")
+    print(f"Previsões em aberto:     {rel['abertas']}")
+    print("\n--- ÚLTIMAS PREVISÕES ---")
+    for r in mt.listar(20):
+        status = r["resultado"] or "aberta"
+        placar = f" [{r['placar']}]" if r["placar"] else ""
+        print(f"[{status:7}] ({r['tipo']:7}) {r['evento']} — "
+              f"{r['mercado']}/{r['selecao']} @ {r['odd']:.2f}"
+              f" (prob {r['probabilidade']:.0%}){placar}")
+
+
 def cmd_banca(args: argparse.Namespace) -> int:
     gestor = GestorBanca(args.banca_db)
 
@@ -160,6 +242,7 @@ def cmd_banca(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _carregar_env()
     parser = argparse.ArgumentParser(prog="betbot", description="Bot de apostas com IA")
     parser.add_argument("--banca-db", default="banca.db", help="arquivo SQLite da banca")
     sub = parser.add_subparsers(dest="comando", required=True)
@@ -180,6 +263,18 @@ def main(argv: list[str] | None = None) -> int:
     p_ap.add_argument("--real", action="store_true",
                       help="envia apostas de verdade (padrão é simulação)")
     p_ap.set_defaults(func=cmd_apostar)
+
+    p_te = sub.add_parser("teste", help="modo teste: prevê jogos do dia e mede acerto")
+    p_te.add_argument("--liga", default="serie-b",
+                      help="serie-a | serie-b | premier-league | la-liga | libertadores")
+    p_te.add_argument("--horas", type=int, default=24, help="janela de busca de jogos")
+    p_te.add_argument("--dias", type=int, default=3, help="janela de resultados (--conferir)")
+    p_te.add_argument("--conferir", action="store_true",
+                      help="liquida previsões com os resultados reais")
+    p_te.add_argument("--relatorio", action="store_true", help="só mostra o relatório")
+    p_te.add_argument("--ev-minimo", type=float, default=0.05)
+    p_te.add_argument("--confianca-minima", type=float, default=0.5)
+    p_te.set_defaults(func=cmd_teste)
 
     p_ba = sub.add_parser("banca", help="gestão de banca")
     p_ba.add_argument("--depositar", type=float)

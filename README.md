@@ -34,38 +34,79 @@ jogos.json ──▶ IA (Gemini) ──▶ probabilidades por mercado
 A IA **não decide** quanto apostar — ela só estima probabilidades. Stake e
 bloqueios são responsabilidade do gestor de banca, no código.
 
-## Instalação
+## Instalação (rodar na sua máquina)
+
+Requisitos: [Python 3.10+](https://www.python.org/downloads/) e Git.
 
 ```bash
+# 1. clonar o repositório neste branch
+git clone -b claude/sports-betting-ai-bot-oqmzle https://github.com/tomm129/desktop-tutorial.git betbot
+cd betbot
+
+# 2. instalar as dependências
 pip install -r requirements.txt
-cp .env.example .env   # preencha GEMINI_API_KEY (grátis em https://aistudio.google.com)
+
+# 3. configurar as chaves
+cp .env.example .env     # no Windows: copy .env.example .env
+# edite o .env e preencha:
+#   GEMINI_API_KEY  -> grátis em https://aistudio.google.com/apikey
+#   ODDS_API_KEY    -> grátis em https://the-odds-api.com (p/ modo teste)
 ```
+
+O bot carrega o `.env` automaticamente ao rodar — basta preencher e usar.
 
 ## Uso
 
 ```bash
-export PYTHONPATH=src
-
 # 1. registrar sua banca inicial
-python -m betbot banca --depositar 500
+python betbot.py banca --depositar 500
 
 # 2. analisar os jogos e gerar o cartão
-python -m betbot analisar exemplos/jogos.json
+python betbot.py analisar exemplos/jogos.json
 
 # 3. ver o cartão
-python -m betbot cartao cartao.json
+python betbot.py cartao cartao.json
 
 # 4a. simular envio para a Betfair (não toca na conta)
-python -m betbot apostar cartao.json
+python betbot.py apostar cartao.json
 
 # 4b. apostar DE VERDADE (pede confirmação digitada)
-python -m betbot apostar cartao.json --real
+python betbot.py apostar cartao.json --real
 
 # 5. gestão de banca
-python -m betbot banca                              # status
-python -m betbot banca --historico                  # últimas apostas
-python -m betbot banca --liquidar 3 --resultado ganha
+python betbot.py banca                              # status
+python betbot.py banca --historico                  # últimas apostas
+python betbot.py banca --liquidar 3 --resultado ganha
 ```
+
+## Modo teste (medir a acertividade sem apostar)
+
+O modo teste busca os jogos do dia automaticamente, registra as previsões da IA
+(**sem apostar nada**) e depois confere os resultados reais:
+
+```bash
+# 1. registrar as previsões dos jogos de hoje (ex.: Série B)
+python betbot.py teste --liga serie-b
+
+# 2. depois que os jogos terminarem (ou no dia seguinte):
+python betbot.py teste --liga serie-b --conferir
+
+# ver o relatório a qualquer momento
+python betbot.py teste --relatorio
+```
+
+O relatório mostra a taxa de acerto do palpite principal (1X2), a taxa de acerto
+das value bets e o **ROI simulado** com stake fixa — rode por 2–4 semanas antes de
+considerar apostar dinheiro real. Ligas disponíveis: `serie-a`, `serie-b`,
+`premier-league`, `la-liga`, `libertadores`.
+
+Requer `ODDS_API_KEY` no `.env` — chave **gratuita** (500 requisições/mês) em
+<https://the-odds-api.com>.
+
+> Nota: no plano gratuito da The Odds API os jogos vêm com as odds, mas **sem
+> estatísticas da temporada** — a IA usa o conhecimento que tem dos times e sinaliza
+> confiança menor quando estiver desatualizada. A acertividade real tende a melhorar
+> se você enriquecer o campo `contexto` com dados atuais.
 
 ### Formato do `jogos.json`
 
