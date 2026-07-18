@@ -1,0 +1,5 @@
+google-genai>=1.0
+pydantic>=2.5
+requests>=2.31
+# opcional: para usar Claude como provedor de análise (BETBOT_PROVIDER=claude)
+# anthropic>=0.40
