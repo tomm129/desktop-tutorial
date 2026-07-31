@@ -1,0 +1,25 @@
+# systemd unit — CryptoBot Research Engine
+# Instalação:
+#   sudo cp deploy/cryptobot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now cryptobot
+# Ajuste WorkingDirectory/ExecStart para o caminho real da sua instalação.
+
+[Unit]
+Description=CryptoBot Research Engine (coleta 24/7 — sem execução de ordens)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/cryptobot
+ExecStart=/opt/cryptobot/.venv/bin/python -m crypto_bot.main
+Restart=on-failure
+RestartSec=10
+# .env fica no WorkingDirectory e é lido pelo pydantic-settings
+# Endurecimento básico
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
