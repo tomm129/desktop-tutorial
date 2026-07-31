@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crypto-bot"
+version = "2.2.0"
+description = "Crypto Research Engine V2.2 — coleta 24/7, features, regimes e rotulagem temporal (fase de pesquisa)"
+requires-python = ">=3.11"
+dependencies = [
+    "ccxt>=4.0",
+    "duckdb>=0.10",
+    "pandas>=2.0",
+    "numpy>=1.26",
+    "pydantic>=2.5",
+    "pydantic-settings>=2.1",
+    "structlog>=24.1",
+    "httpx>=0.27",
+    "pytz>=2024.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+dashboard = ["streamlit>=1.30"]
+
+[project.scripts]
+cryptobot = "crypto_bot.main:main"
+
+[tool.setuptools.packages.find]
+include = ["crypto_bot*"]
+
+[tool.setuptools.package-data]
+crypto_bot = ["schema/*.sql"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

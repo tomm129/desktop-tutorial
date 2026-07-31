@@ -1,0 +1,16 @@
+# Secrets — NUNCA commitar
+.env
+
+# Dados e backups
+data/
+*.duckdb
+*.duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+build/
+dist/
