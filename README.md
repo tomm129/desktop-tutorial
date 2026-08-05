@@ -32,6 +32,7 @@ O projeto combina dois lados:
 |-----------------------|------------------------------------------------------------------|
 | `firmware/esp32-campo`| Firmware do ESP32 (PlatformIO) — temperatura + vibração via MQTT |
 | `nodered/`            | Fluxo do Node-RED para o Orange Pi (dashboard + alarmes)         |
+| `integracoes/`        | Integrações externas — corrente do PowerFlex 525 (EtherNet/IP)   |
 | `docs/`               | Documentação de arquitetura e hardware                           |
 
 ## Primeiros passos

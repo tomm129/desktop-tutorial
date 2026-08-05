@@ -1,0 +1,2 @@
+pycomm3>=1.2.14
+paho-mqtt>=1.6.1

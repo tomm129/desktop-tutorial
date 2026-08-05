@@ -53,7 +53,7 @@ Estrutura hierárquica baseada em `<planta>/<area>/<equipamento>`:
 |----------------------------------------------------|----------------|:------:|----------------------------|
 | `monitoramento/<device_id>/telemetria`             | ESP32 → Painel |  não   | JSON de telemetria         |
 | `monitoramento/<device_id>/status`                 | ESP32 → Painel |  sim   | `online` / `offline` (LWT) |
-| `monitoramento/painel/<inversor_id>/corrente`      | Painel interno |  não   | JSON de corrente (drive)   |
+| `monitoramento/<inversor_id>/corrente`             | PF525 → Painel |  não   | JSON de corrente (drive)   |
 | `monitoramento/<device_id>/cmd`                    | Painel → ESP32 |  não   | JSON de comando            |
 
 `<device_id>` é definido em `config.h` (ex.: `motor-01`).

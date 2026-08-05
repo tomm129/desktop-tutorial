@@ -1,0 +1,17 @@
+[Unit]
+Description=Leitura de corrente do PowerFlex 525 (EtherNet/IP) -> MQTT
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Ajuste o usuário e os caminhos conforme a instalação no Orange Pi.
+User=orangepi
+WorkingDirectory=/opt/iot/integracoes/powerflex525
+EnvironmentFile=/opt/iot/integracoes/powerflex525/config.env
+ExecStart=/opt/iot/integracoes/powerflex525/.venv/bin/python powerflex_mqtt.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
