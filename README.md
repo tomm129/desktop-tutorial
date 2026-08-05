@@ -45,6 +45,7 @@ O projeto combina dois lados:
 
 ## Documentação
 
+- [Objetivo e visão do projeto](docs/objetivo.md)
 - [Arquitetura e tópicos MQTT](docs/arquitetura.md)
 - [Hardware e ligações](docs/hardware.md)
 
