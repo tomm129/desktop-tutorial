@@ -1,0 +1,17 @@
+# Firmware / PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+firmware/**/.pio/
+
+# Configuração local com credenciais (NÃO versionar)
+firmware/esp32-campo/include/config.h
+
+# Node-RED (dados locais de runtime)
+nodered/.node-red/
+nodered/**/node_modules/
+
+# Sistema / editores
+.vscode/
+.DS_Store
+*.log

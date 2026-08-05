@@ -1,5 +1,55 @@
-# Welcome to GitHub Desktop!
+# Sistema de Monitoramento de Corrente, Temperatura e Vibração
 
-This is your README. READMEs are where you can communicate what your project is and how to use it.
+Sistema de monitoramento industrial distribuído para acompanhamento de
+**corrente elétrica**, **temperatura** e **vibração** de equipamentos.
 
-Write your name on line 6, save it, and then head back to GitHub Desktop.
+O projeto combina dois lados:
+
+- **Campo (ESP32):** módulo instalado próximo ao equipamento, coleta
+  **temperatura** e **vibração** (acelerômetro ADXL) e envia os dados por
+  Wi-Fi usando o protocolo **MQTT**.
+- **Painel (Orange Pi + Node-RED):** central instalada no painel elétrico.
+  Roda o **broker MQTT** e o **Node-RED**, faz o monitoramento de
+  **corrente**, apresenta o dashboard, gera alarmes e armazena o histórico.
+
+```
+        CAMPO                                   PAINEL ELÉTRICO
+ ┌──────────────────┐                    ┌────────────────────────────┐
+ │      ESP32        │                    │        Orange Pi           │
+ │                   │                    │                            │
+ │  ADXL (vibração)  │                    │  ┌──────────────────────┐  │
+ │  Sensor de temp.  │   Wi-Fi / MQTT     │  │  Mosquitto (broker)  │  │
+ │                   │ ─────────────────► │  │  Node-RED (dashboard)│  │
+ │  Publica JSON     │                    │  │  Medição de corrente │  │
+ └──────────────────┘                    │  └──────────────────────┘  │
+                                          └────────────────────────────┘
+```
+
+## Estrutura do repositório
+
+| Pasta                 | Descrição                                                        |
+|-----------------------|------------------------------------------------------------------|
+| `firmware/esp32-campo`| Firmware do ESP32 (PlatformIO) — temperatura + vibração via MQTT |
+| `nodered/`            | Fluxo do Node-RED para o Orange Pi (dashboard + alarmes)         |
+| `docs/`               | Documentação de arquitetura e hardware                           |
+
+## Primeiros passos
+
+1. **Painel (Orange Pi):** instale o broker MQTT e o Node-RED, importe o
+   fluxo — veja [`nodered/README.md`](nodered/README.md).
+2. **Campo (ESP32):** configure `firmware/esp32-campo/include/config.h` e
+   grave o firmware — veja [`firmware/esp32-campo/README.md`](firmware/esp32-campo/README.md).
+3. Consulte a arquitetura e os tópicos MQTT em
+   [`docs/arquitetura.md`](docs/arquitetura.md).
+
+## Documentação
+
+- [Arquitetura e tópicos MQTT](docs/arquitetura.md)
+- [Hardware e ligações](docs/hardware.md)
+
+## Status
+
+🚧 Em desenvolvimento. O sensor de temperatura do módulo de campo ainda está
+em definição — o firmware já está preparado para **DS18B20** (padrão) e
+**DHT22**, selecionáveis por configuração. Veja
+[`docs/hardware.md`](docs/hardware.md).
