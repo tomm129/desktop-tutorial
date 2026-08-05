@@ -1,7 +1,8 @@
 # Firmware — Módulo de Campo (ESP32)
 
-Firmware em **PlatformIO / Arduino** que lê **temperatura** e **vibração**
-(ADXL345) e publica a telemetria por **MQTT** para o painel.
+Firmware em **PlatformIO / Arduino** que lê **temperatura** (MLX90614,
+infravermelho sem contato) e **vibração** (ADXL345) e publica a telemetria
+por **MQTT** para o painel.
 
 ## Requisitos
 - [PlatformIO](https://platformio.org/) (extensão do VS Code ou `pio` CLI).
@@ -20,7 +21,8 @@ Firmware em **PlatformIO / Arduino** que lê **temperatura** e **vibração**
    - `DEVICE_ID` — identificador do equipamento (ex.: `motor-01`).
    - `WIFI_SSID` / `WIFI_PASSWORD`.
    - `MQTT_HOST` — IP do Orange Pi (broker).
-   - `TEMP_SENSOR_TYPE` — `1` para DS18B20 (padrão) ou `2` para DHT22.
+   - `TEMP_SENSOR_TYPE` — `3` para MLX90614 (infravermelho sem contato,
+     **padrão**), `1` para DS18B20 ou `2` para DHT22.
    - Pinos, se necessário.
 
    > `include/config.h` está no `.gitignore` e **não** é versionado, para

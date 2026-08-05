@@ -12,11 +12,12 @@ substituído por variante com Ethernet).
 │                          │         │                                       │
 │  ESP32                   │  MQTT   │  Orange Pi                            │
 │   • ADXL345 (vibração)   │ ──────► │   • Mosquitto (broker MQTT)           │
-│   • Sensor de temp.      │  Wi-Fi  │   • Node-RED                          │
+│   • MLX90614 (temp. IR)  │  Wi-Fi  │   • Node-RED                          │
 │                          │         │      - assina telemetria de campo     │
-│  Publica telemetria      │ ◄────── │      - lê corrente (CT / medidor)     │
-│  em JSON a cada N s       │  cmd*   │      - dashboard + alarmes            │
-└──────────────────────────┘         │      - histórico                      │
+│  Publica telemetria      │ ◄────── │      - lê corrente do PowerFlex 525   │
+│  em JSON a cada N s       │  cmd*   │        via EtherNet/IP                │
+└──────────────────────────┘         │      - dashboard + alarmes            │
+                                      │      - histórico                      │
                                       └─────────────────────────────────────┘
   * canal de comando opcional (ex.: mudar intervalo de envio)
 ```
@@ -27,8 +28,9 @@ substituído por variante com Ethernet).
 - Lê **vibração** com o acelerômetro **ADXL345** (I²C). Calcula, sobre uma
   janela de amostras, o **RMS** e o **pico** da aceleração (componente AC,
   já descontada a gravidade).
-- Lê **temperatura** com o sensor definido em `config.h` (**DS18B20** por
-  padrão; **DHT22** como alternativa).
+- Lê **temperatura** com o sensor definido em `config.h` — **MLX90614**
+  (infravermelho sem contato, I²C) por padrão; **DS18B20** ou **DHT22** como
+  alternativas de contato.
 - Publica um pacote **JSON** de telemetria a cada `INTERVALO_PUBLICACAO_MS`.
 - Usa **Last Will and Testament (LWT)** para sinalizar `offline` caso perca
   a conexão.
@@ -37,9 +39,9 @@ substituído por variante com Ethernet).
 - **Mosquitto**: broker MQTT que recebe a telemetria dos módulos de campo.
 - **Node-RED**:
   - Assina os tópicos de telemetria e alimenta o dashboard.
-  - Faz a **medição de corrente** (via medidor Modbus, sensores de corrente
-    tipo SCT-013 em um conversor A/D, ou entrada de um relé inteligente —
-    veja `docs/hardware.md`).
+  - Lê a **corrente diretamente do inversor PowerFlex 525** por
+    **EtherNet/IP** (Orange Pi na rede Ethernet dos drives), usando
+    `node-red-contrib-cip-ethernet-ip` — veja `docs/hardware.md`.
   - Aplica limites (thresholds) e gera **alarmes**.
   - Mantém histórico (arquivo/DB) — opcional.
 
@@ -51,7 +53,7 @@ Estrutura hierárquica baseada em `<planta>/<area>/<equipamento>`:
 |----------------------------------------------------|----------------|:------:|----------------------------|
 | `monitoramento/<device_id>/telemetria`             | ESP32 → Painel |  não   | JSON de telemetria         |
 | `monitoramento/<device_id>/status`                 | ESP32 → Painel |  sim   | `online` / `offline` (LWT) |
-| `monitoramento/painel/<medidor_id>/corrente`       | Painel interno |  não   | JSON de corrente           |
+| `monitoramento/painel/<inversor_id>/corrente`      | Painel interno |  não   | JSON de corrente (drive)   |
 | `monitoramento/<device_id>/cmd`                    | Painel → ESP32 |  não   | JSON de comando (opcional) |
 
 `<device_id>` é definido em `config.h` (ex.: `motor-01`).
@@ -77,14 +79,18 @@ Estrutura hierárquica baseada em `<planta>/<area>/<equipamento>`:
 }
 ```
 
-### Payload de corrente (Painel interno)
+### Payload de corrente (lido do PowerFlex 525 pelo Node-RED)
+
+Montado no Node-RED a partir dos parâmetros lidos por EtherNet/IP:
 
 ```json
 {
-  "medidor_id": "painel-a",
+  "inversor_id": "powerflex-01",
   "ts": 123456789,
-  "corrente_a": [ 12.4, 11.9, 12.1 ],
-  "tensao_v": [ 220.5, 219.8, 221.0 ]
+  "corrente_a": 12.4,
+  "frequencia_hz": 60.0,
+  "tensao_v": 220.5,
+  "dc_bus_v": 311.0
 }
 ```
 
@@ -112,5 +118,5 @@ equipamento operando em condição normal (baseline).
 3. Nós de função separam temperatura / vibração e comparam com os limites.
 4. `ui_gauge` / `ui_chart` exibem no dashboard.
 5. Nó de alarme dispara notificação quando um limite é ultrapassado.
-6. A medição de corrente entra por um ramo próprio (Modbus/entrada A/D) e é
-   combinada no mesmo dashboard.
+6. A corrente é lida do inversor PowerFlex 525 por EtherNet/IP em um ramo
+   próprio (`node-red-contrib-cip-ethernet-ip`) e combinada no mesmo dashboard.

@@ -197,7 +197,7 @@
     "type": "function",
     "z": "flow_monitor",
     "name": "fonte de corrente",
-    "func": "// SUBSTITUA por leitura real:\n//  - Modbus (node-red-contrib-modbus) de um multimedidor, ou\n//  - ADS1115 (I2C) lendo sensores SCT-013, ou\n//  - mqtt in de um medidor inteligente.\n// Exemplo com valor simulado enquanto a fonte real não é definida:\nconst base = 12.0;\nconst corrente = base + (Math.random() * 2 - 1); // 11..13 A\nmsg.payload = Math.round(corrente * 10) / 10;\nmsg.topic = 'painel-a';\nreturn msg;",
+    "func": "// SUBSTITUA por leitura real do inversor PowerFlex 525 via EtherNet/IP:\n//  use node-red-contrib-cip-ethernet-ip para ler o parametro de\n//  Corrente de Saida (b003) do drive e conecte a saida do no aqui.\n//  Confirme o mapeamento CIP/parametro no manual 520COM-UM001.\n// Valor simulado enquanto a leitura EtherNet/IP nao esta ligada:\nconst base = 12.0;\nconst corrente = base + (Math.random() * 2 - 1); // 11..13 A\nmsg.payload = Math.round(corrente * 10) / 10;\nmsg.topic = 'powerflex-01';\nreturn msg;",
     "outputs": 1,
     "x": 470,
     "y": 320,

@@ -18,9 +18,10 @@ O projeto combina dois lados:
  │      ESP32        │                    │        Orange Pi           │
  │                   │                    │                            │
  │  ADXL (vibração)  │                    │  ┌──────────────────────┐  │
- │  Sensor de temp.  │   Wi-Fi / MQTT     │  │  Mosquitto (broker)  │  │
+ │  MLX90614 (temp.) │   Wi-Fi / MQTT     │  │  Mosquitto (broker)  │  │
  │                   │ ─────────────────► │  │  Node-RED (dashboard)│  │
- │  Publica JSON     │                    │  │  Medição de corrente │  │
+ │  Publica JSON     │                    │  │  Corrente: PowerFlex │  │
+ │                   │                    │  │  525 via EtherNet/IP │  │
  └──────────────────┘                    │  └──────────────────────┘  │
                                           └────────────────────────────┘
 ```
@@ -49,7 +50,12 @@ O projeto combina dois lados:
 
 ## Status
 
-🚧 Em desenvolvimento. O sensor de temperatura do módulo de campo ainda está
-em definição — o firmware já está preparado para **DS18B20** (padrão) e
-**DHT22**, selecionáveis por configuração. Veja
-[`docs/hardware.md`](docs/hardware.md).
+🚧 Em desenvolvimento. Definições atuais:
+
+- **Temperatura (campo):** sensor infravermelho **sem contato MLX90614**
+  (I²C), no mesmo barramento do ADXL345. Firmware também suporta DS18B20 e
+  DHT22 por configuração.
+- **Corrente (painel):** lida direto do inversor **PowerFlex 525** por
+  **EtherNet/IP** (Orange Pi na rede Ethernet dos drives).
+
+Veja [`docs/hardware.md`](docs/hardware.md) para ligações e parâmetros.

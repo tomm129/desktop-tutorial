@@ -31,12 +31,14 @@
 
 // ---------------------------------------------------------------------
 //  Sensor de temperatura  —  escolha UM
-//     1 = DS18B20 (1-Wire, padrão)
-//     2 = DHT22   (temperatura + umidade)
+//     1 = DS18B20  (1-Wire, contato)
+//     2 = DHT22    (temperatura + umidade, contato)
+//     3 = MLX90614 (infravermelho sem contato, I²C)  ← padrão do projeto
 // ---------------------------------------------------------------------
-#define TEMP_SENSOR_TYPE       1
+#define TEMP_SENSOR_TYPE       3
 
-#define PIN_TEMP               4       // DATA do DS18B20 ou DHT22
+#define PIN_TEMP               4       // DATA do DS18B20/DHT22 (não usado no MLX90614)
+#define MLX90614_ADDR          0x5A    // endereço I²C padrão do MLX90614
 
 // ---------------------------------------------------------------------
 //  ADXL345 (vibração) — I²C

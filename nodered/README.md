@@ -16,8 +16,8 @@ bash <(curl -sL https://raw.githubusercontent.com/node-red/linux-installers/mast
 # Nós adicionais (dentro de ~/.node-red)
 cd ~/.node-red
 npm install node-red-dashboard
-# opcional, se a corrente vier por Modbus:
-npm install node-red-contrib-modbus
+# leitura de corrente do inversor PowerFlex 525 por EtherNet/IP:
+npm install node-red-contrib-cip-ethernet-ip
 ```
 
 Inicie o Node-RED:
@@ -40,7 +40,8 @@ O fluxo já inclui:
 - **Temperatura** → gauge (limites 60 °C / 75 °C).
 - **Vibração RMS** → gráfico de linha.
 - **Corrente** → gauge, alimentado por um nó de **exemplo** que você deve
-  trocar pela fonte real (Modbus, ADS1115/SCT-013 ou MQTT).
+  trocar pela leitura real do inversor **PowerFlex 525** via **EtherNet/IP**
+  (`node-red-contrib-cip-ethernet-ip`).
 - **Avaliação de limites** → status colorido no dashboard + saída de debug.
 
 ## Ajustes importantes
@@ -49,8 +50,11 @@ O fluxo já inclui:
   em outra máquina, edite o nó de configuração do broker.
 - **Limites de alarme:** edite a função **"avaliar limites"** (constante
   `LIM`) — calibre com o equipamento em condição normal.
-- **Corrente:** substitua a função **"fonte de corrente"** pela leitura real.
-  Consulte as opções em [`docs/hardware.md`](../docs/hardware.md).
+- **Corrente:** substitua a função **"fonte de corrente"** pela leitura real
+  do PowerFlex 525 via EtherNet/IP (nó `node-red-contrib-cip-ethernet-ip`,
+  parâmetro *b003 [Output Current]*). Configure o IP do drive e confirme o
+  mapeamento no manual *520COM-UM001*. Detalhes em
+  [`docs/hardware.md`](../docs/hardware.md).
 
 ## Verificar a chegada dos dados
 

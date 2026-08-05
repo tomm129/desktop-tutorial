@@ -27,8 +27,11 @@
 #elif TEMP_SENSOR_TYPE == 2
   #include <DHT.h>
   static DHT dht(PIN_TEMP, DHT22);
+#elif TEMP_SENSOR_TYPE == 3
+  #include <Adafruit_MLX90614.h>
+  static Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 #else
-  #error "TEMP_SENSOR_TYPE invalido (use 1=DS18B20 ou 2=DHT22)"
+  #error "TEMP_SENSOR_TYPE invalido (use 1=DS18B20, 2=DHT22 ou 3=MLX90614)"
 #endif
 
 // --- Objetos globais --------------------------------------------------
@@ -103,6 +106,12 @@ static void iniciarSensorTemperatura() {
   ds18b20.begin();
 #elif TEMP_SENSOR_TYPE == 2
   dht.begin();
+#elif TEMP_SENSOR_TYPE == 3
+  if (!mlx.begin(MLX90614_ADDR)) {
+    Serial.println("[MLX90614] Sensor nao encontrado! Verifique a ligacao I2C.");
+  } else {
+    Serial.println("[MLX90614] Inicializado.");
+  }
 #endif
 }
 
@@ -115,11 +124,13 @@ static float lerTemperatura() {
   return t;
 #elif TEMP_SENSOR_TYPE == 2
   return dht.readTemperature();   // já retorna NAN em caso de falha
+#elif TEMP_SENSOR_TYPE == 3
+  // Temperatura do objeto (superfície do equipamento), sem contato.
+  return mlx.readObjectTempC();
 #endif
 }
 
 static bool iniciarADXL() {
-  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   if (!adxl.begin(ADXL345_ADDR)) {
     Serial.println("[ADXL] Sensor nao encontrado! Verifique a ligacao I2C.");
     return false;
@@ -233,6 +244,9 @@ void setup() {
 
   topicTelemetria = String(MQTT_BASE_TOPIC) + "/" + DEVICE_ID + "/telemetria";
   topicStatus     = String(MQTT_BASE_TOPIC) + "/" + DEVICE_ID + "/status";
+
+  // Barramento I²C compartilhado (ADXL345 + MLX90614).
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
 
   iniciarSensorTemperatura();
   iniciarADXL();
