@@ -48,6 +48,7 @@ O projeto combina dois lados:
 
 - [Objetivo e visão do projeto](docs/objetivo.md)
 - [Arquitetura e tópicos MQTT](docs/arquitetura.md)
+- [Visualização, histórico e Power BI](docs/visualizacao.md)
 - [Hardware e ligações](docs/hardware.md)
 
 ## Status
