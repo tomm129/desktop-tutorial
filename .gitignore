@@ -15,3 +15,9 @@ nodered/**/node_modules/
 .vscode/
 .DS_Store
 *.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+integracoes/**/config.env
