@@ -54,7 +54,7 @@ Estrutura hierárquica baseada em `<planta>/<area>/<equipamento>`:
 | `monitoramento/<device_id>/telemetria`             | ESP32 → Painel |  não   | JSON de telemetria         |
 | `monitoramento/<device_id>/status`                 | ESP32 → Painel |  sim   | `online` / `offline` (LWT) |
 | `monitoramento/painel/<inversor_id>/corrente`      | Painel interno |  não   | JSON de corrente (drive)   |
-| `monitoramento/<device_id>/cmd`                    | Painel → ESP32 |  não   | JSON de comando (opcional) |
+| `monitoramento/<device_id>/cmd`                    | Painel → ESP32 |  não   | JSON de comando            |
 
 `<device_id>` é definido em `config.h` (ex.: `motor-01`).
 
@@ -99,6 +99,15 @@ Montado no Node-RED a partir dos parâmetros lidos por EtherNet/IP:
 - Mensagem `online` publicada (retida) ao conectar.
 - Mensagem `offline` configurada como *will* — o broker publica
   automaticamente se o ESP32 cair.
+
+### Payload de comando (Painel → ESP32)
+
+O ESP32 assina `monitoramento/<device_id>/cmd` e aceita:
+
+```json
+{ "comando": "publicar" }       // força publicação imediata
+{ "intervalo_ms": 2000 }         // altera o intervalo de publicação (ms)
+```
 
 ## Limites de alarme (sugestão inicial)
 

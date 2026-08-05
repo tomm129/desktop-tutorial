@@ -60,6 +60,23 @@ A cada `INTERVALO_PUBLICACAO_MS` (padrão 5 s), publica em
 E mantém o status online/offline (retido, com LWT) em
 `monitoramento/<DEVICE_ID>/status`.
 
+## Comandos recebidos do Node-RED
+
+O firmware **assina** `monitoramento/<DEVICE_ID>/cmd` e aceita comandos em
+JSON, fechando a comunicação nos dois sentidos:
+
+```json
+{ "comando": "publicar" }     // publica a telemetria imediatamente
+{ "intervalo_ms": 2000 }       // muda o intervalo de publicação (500..3600000 ms)
+```
+
+No dashboard do Node-RED há o botão **"Publicar agora"** que envia o primeiro
+comando. Teste manual:
+
+```bash
+mosquitto_pub -h <IP_DO_ORANGE_PI> -t 'monitoramento/motor-01/cmd' -m '{"comando":"publicar"}'
+```
+
 ## Como a vibração é calculada
 
 O firmware amostra o ADXL345 por uma janela (`VIB_AMOSTRAS` amostras a

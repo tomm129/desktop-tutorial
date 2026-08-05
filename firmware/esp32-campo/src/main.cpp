@@ -42,8 +42,16 @@ static Adafruit_ADXL345_Unified adxl(12345);
 // --- Tópicos MQTT montados a partir do DEVICE_ID ----------------------
 static String topicTelemetria;
 static String topicStatus;
+static String topicCmd;
 
 static unsigned long ultimaPublicacao = 0;
+
+// Intervalo de publicação (ms). Inicia com o valor do config.h, mas pode ser
+// alterado em tempo de execução por um comando vindo do Node-RED.
+static unsigned long intervaloPublicacao = INTERVALO_PUBLICACAO_MS;
+
+// Marcado por um comando "publicar" para forçar uma leitura imediata.
+static volatile bool solicitarPublicacao = false;
 
 // =====================================================================
 //  Wi-Fi
@@ -72,6 +80,34 @@ static void conectarWiFi() {
 // =====================================================================
 //  MQTT
 // =====================================================================
+
+// Recebe comandos do Node-RED em monitoramento/<DEVICE_ID>/cmd.
+// Payload em JSON. Exemplos:
+//   {"comando":"publicar"}       -> força uma publicação imediata
+//   {"intervalo_ms":2000}        -> altera o intervalo de publicação
+static void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  JsonDocument doc;
+  DeserializationError err = deserializeJson(doc, payload, length);
+  if (err) {
+    Serial.printf("[CMD] JSON invalido: %s\n", err.c_str());
+    return;
+  }
+
+  if (doc["intervalo_ms"].is<unsigned long>()) {
+    unsigned long novo = doc["intervalo_ms"].as<unsigned long>();
+    if (novo >= 500UL && novo <= 3600000UL) {
+      intervaloPublicacao = novo;
+      Serial.printf("[CMD] Intervalo de publicacao = %lu ms\n", intervaloPublicacao);
+    }
+  }
+
+  const char* comando = doc["comando"] | "";
+  if (strcmp(comando, "publicar") == 0) {
+    solicitarPublicacao = true;
+    Serial.println("[CMD] Publicacao imediata solicitada.");
+  }
+}
+
 static void conectarMQTT() {
   if (mqtt.connected()) return;
 
@@ -93,6 +129,8 @@ static void conectarMQTT() {
   if (ok) {
     Serial.println("[MQTT] Conectado.");
     mqtt.publish(topicStatus.c_str(), "online", true);  // retido
+    mqtt.subscribe(topicCmd.c_str(), 1);                 // recebe comandos
+    Serial.printf("[MQTT] Inscrito em %s\n", topicCmd.c_str());
   } else {
     Serial.printf("[MQTT] Falha (rc=%d). Nova tentativa no loop.\n", mqtt.state());
   }
@@ -244,12 +282,17 @@ void setup() {
 
   topicTelemetria = String(MQTT_BASE_TOPIC) + "/" + DEVICE_ID + "/telemetria";
   topicStatus     = String(MQTT_BASE_TOPIC) + "/" + DEVICE_ID + "/status";
+  topicCmd        = String(MQTT_BASE_TOPIC) + "/" + DEVICE_ID + "/cmd";
 
   // Barramento I²C compartilhado (ADXL345 + MLX90614).
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
 
   iniciarSensorTemperatura();
   iniciarADXL();
+
+  // Recebe comandos do Node-RED.
+  mqtt.setBufferSize(512);
+  mqtt.setCallback(mqttCallback);
 
   conectarWiFi();
   conectarMQTT();
@@ -261,10 +304,10 @@ void loop() {
   mqtt.loop();
 
   unsigned long agora = millis();
-  if (agora - ultimaPublicacao >= INTERVALO_PUBLICACAO_MS) {
+  bool porTempo = (agora - ultimaPublicacao >= intervaloPublicacao);
+  if (mqtt.connected() && (solicitarPublicacao || porTempo)) {
+    solicitarPublicacao = false;
     ultimaPublicacao = agora;
-    if (mqtt.connected()) {
-      publicarTelemetria();
-    }
+    publicarTelemetria();
   }
 }

@@ -43,6 +43,35 @@ O fluxo já inclui:
   trocar pela leitura real do inversor **PowerFlex 525** via **EtherNet/IP**
   (`node-red-contrib-cip-ethernet-ip`).
 - **Avaliação de limites** → status colorido no dashboard + saída de debug.
+- **Status do dispositivo** → `mqtt in` em `monitoramento/+/status` mostra
+  ONLINE/OFFLINE (via LWT do ESP32) no dashboard.
+- **Comando → ESP32** → botão *Publicar agora* publica em
+  `monitoramento/<device_id>/cmd`, fechando a comunicação nos dois sentidos.
+
+## Comunicação ESP32 ↔ Node-RED (contrato MQTT)
+
+Todo o elo entre campo e painel é MQTT. Broker: Mosquitto no Orange Pi.
+
+| Sentido          | Tópico                                   | QoS | Payload                         |
+|------------------|------------------------------------------|:---:|---------------------------------|
+| ESP32 → Node-RED | `monitoramento/<id>/telemetria`          |  0  | JSON de telemetria              |
+| ESP32 → Node-RED | `monitoramento/<id>/status` (retido/LWT) |  1  | `online` / `offline`            |
+| Node-RED → ESP32 | `monitoramento/<id>/cmd`                  |  1  | JSON de comando                 |
+
+**Comandos aceitos pelo ESP32** (tópico `cmd`):
+
+```json
+{ "comando": "publicar" }        // força uma leitura/publicação imediata
+{ "intervalo_ms": 2000 }          // altera o intervalo de publicação (ms)
+```
+
+No fluxo, o nó **"monta comando"** define o `device_id` de destino
+(`motor-01` por padrão) — ajuste para o seu equipamento. Para testar o
+comando pela linha de comando:
+
+```bash
+mosquitto_pub -h localhost -t 'monitoramento/motor-01/cmd' -m '{"comando":"publicar"}'
+```
 
 ## Ajustes importantes
 
