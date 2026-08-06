@@ -1037,6 +1037,21 @@ const visto_algum = Math.max.apply(null,
 const barramento_mudo = Object.keys(registro).length > 0 &&
                         (agora - visto_algum) > SEM_DADOS_MS;
 
+// Lacunas de cobertura: intervalos em que NENHUM dispositivo publicou.
+// E o que a faixa de pontos da linha do tempo desenha como falha -- o
+// equivalente util dos "ticks de medicao": num sistema que publica a cada
+// 2s, o que informa nao e cada leitura, e onde ELAS FALTARAM.
+let lacunas = flow.get('lacunas') || [];
+const aberta = lacunas.length && !lacunas[lacunas.length - 1].fim
+    ? lacunas[lacunas.length - 1] : null;
+if (barramento_mudo && !aberta) {
+    lacunas.push({ ini: visto_algum || agora, fim: null });
+} else if (!barramento_mudo && aberta) {
+    aberta.fim = agora;
+}
+if (lacunas.length > 200) { lacunas = lacunas.slice(-200); }
+flow.set('lacunas', lacunas);
+
 const elos = [
     { nome: 'Broker MQTT',
       ok: !barramento_mudo,
@@ -1450,7 +1465,20 @@ for (let k = 0; k <= 6; k++) {
                   rot: new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
 }
 
-const m10 = { payload: { eventos: eventos, marcas: marcas,
+// Faixa de cobertura: divide a janela em fatias e marca as que tiveram
+// dado. Fatia demais vira linha continua; de menos, esconde falha curta.
+const N_PONTOS = 150;
+const pontos = [];
+for (let k = 0; k < N_PONTOS; k++) {
+    const t = t0 + (JANELA_MS * (k + 0.5) / N_PONTOS);
+    if (t > agora) { break; }
+    const dentro_lacuna = lacunas.some(function (l) {
+        return t >= l.ini && t <= (l.fim || agora);
+    });
+    pontos.push({ pct: ((k + 0.5) / N_PONTOS) * 100, ok: !dentro_lacuna });
+}
+
+const m10 = { payload: { eventos: eventos, marcas: marcas, pontos: pontos,
                          faixas: Math.max(1, fim_faixa.length),
                          janela: rotulo_janela(JANELA_MS) } };
 
@@ -2286,60 +2314,73 @@ no(id="pg_rel_conteudo", type="ui-template", z="flow_monitor", group=G_REL,
 LINHA_TEMPO = r"""
 <template>
     <div class="lt">
-        <div class="lt-cab">
-            <span class="lt-tit">{{ janela }}</span>
-            <span class="lt-leg">
-                <span class="lt-pt" style="background:#f59e0b"></span> atencao
-                <span class="lt-pt" style="background:#ef4444"></span> critico
-                <span class="lt-pt" style="background:#71717a"></span> sem dados
-            </span>
+        <!-- legenda a esquerda, como na referencia -->
+        <div class="lt-leg">
+            <span class="lt-li"><i class="lt-dot"></i>Dados</span>
+            <span class="lt-li"><i class="lt-dia lt-c-at"></i>Atencao</span>
+            <span class="lt-li"><i class="lt-dia lt-c-cr"></i>Critico</span>
+            <span class="lt-li"><i class="lt-dia lt-c-sd"></i>Sem dados</span>
+            <span class="lt-jan">{{ janela }}</span>
         </div>
 
         <div class="lt-faixa" ref="faixa" @mouseleave="dica = null"
-             :style="{ height: (18 + faixas * 14) + 'px' }">
-            <!-- grade de horas -->
-            <div v-for="m in marcas" :key="'m'+m.pct" class="lt-marca"
+             :style="{ paddingTop: (faixas * 13) + 'px' }">
+
+            <!-- eventos: losango no inicio + barra da duracao -->
+            <template v-for="(e, i) in eventos">
+                <div :key="'b'+i" class="lt-bar"
+                     :style="{ left: e.ini + '%', width: e.larg + '%',
+                               top: (e.faixa * 13) + 'px', background: e.cor }"
+                     @mouseenter="mostrar(e, $event)"></div>
+                <div :key="'d'+i" class="lt-dia lt-mk"
+                     :class="{ 'lt-aberto': e.aberto }"
+                     :style="{ left: e.ini + '%', top: (e.faixa * 13 + 1) + 'px',
+                               background: e.cor }"
+                     @mouseenter="mostrar(e, $event)"></div>
+            </template>
+
+            <!-- faixa de cobertura -->
+            <div class="lt-cob">
+                <i v-for="(p, i) in pontos" :key="'p'+i"
+                   class="lt-dot" :class="{ 'lt-off': !p.ok }"
+                   :style="{ left: p.pct + '%' }"></i>
+            </div>
+
+            <!-- grade e rotulos -->
+            <div v-for="m in marcas" :key="'m'+m.pct" class="lt-tick"
                  :style="{ left: m.pct + '%' }">
                 <span class="lt-rot">{{ m.rot }}</span>
             </div>
 
-            <!-- trilho -->
-            <div v-for="k in faixas" :key="'t'+k" class="lt-trilho"
-                 :style="{ top: (2 + (k-1) * 14) + 'px' }"></div>
+            <!-- agora -->
+            <div class="lt-agora"></div>
 
-            <!-- eventos: barra quando tem duracao, tick quando e instantaneo -->
-            <div v-for="(e, i) in eventos" :key="i"
-                 class="lt-evt" :class="{ 'lt-aberto': e.aberto }"
-                 :style="{ left: e.ini + '%', width: e.larg + '%',
-                           top: (2 + e.faixa * 14) + 'px', background: e.cor }"
-                 @mouseenter="mostrar(e, $event)">
-            </div>
-
-            <div v-if="!eventos.length" class="lt-vazio">
-                Nenhum evento nas ultimas 24 horas
+            <div v-if="!eventos.length && !pontos.length" class="lt-vazio">
+                Aguardando dados
             </div>
         </div>
 
-        <!-- tooltip -->
         <div v-if="dica" class="lt-dica" :style="{ left: dica.x + 'px' }">
-            <div class="lt-d-l1">
+            <div class="lt-d1">
                 <span :style="{ color: dica.cor }">{{ dica.simb }}</span>
                 <b>{{ dica.ativo }}</b>
-                <span v-if="dica.parte" class="lt-d-parte">› {{ dica.parte }}</span>
-                <span class="lt-d-tempo">{{ dica.quando }} · {{ dica.duracao }}</span>
+                <span v-if="dica.parte" class="lt-dp">&rsaquo; {{ dica.parte }}</span>
+                <span class="lt-dt">{{ dica.quando }} &middot; {{ dica.duracao }}</span>
             </div>
-            <div class="lt-d-mot">{{ dica.motivos }}</div>
+            <div class="lt-dm">{{ dica.motivos }}</div>
         </div>
     </div>
 </template>
 
 <script>
 export default {
-    data () { return { eventos: [], marcas: [], janela: '', faixas: 1, dica: null } },
+    data () {
+        return { eventos: [], marcas: [], pontos: [], janela: '',
+                 faixas: 1, dica: null }
+    },
     methods: {
         mostrar (e, ev) {
             const f = this.$refs.faixa.getBoundingClientRect();
-            // Prende o tooltip dentro da faixa, senao ele escapa nas pontas.
             const x = Math.min(Math.max(ev.clientX - f.left - 150, 0), f.width - 320);
             this.dica = Object.assign({}, e, { x: x });
         }
@@ -2349,9 +2390,10 @@ export default {
             immediate: true,
             handler (m) {
                 const p = (m && m.payload) || {};
-                if (!p.eventos) { return; }
-                this.eventos = p.eventos;
+                if (!p.pontos && !p.eventos) { return; }
+                this.eventos = p.eventos || [];
                 this.marcas = p.marcas || [];
+                this.pontos = p.pontos || [];
                 this.janela = p.janela || '';
                 this.faixas = p.faixas || 1;
             }
@@ -2361,45 +2403,75 @@ export default {
 </script>
 
 <style scoped>
-.lt   { position: relative; }
-.lt-cab  { display: flex; justify-content: space-between; align-items: baseline;
-        margin-bottom: 6px; }
-.lt-tit  { font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
-        color: #71717a; }
-.lt-leg  { font-size: 11px; color: #71717a; }
-.lt-pt   { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
-        margin: 0 4px 0 12px; vertical-align: 0; }
+.lt { position: relative; }
 
-.lt-faixa   { position: relative; min-height: 32px; }
-.lt-trilho  { position: absolute; left: 0; right: 0; height: 10px;
-           background: #1c1c1f; border: 1px solid #27272a; border-radius: 3px; }
+/* --- legenda ------------------------------------------------------- */
+.lt-leg { display: flex; align-items: center; gap: 18px; margin-bottom: 10px;
+          font-size: 11px; color: #71717a; }
+.lt-li  { display: inline-flex; align-items: center; gap: 6px; }
+.lt-jan { margin-left: auto; text-transform: uppercase; letter-spacing: .4px; }
 
-.lt-marca   { position: absolute; top: 0; bottom: 16px; width: 1px;
-           background: #27272a; }
-.lt-rot     { position: absolute; bottom: -14px; left: 3px; font-size: 10px;
+/* --- marcadores ---------------------------------------------------- */
+.lt-dot { position: absolute; width: 3px; height: 3px; border-radius: 50%;
+          background: #3987e5; transform: translateX(-50%); }
+.lt-leg .lt-dot { position: static; transform: none; }
+.lt-dot.lt-off  { background: #52525b; opacity: .45; }
+
+/* Losango: o quadrado girado da referencia. Marca o INICIO do evento --
+   e a barra ao lado diz quanto durou, que a referencia nao mostra. */
+.lt-dia { width: 7px; height: 7px; transform: rotate(45deg);
+          background: #71717a; flex: none; }
+.lt-c-at { background: #f59e0b; }
+.lt-c-cr { background: #ef4444; }
+.lt-c-sd { background: #71717a; }
+
+/* --- faixa --------------------------------------------------------- */
+.lt-faixa { position: relative; padding-bottom: 26px; }
+
+.lt-bar { position: absolute; height: 3px; margin-top: 3px; opacity: .55;
+          border-radius: 2px; cursor: pointer; min-width: 2px; }
+.lt-bar:hover { opacity: .9; }
+
+.lt-mk  { position: absolute; margin-left: -3px; cursor: pointer;
+          transition: transform .15s; }
+.lt-mk:hover { transform: rotate(45deg) scale(1.5); }
+/* Alvo de acerto invisivel de 22px em volta do losango de 7px: mirar num
+   marcador desse tamanho com o mouse e frustrante, e a informacao dele so
+   existe no hover -- se e dificil acertar, e como se nao estivesse la. */
+.lt-mk::before { content: ''; position: absolute; top: -8px; left: -8px;
+                 right: -8px; bottom: -8px; }
+
+/* Mesma logica na barra: 3px de altura nao se acerta. */
+.lt-bar::before { content: ''; position: absolute; top: -5px; left: 0;
+                  right: 0; bottom: -5px; }
+/* Evento ainda aberto: anel claro. E o que exige acao agora. */
+.lt-mk.lt-aberto { box-shadow: 0 0 0 1.5px #f4f4f5; }
+
+.lt-cob { position: relative; height: 3px; margin-top: 6px; }
+
+/* --- grade --------------------------------------------------------- */
+.lt-tick { position: absolute; bottom: 18px; height: 5px; width: 1px;
+           background: #3f3f46; }
+.lt-rot  { position: absolute; top: 7px; left: 3px; font-size: 10px;
            color: #52525b; white-space: nowrap; }
 
-/* Evento com duracao vira barra; instantaneo tem largura minima e vira
-   tick. Assim "piscou uma vez" e "esta ha 3 horas" nao parecem iguais. */
-.lt-evt     { position: absolute; height: 12px; border-radius: 2px;
-           min-width: 3px; cursor: pointer; opacity: .85;
-           transition: opacity .15s, transform .15s; }
-.lt-evt:hover { opacity: 1; transform: scaleY(1.35); }
-/* Evento ainda aberto ganha contorno claro: e o que exige acao agora. */
-.lt-evt.lt-aberto { box-shadow: 0 0 0 1px #f4f4f5; }
+/* "agora": a linha tracejada da referencia */
+.lt-agora { position: absolute; right: 0; top: 0; bottom: 18px; width: 0;
+            border-left: 1px dashed #52525b; }
 
-.lt-vazio { position: absolute; top: 12px; left: 12px; font-size: 12px;
-         color: #52525b; }
+.lt-vazio { position: absolute; top: 0; left: 4px; font-size: 12px;
+            color: #52525b; }
 
-.lt-dica  { position: absolute; top: -2px; z-index: 20; min-width: 300px;
-         max-width: 460px; background: #1e1e22; border: 1px solid #3f3f46;
-         border-radius: 8px; padding: 7px 12px;
-         box-shadow: 0 6px 18px rgba(0,0,0,.55); pointer-events: none; }
-.lt-d-l1    { font-size: 12px; color: #f4f4f5; white-space: nowrap; }
-.lt-d-l1 b  { font-weight: 600; margin-left: 4px; }
-.lt-d-parte { color: #a1a1aa; margin-left: 4px; }
-.lt-d-tempo { color: #71717a; font-size: 11px; margin-left: 10px; }
-.lt-d-mot   { color: #a1a1aa; font-size: 12px; margin-top: 3px; line-height: 1.35; }
+/* --- tooltip ------------------------------------------------------- */
+.lt-dica { position: absolute; top: -4px; z-index: 20; min-width: 300px;
+           max-width: 460px; background: #1e1e22; border: 1px solid #3f3f46;
+           border-radius: 8px; padding: 7px 12px;
+           box-shadow: 0 6px 18px rgba(0,0,0,.55); pointer-events: none; }
+.lt-d1  { font-size: 12px; color: #f4f4f5; white-space: nowrap; }
+.lt-d1 b { font-weight: 600; margin-left: 4px; }
+.lt-dp  { color: #a1a1aa; margin-left: 4px; }
+.lt-dt  { color: #71717a; font-size: 11px; margin-left: 10px; }
+.lt-dm  { color: #a1a1aa; font-size: 12px; margin-top: 3px; line-height: 1.35; }
 </style>
 """
 
