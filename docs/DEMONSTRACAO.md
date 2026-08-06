@@ -82,24 +82,45 @@ limite a mão.
 
 ## Imagens
 
-Em [`img/demo/`](img/demo/):
+Em [`img/demo/`](img/demo/), na ordem em que eu apresentaria:
 
-| Arquivo | Tela |
-|---|---|
-| `1-visao-geral.jpg` | Parede de cards com os quatro estados e a faixa de alarmes |
-| `2-detalhe-falha-inversor.jpg` | Torre de Resfriamento — falha do drive com grandezas normais |
-| `3-placa-sobressalentes.jpg` | Dados de placa e lista de sobressalentes |
+| # | Arquivo | O que mostra |
+|---|---|---|
+| 1 | `1-visao-geral.jpg` | A parede de cards: quatro ativos, quatro estados, alarmes no topo |
+| 2 | `2-caldeira-atencao.jpg` | Detalhe da caldeira — atenção por temperatura, com o ventilador identificado |
+| 3 | `3-ete-vibracao-critica.jpg` | Detalhe da ETE — vibração crítica no Soprador 2, os outros normais |
+| 4 | `4-torre-falha-inversor.jpg` | **Detalhe da torre — crítico por falha do drive, grandezas todas verdes** |
+| 5 | `5-transporte-normal.jpg` | Detalhe de um ativo saudável — a referência |
+| 6 | `6-placa-sobressalentes.jpg` | Ficha de placa e sobressalentes, com o limite derivado da In |
+
+### O que cada tela de detalhe contém
+
+A mesma estrutura em todos os ativos — o que muda é o que os dados dizem:
+
+1. **Cabeçalho** — nome, estado, marcha (`▶ rodando 60,0 Hz`), código de
+   falha se houver, e a procedência (`sensor motor-01 · inversor U31`)
+2. **Leituras agora** — seis valores: temperatura, vibração e corrente com
+   barra contra o limite e estado; tensão, barramento CC e frequência como
+   leitura de referência (sem limite, porque não são critério de alarme)
+3. **Partes deste ativo** — uma linha por motor + a linha consolidada, com
+   a coluna `Inversor` trazendo a TAG do drive no painel
+4. **Dados de placa e sobressalentes** — ficha, foto da plaqueta e peças
+5. **Gráficos** — temperatura, vibração e corrente ao longo do tempo, uma
+   série por dispositivo
+6. **Publicar agora** — força leitura imediata em todas as partes do ativo
 
 ### Capturar em resolução maior
 
-As imagens do repositório servem de referência. Para apresentação em
-projetor, capture da sua própria tela com a demo rodando — sai na resolução
-nativa do monitor:
+As imagens do repositório estão em 1568×744, capturadas 1:1 (sem
+reamostragem) e com o conteúdo ampliado para o texto ficar legível em
+projeção. Servem para slide.
+
+Se precisar de mais resolução, capture da sua tela com a demo rodando:
 
 - **Windows:** `Win + Shift + S`
-- Esconda a barra do navegador com **F11** (tela cheia) antes de capturar
-- Para a página inteira sem rolagem: `F12` → `Ctrl+Shift+P` → digite
+- Esconda a barra do navegador com **F11** antes de capturar
+- Página inteira sem rolagem: `F12` → `Ctrl+Shift+P` → digite
   *"screenshot"* → **Capture full size screenshot**
 
-O último gera um PNG da página toda, na largura da janela — é o que rende
-melhor em slide.
+O último gera um PNG da página toda na largura da janela — é o que rende
+melhor em tela grande.
