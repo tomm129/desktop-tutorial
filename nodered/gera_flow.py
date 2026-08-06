@@ -7,12 +7,30 @@ descrito em Python e serializado. Rode e depois importe o resultado.
 import json
 import sys
 
-# --- Paleta validada (scripts/validate_palette.js) --------------------
+# --- Paleta validada (validate_palette.js, modo escuro) ---------------
+#
+# Tema ESCURO. Os tons nao sao os do tema claro "invertidos": sao os passos
+# proprios da mesma familia, escolhidos para a superficie escura e
+# validados contra ela (banda de luminosidade, piso de croma, separacao sob
+# daltonismo e contraste -- os quatro passam, inclusive o contraste, que no
+# tema claro so dava aviso).
+#
 # Categorica, em ordem fixa: a cor segue o ATIVO, nunca a posicao na lista.
-SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
-          "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
-# Status: paleta reservada, nunca usada para serie.
+SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500",
+          "#d55181", "#008300", "#9085e9", "#e66767"]
+
+# Status: paleta reservada, nunca usada para serie. Os mesmos quatro passos
+# do tema claro -- todos limpam 3:1 na superficie escura.
 STATUS = {"good": "#0ca30c", "warning": "#fab219", "critical": "#d03b3b"}
+
+# Superficies e tinta do tema escuro.
+FUNDO_PAGINA = "#0d0d0d"
+FUNDO_CARTAO = "#1a1a19"
+TINTA_1 = "#ffffff"    # primaria
+TINTA_2 = "#c3c2b7"    # secundaria
+TINTA_3 = "#898781"    # apagada (eixos, rotulos)
+LINHA   = "#2c2c2a"    # grade / divisoria
+BORDA   = "#383835"
 
 BASE, TEMA = "ui_base", "ui_tema"
 
@@ -54,9 +72,10 @@ no(id=BASE, type="ui-base", name="Monitoramento", path="/dashboard",
    notificationDisplayTime="5", showDisconnectNotification=True,
    allowInstall=True)
 
-no(id=TEMA, type="ui-theme", name="Industrial",
-   colors={"surface": "#fafafa", "primary": "#2a78d6", "bgPage": "#f1f1ee",
-           "groupBg": "#ffffff", "groupOutline": "#d8d7d0"},
+no(id=TEMA, type="ui-theme", name="Industrial escuro",
+   colors={"surface": FUNDO_CARTAO, "primary": SERIES[0],
+           "bgPage": FUNDO_PAGINA, "groupBg": FUNDO_CARTAO,
+           "groupOutline": BORDA},
    sizes={"density": "default", "pagePadding": "12px", "groupGap": "12px",
           "groupBorderRadius": "4px", "widgetGap": "12px"})
 
@@ -227,36 +246,39 @@ no(id="montar_painel", type="function", z="flow_monitor",
 // Unico ponto que decide estado, cor e texto -- se os limites mudarem,
 // mudam aqui e valem para a tabela, os alarmes e os medidores.
 
-// ---- Cadastro de ativos (hierarquico) --------------------------------
-// Dois problemas resolvidos aqui:
+// ---- Cadastro de ativos ----------------------------------------------
+// A chave de topo e o ATIVO (o equipamento que a producao conhece pelo
+// nome). Dentro dele vem as PARTES -- normalmente um motor por parte, cada
+// uma com seu ESP32.
 //
-// 1. Um mesmo equipamento manda dado por DOIS caminhos -- o ESP32
-//    (temperatura + vibracao) e o inversor (corrente), cada um com seu
-//    device_id. Sem mapeamento ele apareceria em duas linhas, cada uma
-//    sem metade das grandezas.
+// Cada parte declara de onde vem cada numero:
+//   esp32         quem manda temperatura e vibracao
+//   inversor      device_id do sidecar que le a corrente
+//   tag_inversor  como esse inversor e identificado no painel (U1, U2...)
 //
-// 2. Um ativo principal (uma linha, uma prensa, um conjunto) costuma ter
-//    VARIOS ESP32 dentro dele -- um por motor, por bomba, por redutor.
-//    Sao SUB-ATIVOS: cada um tem leitura propria, mas quem opera pergunta
-//    "a Linha 1 esta bem?", nao "o ESP32 de numero 7 esta bem?".
-//
-// O painel entao mostra dois niveis: o ativo principal com o estado
-// consolidado (o PIOR entre suas partes, e o valor mais alto de cada
-// grandeza) e, abaixo, cada parte com seu proprio numero.
+// A tag do inversor e so rotulo: e por ela que o eletricista acha o drive
+// no painel, entao ela aparece na tela -- mas quem tem estado, historico e
+// alarme e o ATIVO e a PARTE, nao o inversor. Um inversor nao "esta
+// critico"; quem esta e o motor que ele aciona.
 //
 // Deixe VAZIO para descoberta automatica: cada device_id vira uma linha
-// solta. E o modo util enquanto voce ainda esta montando a instalacao.
+// solta. E o modo util enquanto a instalacao ainda esta sendo montada.
 //
-// A TAG vive AQUI, nao no firmware (mesmo criterio de docs/visualizacao.md):
-// trocar um ESP32 queimado e editar uma linha deste cadastro, sem regravar
-// nada e sem perder o historico do ativo.
+// Os nomes vivem AQUI, nao no firmware (mesmo criterio de
+// docs/visualizacao.md): trocar um ESP32 queimado e editar uma linha deste
+// cadastro, sem regravar nada e sem perder o historico do ativo.
 const ATIVOS = {
-    // 'U1': {
-    //     descricao: 'Linha de Transporte 1',
+    // 'Transporte 1': {
     //     partes: {
-    //         'Motor principal':  { esp32: 'motor-01', inversor: 'powerflex-01' },
-    //         'Bomba hidraulica': { esp32: 'motor-02' },
-    //         'Redutor':          { esp32: 'motor-03' }
+    //         'Motor 1': { esp32: 'motor-01',
+    //                      inversor: 'powerflex-01', tag_inversor: 'U1' },
+    //         'Motor 2': { esp32: 'motor-02',
+    //                      inversor: 'powerflex-02', tag_inversor: 'U2' }
+    //     }
+    // },
+    // 'Exaustor de Cabine': {
+    //     partes: {
+    //         'Motor': { esp32: 'motor-03' }   // sem inversor monitorado
     //     }
     // },
 };
@@ -318,6 +340,11 @@ function juntar_parte(chave, rotulo, cfg, nivel) {
         chave: chave,
         rotulo: rotulo,
         nivel: nivel,
+        // Procedencia: de onde veio cada numero. E o que o eletricista
+        // precisa para achar o drive no painel.
+        fonte_esp32: cfg.esp32,
+        fonte_inversor: cfg.inversor,
+        tag_inversor: cfg.tag_inversor,
         temperatura_c: esp.temperatura_c,
         vib_rms_g: esp.vib_rms_g,
         corrente_a: inv.corrente_a,
@@ -347,7 +374,7 @@ function consolidar_pai(tag, cfg, partes) {
     }
     return {
         chave: tag,
-        rotulo: cfg.descricao ? (tag + ' — ' + cfg.descricao) : tag,
+        rotulo: tag,
         nivel: 0,
         eh_pai: true,
         temperatura_c: pior('temperatura_c'),
@@ -383,8 +410,7 @@ function consolidar() {
         // Ativo sem 'partes': trata como equipamento unico (um nivel so).
         if (!cfg.partes) {
             if (cfg.esp32) { esp32_por_chave[tag] = [cfg.esp32]; }
-            saida.push(juntar_parte(tag,
-                cfg.descricao ? (tag + ' — ' + cfg.descricao) : tag, cfg, 0));
+            saida.push(juntar_parte(tag, tag, cfg, 0));
             continue;
         }
 
@@ -459,6 +485,7 @@ for (const a of lista) {
         Temperatura: fmt(a.temperatura_c, 1, '°C'),
         'Vibracao RMS': fmt(a.vib_rms_g, 3, 'g'),
         Corrente: fmt(a.corrente_a, 2, 'A'),
+        Inversor: a.tag_inversor || (a.nivel > 0 ? '--' : ''),
         Estado: SIMB[estado] + ' ' + ROTULO[estado],
         'Visto ha': ha_quanto(a.visto_em),
         // Campos de trabalho, retirados antes de exibir: servem para
@@ -568,11 +595,20 @@ function m4_cards() {
 
         const partes_txt = partes ? (partes + (partes > 1 ? ' partes' : ' parte'))
                                   : 'equipamento unico';
-        const rot = a.rotulo.split(' — ');
+        // Resume as partes no card: "Motor 1 · U1" ajuda a reconhecer o
+        // equipamento sem precisar abrir.
+        const nomes_partes = lista
+            .filter(function (x) { return x.nivel > 0 && x.chave.split('/')[0] === a.chave; })
+            .map(function (x) {
+                // A tag do inversor entre parenteses: e rotulo do drive, nao
+                // um nome de parte, entao nao pode competir com "Motor 1".
+                return x.tag_inversor ? (x.rotulo + ' (' + x.tag_inversor + ')')
+                                      : x.rotulo;
+            });
         return {
             chave: a.chave,
-            tag: rot[0],
-            descricao: rot.slice(1).join(' — '),
+            tag: a.rotulo,
+            descricao: nomes_partes.join(' • '),
             cor: COR[e], simb: SIMB[e], rotulo: ROTULO[e],
             n_partes: partes_txt,
             visto: ha_quanto(a.visto_em),
@@ -586,10 +622,28 @@ function m4_cards() {
 
 // ---- Saida 5: cabecalho da tela de detalhe ---------------------------
 const e_alvo = (estados[alvo.chave] || {}).estado || 'sem_dados';
+
+// Procedencia: de onde vem cada numero desta tela.
+const fontes = [];
+if (alvo.fonte_esp32) { fontes.push('sensor ' + alvo.fonte_esp32); }
+if (alvo.tag_inversor) {
+    fontes.push('inversor ' + alvo.tag_inversor +
+                (alvo.fonte_inversor ? ' (' + alvo.fonte_inversor + ')' : ''));
+} else if (alvo.fonte_inversor) {
+    fontes.push('inversor ' + alvo.fonte_inversor);
+}
+const nome_exib = (alvo.nivel > 0)
+    ? (alvo.chave.split('/')[0] + '  ›  ' + alvo.rotulo)
+    : alvo.rotulo;
+
 const m5 = { payload:
-    '<span style="font-size:20px;font-weight:600">' + alvo.rotulo + '</span>' +
+    '<span style="font-size:20px;font-weight:600;color:#ffffff">' + nome_exib + '</span>' +
     '<span style="margin-left:12px;color:' + COR[e_alvo] + '">' +
-    SIMB[e_alvo] + ' ' + ROTULO[e_alvo] + '</span>' };
+    SIMB[e_alvo] + ' ' + ROTULO[e_alvo] + '</span>' +
+    (fontes.length
+        ? '<div style="font-size:12px;color:#898781;margin-top:2px">' +
+          fontes.join(' · ') + '</div>'
+        : '') };
 
 return [m1, m2, m3, m4_cards(), m5];
 """)
@@ -660,12 +714,12 @@ export default {
 /* align-content/items em start: sem isso o grid estica os cards para
    preencher a altura do grupo, e cada card vira uma coluna vazia enorme. */
 .parede { display: grid; gap: 12px; align-content: start; align-items: start;
-          grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
 .vazio  { color: #898781; padding: 8px; }
 
 .card {
-    background: #fff;
-    border: 1px solid #e1e0d9;
+    background: #1a1a19;
+    border: 1px solid #383835;
     border-left: 4px solid #898781;   /* faixa de estado */
     border-radius: 4px;
     padding: 12px 14px;
@@ -673,15 +727,17 @@ export default {
     transition: box-shadow .15s ease, transform .15s ease;
 }
 .card:hover, .card:focus-visible {
-    box-shadow: 0 2px 10px rgba(11,11,11,.12);
+    /* No escuro a sombra some; quem marca o hover e a borda clareando. */
+    border-color: #5a5a55;
+    background: #212120;
     transform: translateY(-1px);
     outline: none;
 }
 
 .topo { display: flex; justify-content: space-between; align-items: flex-start;
         gap: 8px; margin-bottom: 10px; }
-.tag  { font-size: 16px; font-weight: 600; color: #0b0b0b; }
-.desc { font-size: 12px; color: #52514e; margin-top: 1px; }
+.tag  { font-size: 16px; font-weight: 600; color: #ffffff; }
+.desc { font-size: 12px; color: #c3c2b7; margin-top: 1px; }
 .chip { font-size: 11px; white-space: nowrap; border: 1px solid;
         border-radius: 10px; padding: 1px 8px; }
 
@@ -690,11 +746,11 @@ export default {
 .mrot { font-size: 10px; color: #898781; text-transform: uppercase;
         letter-spacing: .3px; }
 /* Figuras proporcionais: tabular deixa o numero solto nesse tamanho */
-.mval { font-size: 20px; color: #0b0b0b; line-height: 1.2;
+.mval { font-size: 20px; color: #ffffff; line-height: 1.2;
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
 .mval.vazio { font-size: 14px; color: #898781; }
-.mun  { font-size: 11px; color: #52514e; margin-left: 2px; }
-.trilho   { height: 3px; background: #e1e0d9; border-radius: 2px; margin-top: 4px; }
+.mun  { font-size: 11px; color: #c3c2b7; margin-left: 2px; }
+.trilho   { height: 3px; background: #2c2c2a; border-radius: 2px; margin-top: 4px; }
 .preenche { height: 100%; border-radius: 2px; transition: width .3s ease; }
 
 .rodape { display: flex; justify-content: space-between; margin-top: 10px;
@@ -799,13 +855,13 @@ export default {
 <style scoped>
 .tiles { display: flex; gap: 12px; flex-wrap: wrap; }
 .tile  { flex: 1 1 120px; min-width: 110px; }
-.rot   { font-size: 12px; color: #52514e; margin-bottom: 2px; }
+.rot   { font-size: 12px; color: #c3c2b7; margin-bottom: 2px; }
 /* Figuras proporcionais no numero grande: tabular deixa solto nesse tamanho */
-.val   { font-size: 30px; line-height: 1.1; color: #0b0b0b;
+.val   { font-size: 30px; line-height: 1.1; color: #ffffff;
          font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
 .val.vazio { color: #898781; font-size: 22px; }
-.un    { font-size: 13px; color: #52514e; margin-left: 4px; }
-.trilho   { height: 4px; background: #e1e0d9; border-radius: 2px; margin: 6px 0 4px; }
+.un    { font-size: 13px; color: #c3c2b7; margin-left: 4px; }
+.trilho   { height: 4px; background: #2c2c2a; border-radius: 2px; margin: 6px 0 4px; }
 .preenche { height: 100%; border-radius: 2px; transition: width .3s ease; }
 .estado   { font-size: 12px; }
 </style>
@@ -830,8 +886,8 @@ def grafico(nid, grupo_id, rotulo, eixo_y, ymin, ymax, largura=6):
        ymin=ymin, ymax=ymax, xmin="", xmax="", bins=100, action="append",
        stackSeries=False, pointShape="circle", pointRadius=0,
        showLegend=True, removeOlder="30", removeOlderUnit="60",
-       removeOlderPoints="", colors=SERIES, textColor=["#52514e"],
-       textColorDefault=False, gridColor=["#e1e0d9"], gridColorDefault=False,
+       removeOlderPoints="", colors=SERIES, textColor=[TINTA_3],
+       textColorDefault=False, gridColor=[LINHA], gridColorDefault=False,
        width=str(largura), height="6", className="", interpolation="linear",
        x=820, y=100, wires=[[]])
 

@@ -128,13 +128,15 @@ Quando a planta toma forma, preencha o `ATIVOS` no topo da função
 
 ```javascript
 const ATIVOS = {
-    'U1': {
-        descricao: 'Linha de Transporte 1',
+    'Transporte 1': {
         partes: {
-            'Motor principal':  { esp32: 'motor-01', inversor: 'powerflex-01' },
-            'Bomba hidraulica': { esp32: 'motor-02' },
-            'Redutor':          { esp32: 'motor-03' }
+            'Motor 1': { esp32: 'motor-01',
+                         inversor: 'powerflex-01', tag_inversor: 'U1' },
+            'Motor 2': { esp32: 'motor-02' }
         }
+    },
+    'Exaustor de Cabine': {
+        partes: { 'Motor': { esp32: 'motor-03' } }   // sem inversor monitorado
     }
 };
 ```
@@ -143,11 +145,32 @@ Cada entrada de primeiro nível vira **um card** na visão geral. Abrindo o
 card, a tabela de partes mostra:
 
 ```
-U1 — Linha de Transporte 1     52.5 °C   0.905 g   10.77 A   ▲ ATENCAO
-    └ Motor principal          52.5 °C   0.905 g   10.77 A   ▲ ATENCAO
-    └ Bomba hidraulica         49.4 °C   0.167 g   --        ● OK
-    └ Redutor                  50.4 °C   0.240 g   --        ● OK
+Ativo               Temperatura  Vibracao   Corrente  Inversor  Estado
+Transporte 1          52.5 °C     0.905 g   10.77 A             ▲ ATENCAO
+    └ Motor 1         52.5 °C     0.905 g   10.77 A     U1      ▲ ATENCAO
+    └ Motor 2         49.4 °C     0.167 g       --      --      ● OK
 ```
+
+### Por que o inversor não é um terceiro nível
+
+A tentação é aninhar mais: ativo → motor → temperatura / inversor U1. Não
+fiz assim, e a razão é que **os dois últimos não são ativos, são fontes**.
+
+"Temperatura" não pode estar OK ou CRÍTICA por si — ela é uma *propriedade*
+do motor. E um inversor não fica crítico: quem fica é o motor que ele
+aciona. Transformá-los em linha própria criaria itens com estado, alarme e
+histórico para coisas que não têm condição própria — e o operador passaria
+a navegar por três níveis para chegar a um número que cabia em dois.
+
+Então a hierarquia de **ativos** para em dois níveis (ativo → parte), e o
+inversor aparece como **procedência**: a coluna `Inversor` na tabela, o
+`(U1)` no card, e a linha de origem no cabeçalho do detalhe
+(`sensor motor-01 · inversor U1 (powerflex-01)`). É o que o eletricista
+precisa para achar o drive no painel, sem inventar um ativo que não existe.
+
+Se um dia um ativo tiver partes com partes (um conjunto dentro de outro),
+aí sim vale um terceiro nível — mas aí ele carregaria equipamentos de
+verdade, não sensores.
 
 O ativo principal **consolida**: cada grandeza vira o valor mais alto entre
 as partes (o ponto mais quente da linha, a maior vibração) e o estado é o
