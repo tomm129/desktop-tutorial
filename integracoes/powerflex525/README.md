@@ -1,13 +1,44 @@
-# Leitura de corrente do PowerFlex 525 (EtherNet/IP) → MQTT
+# Telemetria do PowerFlex 525 (EtherNet/IP) → MQTT
 
-*Sidecar* em Python que lê a **corrente de saída** do inversor **Allen-Bradley
-PowerFlex 525** pela rede **EtherNet/IP** e publica no broker MQTT. O Node-RED
-consome o tópico e alimenta o gauge de corrente — mantendo todo o barramento
-em MQTT.
+*Sidecar* em Python que lê o inversor **Allen-Bradley PowerFlex 525** pela
+rede **EtherNet/IP** e publica no broker MQTT. O drive já mede corrente,
+tensão, frequência e barramento CC — tudo calibrado de fábrica — e ainda
+guarda o histórico de falhas; aproveitar isso sai de graça.
 
 ```
-PowerFlex 525 ──EtherNet/IP──> powerflex_mqtt.py ──MQTT──> Node-RED (gauge)
+PowerFlex 525 ──EtherNet/IP──> powerflex_mqtt.py ──MQTT──> Node-RED
 ```
+
+Publica em `monitoramento/<DEVICE_ID>/inversor`:
+
+```json
+{
+  "ts": 1730800000000,
+  "corrente_a": 12.34,
+  "tensao_v": 220.5,
+  "dc_bus_v": 311.0,
+  "frequencia_hz": 60.0,
+  "rodando": true,
+  "falha": { "codigo": 0, "texto": null },
+  "status_bruto": 3
+}
+```
+
+## Duas decisões que valem explicar
+
+**`rodando` vem da frequência de saída, não do bit de status.** O bit
+`Active` do drive indica que ele recebeu comando de marcha e não está em
+falha — e **continua verdadeiro com a velocidade em zero**, ou seja, com o
+motor parado. Some a isso que o mapa de bits do `b006` varia entre versões
+de firmware, e a conclusão é que construir "está rodando?" sobre ele é
+frágil. Frequência de saída acima de `PF525_FREQ_PARADO_HZ` é física,
+direta e não depende de interpretar protocolo. O `status_bruto` vai junto
+no payload para quem quiser decodificar contra o próprio manual.
+
+**Falha é traduzida aqui, não no Node-RED.** O mapa código → texto
+(`FALHAS` no topo do script) fica junto de quem conhece o equipamento; o
+painel só exibe o que recebe. Código não mapeado vira
+`"falha F0xx (ver manual)"` — nunca é tratado como ausência de falha.
 
 ## Por que um sidecar em Python (e não só um nó no Node-RED)?
 
@@ -23,14 +54,21 @@ porta serial do drive — mas aqui o alvo é EtherNet/IP.)
 
 ## O dado lido
 
-| Parâmetro | Grandeza                 | Instância CIP |
-|----------:|--------------------------|:-------------:|
-| b001      | Frequência de saída (Hz) | 1             |
-| b002      | Frequência comandada     | 2             |
-| **b003**  | **Corrente de saída (A)**| **3**         |
-| b004      | Tensão de saída (V)      | 4             |
-| b005      | Tensão do barramento CC  | 5             |
-| b006      | Status do drive          | 6             |
+No grupo `b` (Basic Display, só leitura) o **número do parâmetro é a
+própria instância CIP**. Lidos a cada ciclo:
+
+| Parâmetro | Grandeza                 | Uso no painel                      |
+|----------:|--------------------------|------------------------------------|
+| b001      | Frequência de saída (Hz) | deriva **rodando/parado**          |
+| b003      | Corrente de saída (A)    | grandeza com limite de alarme      |
+| b004      | Tensão de saída (V)      | leitura de referência              |
+| b005      | Tensão do barramento CC  | leitura de referência              |
+| b006      | Status do drive          | publicado cru (`status_bruto`)     |
+| b007      | Código da falha          | falha ativa → ativo em **CRÍTICO** |
+
+> `b007` é a falha mais recente; `b008` e `b009` guardam as duas
+> anteriores. O sidecar lê só a `b007` — histórico de falha é trabalho do
+> banco, não do polling.
 
 **Acesso CIP:** Parameter Object (classe `0x0F`), `instância = número do
 parâmetro`, `atributo 1 = valor`, serviço `Get_Attribute_Single (0x0E)`. O
@@ -51,11 +89,14 @@ investigar o lado errado.
 
 ## ⚠️ Os dois ajustes que você provavelmente vai precisar fazer
 
-1. **Escala (`PF525_ESCALA`).** O valor bruto é inteiro; a corrente real vem
-   dividida por uma escala. O padrão aqui é `0.01` (2 casas decimais).
-   **Confirme comparando com o display `b003` no teclado do drive** e ajuste
-   até bater. Ex.: se o bruto lido for `1234` e o teclado mostrar `12,34 A`,
-   a escala é `0.01`.
+1. **As escalas.** O valor bruto é inteiro; cada grandeza tem sua escala,
+   e elas **variam com a faixa de potência do drive**. Os padrões
+   (`PF525_ESCALA_FREQ`, `_CORRENTE`, `_TENSAO`, `_DCBUS`) são os típicos
+   da família 520.
+
+   Para calibrar: ligue `PF525_LOG_BRUTO=1`, ponha o teclado no parâmetro e
+   confira se `bruto × escala` bate com o display. Ex.: bruto `1234` e
+   display `12,34 A` ⇒ escala `0.01`.
 2. **Classe do objeto (`PF525_CLASSE`).** `0x0F` ou `0x93` — veja o fallback
    acima.
 
@@ -78,17 +119,10 @@ set -a; . ./config.env; set +a
 python powerflex_mqtt.py
 ```
 
-Saída esperada (a cada `PF525_INTERVALO_S`), publicada em
-`monitoramento/<PF525_DEVICE_ID>/corrente`:
-
-```json
-{ "corrente_a": 12.34, "ts": 1730800000000 }
-```
-
-Verifique com:
+Verifique a chegada com:
 
 ```bash
-mosquitto_sub -h localhost -t 'monitoramento/+/corrente' -v
+mosquitto_sub -h localhost -t 'monitoramento/+/inversor' -v
 ```
 
 ## Rodar como serviço (systemd)

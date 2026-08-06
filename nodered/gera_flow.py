@@ -107,7 +107,7 @@ grupo(G_CARDS,  "Ativos",  12, 2, altura=8, titulo=False)
 # A altura dos grupos de grafico precisa caber o plot MAIS a faixa do eixo X;
 # com altura 1 o grafico vira um risco e o eixo some.
 grupo(G_CAB,    "",                       12, 1, altura=2, pagina=PAGINA_DET, titulo=False)
-grupo(G_TILES,  "Leituras agora",          6, 2, altura=2, pagina=PAGINA_DET)
+grupo(G_TILES,  "Leituras agora",          6, 2, altura=4, pagina=PAGINA_DET)
 grupo(G_CMD,    "Comandos",                6, 3, altura=2, pagina=PAGINA_DET)
 grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=4, pagina=PAGINA_DET)
 grupo(G_TEMP,   "Temperatura (°C)",        6, 5, altura=7, pagina=PAGINA_DET)
@@ -167,7 +167,7 @@ return [temp, vib];
 """)
 
 no(id="mqtt_corrente", type="mqtt in", z="flow_monitor",
-   name="corrente do PowerFlex 525", topic="monitoramento/+/corrente",
+   name="telemetria do inversor", topic="monitoramento/+/inversor",
    qos="0", datatype="auto", broker="broker_local", nl=False, rap=True,
    rh=0, inputs=0, x=140, y=180, wires=[["reg_corrente"]])
 
@@ -176,35 +176,48 @@ no(id="reg_corrente", type="function", z="flow_monitor",
    initialize="", finalize="", libs=[], x=500, y=180,
    wires=[["chart_corr"]],
    func=r"""
-// O sidecar pycomm3 publica {"corrente_a": <n>, "ts": <epoch_ms>}.
+// O sidecar pycomm3 publica a telemetria do drive: corrente, tensao,
+// barramento CC, frequencia, se esta rodando e o codigo de falha.
 //
 // Nao confie no datatype do no MQTT: dependendo da versao e do que chega,
 // o payload pode vir objeto ja parseado, string JSON ou Buffer. Tratar os
-// tres aqui e mais barato que descobrir depois que a corrente sumiu.
-let v = msg.payload;
+// tres aqui e mais barato que descobrir depois que o dado sumiu.
+let p = msg.payload;
 
-if (Buffer.isBuffer(v)) { v = v.toString('utf8'); }
-if (typeof v === 'string') {
-    try { v = JSON.parse(v); } catch (e) { /* pode ser numero puro */ }
+if (Buffer.isBuffer(p)) { p = p.toString('utf8'); }
+if (typeof p === 'string') {
+    try { p = JSON.parse(p); } catch (e) { p = Number(p); }
 }
-if (v && typeof v === 'object') { v = v.corrente_a; }
 
-v = Number(v);
-if (!isFinite(v)) {
-    node.warn('payload de corrente ilegivel: ' + JSON.stringify(msg.payload));
+// Aceita numero puro (util para testar com mosquitto_pub) tratando-o
+// como se fosse so a corrente.
+if (typeof p === 'number' && isFinite(p)) { p = { corrente_a: p }; }
+if (!p || typeof p !== 'object') {
+    node.warn('payload do inversor ilegivel: ' + JSON.stringify(msg.payload));
     return null;
 }
 
-const id = (msg.topic || '').split('/')[1] || 'powerflex';
+const id = (msg.topic || '').split('/')[1] || 'inversor';
 const ativos = flow.get('ativos') || {};
 const a = ativos[id] || { id: id };
-a.corrente_a = v;
-a.corrente_vista_em = Date.now();
+
+if (typeof p.corrente_a === 'number')    { a.corrente_a    = p.corrente_a; }
+if (typeof p.tensao_v === 'number')      { a.tensao_v      = p.tensao_v; }
+if (typeof p.dc_bus_v === 'number')      { a.dc_bus_v      = p.dc_bus_v; }
+if (typeof p.frequencia_hz === 'number') { a.frequencia_hz = p.frequencia_hz; }
+if (typeof p.rodando === 'boolean')      { a.rodando       = p.rodando; }
+if (p.falha) {
+    a.falha_codigo = p.falha.codigo || 0;
+    a.falha_texto  = p.falha.texto || null;
+}
+
 a.visto_em = Date.now();
 ativos[id] = a;
 flow.set('ativos', ativos);
 
-return { topic: id, payload: Math.round(v * 100) / 100 };
+return (typeof a.corrente_a === 'number')
+    ? { topic: id, payload: Math.round(a.corrente_a * 100) / 100 }
+    : null;
 """)
 
 no(id="mqtt_status", type="mqtt in", z="flow_monitor",
@@ -330,6 +343,17 @@ function fmt(v, casas, un) {
     return v.toFixed(casas) + ' ' + un;
 }
 
+// Marcha nao e estado de saude: um motor parado nao esta "ruim". Mas e o
+// contexto que da sentido aos numeros -- 0,00 A com o motor rodando e
+// suspeito; parado, e o esperado.
+function marcha_txt(a) {
+    if (a.rodando === undefined) { return '--'; }
+    if (!a.rodando) { return '■ parado'; }
+    const f = (typeof a.frequencia_hz === 'number')
+        ? ' (' + a.frequencia_hz.toFixed(1) + ' Hz)' : '';
+    return '▶ rodando' + f;
+}
+
 const registro = flow.get('ativos') || {};
 
 // Junta os device_id de UMA parte (o ESP32 e o inversor dela).
@@ -348,6 +372,12 @@ function juntar_parte(chave, rotulo, cfg, nivel) {
         temperatura_c: esp.temperatura_c,
         vib_rms_g: esp.vib_rms_g,
         corrente_a: inv.corrente_a,
+        tensao_v: inv.tensao_v,
+        dc_bus_v: inv.dc_bus_v,
+        frequencia_hz: inv.frequencia_hz,
+        rodando: inv.rodando,
+        falha_codigo: inv.falha_codigo,
+        falha_texto: inv.falha_texto,
         // A parte so esta muda quando TODAS as suas fontes estao mudas.
         visto_em: Math.max(esp.visto_em || 0, inv.visto_em || 0),
         conexao: (esp.conexao === 'offline' || inv.conexao === 'offline')
@@ -372,6 +402,14 @@ function consolidar_pai(tag, cfg, partes) {
         if (melhor !== undefined) { return melhor; }
         return houve_falha ? null : undefined;
     }
+    // Falha de drive em QUALQUER parte sobe para o ativo -- e a mesma
+    // logica do estado: o ativo esta tao bem quanto sua pior parte.
+    const com_falha = partes.find(function (p) { return p.falha_codigo; });
+    // "Rodando" e verdadeiro se ALGUMA parte esta girando: numa linha com
+    // varios motores, um so girando ja significa linha em operacao.
+    const algum_rodando = partes.some(function (p) { return p.rodando === true; });
+    const sabe_rodando = partes.some(function (p) { return p.rodando !== undefined; });
+
     return {
         chave: tag,
         rotulo: tag,
@@ -380,6 +418,12 @@ function consolidar_pai(tag, cfg, partes) {
         temperatura_c: pior('temperatura_c'),
         vib_rms_g: pior('vib_rms_g'),
         corrente_a: pior('corrente_a'),
+        tensao_v: pior('tensao_v'),
+        dc_bus_v: pior('dc_bus_v'),
+        frequencia_hz: pior('frequencia_hz'),
+        rodando: sabe_rodando ? algum_rodando : undefined,
+        falha_codigo: com_falha ? com_falha.falha_codigo : 0,
+        falha_texto: com_falha ? com_falha.falha_texto : null,
         visto_em: Math.max.apply(null, partes.map(function (p) { return p.visto_em || 0; })),
         conexao: partes.some(function (p) { return p.conexao === 'offline'; })
             ? 'offline' : 'online'
@@ -456,6 +500,15 @@ for (const a of lista) {
         estado = 'sem_dados';
         motivos.push(offline ? 'dispositivo offline (LWT)' : 'sem telemetria');
     } else {
+        // Falha no inversor e CRITICO por definicao: o proprio drive ja
+        // decidiu que ha um problema, nao ha limite a comparar.
+        if (a.falha_codigo) {
+            estado = 'critico';
+            motivos.push('inversor em falha F' +
+                         String(a.falha_codigo).padStart(3, '0') +
+                         (a.falha_texto ? ' — ' + a.falha_texto : ''));
+        }
+
         for (const campo of Object.keys(LIM)) {
             const lim = LIM[campo];
             const v = a[campo];
@@ -485,6 +538,8 @@ for (const a of lista) {
         Temperatura: fmt(a.temperatura_c, 1, '°C'),
         'Vibracao RMS': fmt(a.vib_rms_g, 3, 'g'),
         Corrente: fmt(a.corrente_a, 2, 'A'),
+        Tensao: fmt(a.tensao_v, 1, 'V'),
+        Marcha: marcha_txt(a),
         Inversor: a.tag_inversor || (a.nivel > 0 ? '--' : ''),
         Estado: SIMB[estado] + ' ' + ROTULO[estado],
         'Visto ha': ha_quanto(a.visto_em),
@@ -561,10 +616,26 @@ function tile(nome, campo, casas, un) {
              cor: COR[nivel], simb: SIMB[nivel], rotulo: ROTULO[nivel] };
 }
 
+// Tensao e barramento CC nao tem limite configurado -- sao leitura de
+// referencia, nao criterio de alarme. O tile sem limite so mostra o numero,
+// com a barra apagada, para nao sugerir uma faixa que nao existe.
+function tile_simples(nome, campo, casas, un) {
+    const v = alvo[campo];
+    if (v === undefined) {
+        return { nome: nome, texto: '--', un: '', pct: 0,
+                 cor: COR.sem_dados, simb: '', rotulo: 'sem leitura' };
+    }
+    return { nome: nome, texto: v.toFixed(casas), un: un, pct: 0,
+             cor: COR.sem_dados, simb: '', rotulo: '' };
+}
+
 const m3 = { payload: [
     tile('Temperatura',  'temperatura_c', 1, '°C'),
     tile('Vibracao RMS', 'vib_rms_g',     3, 'g'),
-    tile('Corrente',     'corrente_a',    2, 'A')
+    tile('Corrente',     'corrente_a',    2, 'A'),
+    tile_simples('Tensao',    'tensao_v', 1, 'V'),
+    tile_simples('Barramento CC', 'dc_bus_v', 1, 'V'),
+    tile_simples('Frequencia', 'frequencia_hz', 1, 'Hz')
 ], topic: alvo.chave };
 
 // ---- Saida 4: os cards da visao geral --------------------------------
@@ -611,6 +682,9 @@ function m4_cards() {
             descricao: nomes_partes.join(' • '),
             cor: COR[e], simb: SIMB[e], rotulo: ROTULO[e],
             n_partes: partes_txt,
+            marcha: (a.rodando === undefined) ? ''
+                    : (a.rodando ? '▶ rodando' : '■ parado'),
+            marcha_cls: a.rodando ? 'on' : 'off',
             visto: ha_quanto(a.visto_em),
             medidas: [ medida('Temp', 'temperatura_c', 1, '°C'),
                        medida('Vib',  'vib_rms_g',     3, 'g'),
@@ -636,10 +710,19 @@ const nome_exib = (alvo.nivel > 0)
     ? (alvo.chave.split('/')[0] + '  ›  ' + alvo.rotulo)
     : alvo.rotulo;
 
+const marcha = marcha_txt(alvo);
 const m5 = { payload:
     '<span style="font-size:20px;font-weight:600;color:#ffffff">' + nome_exib + '</span>' +
     '<span style="margin-left:12px;color:' + COR[e_alvo] + '">' +
     SIMB[e_alvo] + ' ' + ROTULO[e_alvo] + '</span>' +
+    (marcha !== '--'
+        ? '<span style="margin-left:12px;color:#c3c2b7">' + marcha + '</span>'
+        : '') +
+    (alvo.falha_codigo
+        ? '<div style="font-size:13px;color:' + COR.critico + ';margin-top:3px">' +
+          '■ F' + String(alvo.falha_codigo).padStart(3, '0') +
+          (alvo.falha_texto ? ' — ' + alvo.falha_texto : '') + '</div>'
+        : '') +
     (fontes.length
         ? '<div style="font-size:12px;color:#898781;margin-top:2px">' +
           fontes.join(' · ') + '</div>'
@@ -687,7 +770,12 @@ CARDS = r"""
             </div>
 
             <div class="rodape">
-                <span>{{ c.n_partes }}</span>
+                <span>
+                    {{ c.n_partes }}
+                    <span v-if="c.marcha" class="marcha" :class="c.marcha_cls">
+                        {{ c.marcha }}
+                    </span>
+                </span>
                 <span>visto ha {{ c.visto }}</span>
             </div>
         </div>
@@ -755,6 +843,11 @@ export default {
 
 .rodape { display: flex; justify-content: space-between; margin-top: 10px;
           font-size: 11px; color: #898781; }
+/* Marcha e contexto, nao saude: fica discreta e nunca usa a cor de status,
+   senao "rodando" leria como "OK" e "parado" como alarme. */
+.marcha        { margin-left: 6px; }
+.marcha.on     { color: #c3c2b7; }
+.marcha.off    { color: #898781; }
 </style>
 """
 
@@ -853,8 +946,8 @@ export default {
 </script>
 
 <style scoped>
-.tiles { display: flex; gap: 12px; flex-wrap: wrap; }
-.tile  { flex: 1 1 120px; min-width: 110px; }
+.tiles { display: flex; gap: 12px 10px; flex-wrap: wrap; }
+.tile  { flex: 1 1 30%; min-width: 100px; }
 .rot   { font-size: 12px; color: #c3c2b7; margin-bottom: 2px; }
 /* Figuras proporcionais no numero grande: tabular deixa solto nesse tamanho */
 .val   { font-size: 30px; line-height: 1.1; color: #ffffff;
@@ -868,7 +961,7 @@ export default {
 """
 
 no(id="stat_tiles", type="ui-template", z="flow_monitor", group=G_TILES,
-   name="stat tiles do ativo", order=1, width="6", height="2",
+   name="stat tiles do ativo", order=1, width="6", height="4",
    head="", format=STAT_TILES, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=420, wires=[[]])

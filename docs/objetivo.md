@@ -103,8 +103,9 @@ PowerFlex 525 (corrente) --EIP-->    |  MQTT como barramento               + tre
 
 ## Próximos passos
 
-- [ ] Leitura real da corrente do **PowerFlex 525** via EtherNet/IP no
-      Node-RED (hoje é um nó de exemplo).
+- [x] Leitura real do **PowerFlex 525** via EtherNet/IP — sidecar
+      `integracoes/powerflex525`, publicando corrente, tensão, barramento
+      CC, frequência, marcha e código de falha.
 - [ ] Adicionar *feature extraction* de vibração (RMS/FFT) — decidir edge vs
       borda.
 - [ ] Baseline + detecção de anomalia por ativo (degrau 2).

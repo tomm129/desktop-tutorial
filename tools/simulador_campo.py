@@ -97,7 +97,8 @@ def main():
     ap.add_argument("--ativos", type=int, default=2, help="quantos ESP32 simular")
     ap.add_argument("--intervalo", type=float, default=2.0, help="segundos entre pacotes")
     ap.add_argument("--cenario", default="normal",
-                    choices=["normal", "alarme", "falha", "mudo"])
+                    choices=["normal", "alarme", "falha", "mudo",
+                             "parado", "falha_drive"])
     ap.add_argument("--duracao", type=float, default=0,
                     help="segundos (0 = ate o Ctrl-C)")
     a = ap.parse_args()
@@ -129,12 +130,30 @@ def main():
                 cli.publish(f"{BASE}/{d}/telemetria",
                             json.dumps(telemetria(d, t, a.cenario, i)), qos=0)
 
-            corrente = 7.4 + 1.2 * math.sin(t / 25.0) + random.gauss(0, 0.15)
+            # --- inversor -------------------------------------------
+            # No cenario "parado" o drive fica em 0 Hz: serve para ver se a
+            # tela sabe distinguir "parado" de "sensor morto".
+            parado = (a.cenario == "parado" and t > 20)
+            freq = 0.0 if parado else 60.0 + random.gauss(0, 0.05)
+            corrente = 0.0 if parado else (
+                7.4 + 1.2 * math.sin(t / 25.0) + random.gauss(0, 0.15))
             if a.cenario == "alarme":
                 corrente += min(5.0, t / 22.0)
-            cli.publish(f"{BASE}/{inversor}/corrente",
-                        json.dumps({"corrente_a": round(corrente, 2),
-                                    "ts": int(time.time() * 1000)}), qos=0)
+
+            # No cenario "falha_drive", o inversor entra em F005 aos 20s.
+            codigo = 5 if (a.cenario == "falha_drive" and t > 20) else 0
+            textos = {5: "Sobretensao no barramento CC"}
+
+            cli.publish(f"{BASE}/{inversor}/inversor", json.dumps({
+                "ts": int(time.time() * 1000),
+                "corrente_a": round(corrente, 2),
+                "tensao_v": 0.0 if parado else round(220.0 + random.gauss(0, 1.2), 1),
+                "dc_bus_v": round(311.0 + random.gauss(0, 2.0), 1),
+                "frequencia_hz": round(freq, 2),
+                "rodando": freq > 0.1,
+                "falha": {"codigo": codigo, "texto": textos.get(codigo)},
+                "status_bruto": 3 if freq > 0.1 else 1,
+            }), qos=0)
 
             print(f"\r t={t:6.1f}s  publicado", end="", flush=True)
             time.sleep(a.intervalo)

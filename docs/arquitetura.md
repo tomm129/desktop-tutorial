@@ -39,21 +39,27 @@ substituído por variante com Ethernet).
 - **Mosquitto**: broker MQTT que recebe a telemetria dos módulos de campo.
 - **Node-RED**:
   - Assina os tópicos de telemetria e alimenta o dashboard.
-  - Lê a **corrente diretamente do inversor PowerFlex 525** por
-    **EtherNet/IP** (Orange Pi na rede Ethernet dos drives), usando
-    `node-red-contrib-cip-ethernet-ip` — veja `docs/hardware.md`.
   - Aplica limites (thresholds) e gera **alarmes**.
   - Mantém histórico (arquivo/DB) — opcional.
 
+- **Sidecar do PowerFlex** (`integracoes/powerflex525`): lê corrente,
+  tensão, barramento CC, frequência, marcha e falha **diretamente do
+  inversor** por **EtherNet/IP** (Orange Pi na rede Ethernet dos drives) e
+  republica em MQTT. Roda como serviço systemd, fora do Node-RED — o
+  motivo está no [README da integração](../integracoes/powerflex525/README.md).
+
 ## Tópicos MQTT
 
-Estrutura hierárquica baseada em `<planta>/<area>/<equipamento>`:
+O esquema é plano — `monitoramento/<id>/<assunto>`. A hierarquia de
+planta (ativo → parte) vive no **cadastro** do Node-RED, não no tópico:
+assim, realocar ou renomear um equipamento não obriga a mexer no firmware
+nem a migrar histórico. Ver [`nodered/README.md`](../nodered/README.md).
 
 | Tópico                                             | Sentido        | Retido | Payload                    |
 |----------------------------------------------------|----------------|:------:|----------------------------|
 | `monitoramento/<device_id>/telemetria`             | ESP32 → Painel |  não   | JSON de telemetria         |
 | `monitoramento/<device_id>/status`                 | ESP32 → Painel |  sim   | `online` / `offline` (LWT) |
-| `monitoramento/<inversor_id>/corrente`             | PF525 → Painel |  não   | JSON de corrente (drive)   |
+| `monitoramento/<inversor_id>/inversor`              | PF525 → Painel |  não   | JSON de telemetria do drive|
 | `monitoramento/<device_id>/cmd`                    | Painel → ESP32 |  não   | JSON de comando            |
 
 `<device_id>` é definido em `config.h` (ex.: `motor-01`).
@@ -80,20 +86,40 @@ Estrutura hierárquica baseada em `<planta>/<area>/<equipamento>`:
 }
 ```
 
-### Payload de corrente (lido do PowerFlex 525 pelo Node-RED)
+### Payload do inversor (PowerFlex 525 → Painel)
 
-Montado no Node-RED a partir dos parâmetros lidos por EtherNet/IP:
+Publicado pelo sidecar [`integracoes/powerflex525`](../integracoes/powerflex525/README.md),
+que lê os parâmetros do grupo `b` por EtherNet/IP:
 
 ```json
 {
-  "inversor_id": "powerflex-01",
-  "ts": 123456789,
-  "corrente_a": 12.4,
-  "frequencia_hz": 60.0,
+  "ts": 1730800000000,
+  "corrente_a": 12.34,
   "tensao_v": 220.5,
-  "dc_bus_v": 311.0
+  "dc_bus_v": 311.0,
+  "frequencia_hz": 60.0,
+  "rodando": true,
+  "falha": { "codigo": 0, "texto": null },
+  "status_bruto": 3
 }
 ```
+
+O `inversor_id` não vai no corpo: ele já está no tópico, e repetir abriria
+espaço para os dois discordarem.
+
+**`rodando` vem da frequência de saída, não do bit de status.** O bit
+`Active` do drive indica que ele recebeu comando de marcha e não está em
+falha — e continua verdadeiro com a velocidade em zero, ou seja, com o
+motor parado. O mapa de bits do `b006` ainda varia entre versões de
+firmware. Frequência acima de zero é física e não depende de interpretar
+protocolo. O `status_bruto` vai junto para quem quiser decodificar contra o
+próprio manual.
+
+**`falha.codigo` é o `b007`** (falha mais recente). Zero significa sem
+falha; qualquer outro valor leva o ativo a **CRÍTICO** direto, sem comparar
+com limite — o próprio drive já decidiu que há problema. Código não
+mapeado vira `"falha F0xx (ver manual)"` em vez de ser tratado como
+ausência de falha.
 
 ### Payload de status (LWT)
 
@@ -123,10 +149,17 @@ equipamento operando em condição normal (baseline).
 
 ## Fluxo de dados no Node-RED
 
-1. `mqtt in` assina `monitoramento/+/telemetria`.
-2. `json` converte o payload em objeto.
-3. Nós de função separam temperatura / vibração e comparam com os limites.
-4. `ui_gauge` / `ui_chart` exibem no dashboard.
-5. Nó de alarme dispara notificação quando um limite é ultrapassado.
-6. A corrente é lida do inversor PowerFlex 525 por EtherNet/IP em um ramo
-   próprio (`node-red-contrib-cip-ethernet-ip`) e combinada no mesmo dashboard.
+Os três tópicos alimentam **um único registro** em memória, e um só nó
+decide estado, cor e texto a partir dele:
+
+1. `mqtt in` assina `monitoramento/+/telemetria`, `.../inversor` e
+   `.../status`; cada um atualiza o registro do respectivo `device_id`.
+2. A cada 2 s, a função **montar painel** consolida o registro segundo o
+   cadastro de ativos, avalia limites e falhas, e emite: a tabela, a faixa
+   de resumo, os *stat tiles* e os cards.
+3. Os gráficos são alimentados direto da ingestão, com `msg.topic` = id do
+   dispositivo (é o que separa as séries).
+
+Concentrar a decisão num lugar só é deliberado: mudar um limite, uma cor ou
+uma regra de estado é mexer em **uma** função, e a tabela, os alarmes e os
+medidores continuam concordando entre si.

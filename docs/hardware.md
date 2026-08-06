@@ -90,11 +90,12 @@ calibrado, pela sua interface **EtherNet/IP embarcada**.
 ```
    Inversor(es) PowerFlex 525            Orange Pi
    ┌───────────────────────┐            ┌───────────────────┐
-   │  EtherNet/IP embarcado │  Ethernet │  Node-RED          │
-   │  Output Current (b003) │ ────────► │  node-red-contrib- │
-   │  Output Freq   (b001)  │  (rede    │  cip-ethernet-ip   │
-   │  Output Voltage(b004)  │  dos      │  → dashboard        │
-   │  ...                    │  drives)  │  → alarmes          │
+   │  EtherNet/IP embarcado │  Ethernet │  powerflex_mqtt.py │
+   │  Output Current (b003) │ ────────► │  (sidecar pycomm3) │
+   │  Output Freq   (b001)  │  (rede    │         ↓           │
+   │  Output Voltage(b004)  │  dos      │       MQTT          │
+   │  Drive Status  (b006)  │  drives)  │         ↓           │
+   │  Fault Code    (b007)  │           │  Node-RED           │
    └───────────────────────┘            └───────────────────┘
 ```
 
@@ -103,15 +104,20 @@ Defina IPs fixos (ex.: Orange Pi `192.168.1.10`, drive `192.168.1.20`) na
 mesma sub-rede. No PowerFlex 525 o IP é configurado nos parâmetros do grupo
 de comunicação (**C128–C131**) ou via BOOTP/DHCP.
 
-**Leitura no Node-RED:** use `node-red-contrib-cip-ethernet-ip` para ler os
-parâmetros do drive por EtherNet/IP. Parâmetros úteis do PowerFlex 525:
+**Leitura:** quem fala com o drive é o sidecar
+[`integracoes/powerflex525`](../integracoes/powerflex525/README.md) — o nó
+`node-red-contrib-cip-ethernet-ip` é orientado a *tags* (feito para
+ControlLogix), e o PowerFlex expõe **parâmetros**, não tags. Parâmetros
+lidos hoje:
 
-| Grandeza          | Parâmetro | Observação                          |
-|-------------------|-----------|-------------------------------------|
-| Corrente de saída | b003      | corrente do motor (A)               |
-| Frequência        | b001      | frequência de saída (Hz)            |
-| Tensão de saída   | b004      | tensão de saída (V)                 |
-| Tensão do barramento | b005   | DC bus (V)                          |
+| Grandeza             | Parâmetro | Uso no painel                        |
+|----------------------|-----------|--------------------------------------|
+| Frequência de saída  | b001      | deriva o estado **rodando/parado**   |
+| Corrente de saída    | b003      | grandeza com limite de alarme        |
+| Tensão de saída      | b004      | leitura de referência                |
+| Tensão do barramento | b005      | DC bus — leitura de referência       |
+| Status do drive      | b006      | publicado cru, para decodificar      |
+| Código de falha      | b007      | falha ativa → ativo em **CRÍTICO**   |
 
 > ⚠️ **Confirme os números de parâmetro e o mapeamento CIP** no manual do
 > adaptador EtherNet/IP do PowerFlex 525 (publ. *520COM-UM001*). Para
@@ -131,9 +137,9 @@ sudo apt update && sudo apt install -y mosquitto mosquitto-clients
 # Node-RED (instalador oficial)
 bash <(curl -sL https://raw.githubusercontent.com/node-red/linux-installers/master/deb/update-nodered.js)
 
-# Dashboard e leitura EtherNet/IP (PowerFlex 525), dentro de ~/.node-red
+# Dashboard 2.0, dentro de ~/.node-red
 cd ~/.node-red
-npm install node-red-dashboard node-red-contrib-cip-ethernet-ip
+npm install @flowfuse/node-red-dashboard
 ```
 
 Detalhes de importação do fluxo em [`nodered/README.md`](../nodered/README.md).
