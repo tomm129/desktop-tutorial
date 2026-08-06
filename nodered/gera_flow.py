@@ -1076,7 +1076,10 @@ if (!lista.length) {
     html = '<span style="color:#71717a;font-size:14px">Aguardando o primeiro ativo publicar...</span>';
 } else {
     html = '<img src="' + LOGO + '" alt="insightX" ' +
-           'style="height:44px;vertical-align:middle;margin:0 20px 6px 0;' +
+           // vertical-align:top + a MESMA margem superior dos cards (6px):
+           // com 'middle' a logo era centrada na linha e, sendo mais baixa
+           // que os cards, descia uns 16px em relacao ao topo deles.
+           'style="height:44px;vertical-align:top;margin:6px 20px 6px 0;' +
            'padding-right:20px;border-right:1px solid #3f3f46">' +
            kpi(COR.normal, SIMB.normal, 'Normais', cnt.normal, 'ativos OK') +
            kpi(COR.atencao, SIMB.atencao, 'Atenção', cnt.atencao, 'revisar') +
