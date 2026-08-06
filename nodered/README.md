@@ -3,6 +3,19 @@
 Fluxo do Node-RED que assina a telemetria dos módulos de campo, apresenta o
 dashboard (temperatura, vibração, corrente), avalia limites e gera alarmes.
 
+## Atalho: instalação automática
+
+Para provisionar o Orange Pi do zero — Mosquitto **com autenticação**,
+Node-RED + dashboard, este `flows.json` e o serviço do PowerFlex:
+
+```bash
+cd <repo>/scripts
+./setup_orangepi.sh
+```
+
+O passo a passo manual abaixo é exatamente o que o script faz, e continua
+valendo se você preferir conduzir na mão.
+
 ## Pré-requisitos no Orange Pi
 
 ```bash
@@ -13,12 +26,29 @@ sudo systemctl enable --now mosquitto
 # Node-RED (instalador oficial)
 bash <(curl -sL https://raw.githubusercontent.com/node-red/linux-installers/master/deb/update-nodered.js)
 
-# Nós adicionais (dentro de ~/.node-red)
+# Dashboard (dentro de ~/.node-red)
 cd ~/.node-red
 npm install node-red-dashboard
-# leitura de corrente do inversor PowerFlex 525 por EtherNet/IP:
-npm install node-red-contrib-cip-ethernet-ip
 ```
+
+> ⚠️ **O Mosquitto 2.x não aceita conexão remota assim.** Sem um `listener`
+> explícito ele escuta só em `localhost`, e o ESP32 nunca conecta — o sintoma
+> no serial é `[MQTT] Falha (rc=-2)` em loop, fácil de confundir com problema
+> de Wi-Fi. Crie `/etc/mosquitto/conf.d/monitoramento.conf`:
+>
+> ```
+> listener 1883 0.0.0.0
+> allow_anonymous false
+> password_file /etc/mosquitto/passwd
+> ```
+>
+> e o usuário com `sudo mosquitto_passwd -c /etc/mosquitto/passwd <usuario>`.
+> Depois preencha as mesmas credenciais no `config.h` do ESP32, no
+> `config.env` do PowerFlex e no nó de broker do Node-RED (aba *Security*).
+
+> A leitura de corrente **não** usa mais `node-red-contrib-cip-ethernet-ip`:
+> quem fala com o drive é o sidecar Python em `integracoes/powerflex525/`,
+> que republica em MQTT. Veja o README de lá.
 
 Inicie o Node-RED:
 
@@ -39,9 +69,10 @@ O fluxo já inclui:
 - **`mqtt in`** assinando `monitoramento/+/telemetria` (broker `localhost:1883`).
 - **Temperatura** → gauge (limites 60 °C / 75 °C).
 - **Vibração RMS** → gráfico de linha.
-- **Corrente** → gauge, alimentado por um nó de **exemplo** que você deve
-  trocar pela leitura real do inversor **PowerFlex 525** via **EtherNet/IP**
-  (`node-red-contrib-cip-ethernet-ip`).
+- **Corrente** → gauge, alimentado por `mqtt in` em
+  `monitoramento/+/corrente` — quem publica ali é o sidecar
+  [`integracoes/powerflex525`](../integracoes/powerflex525/README.md), que lê
+  o drive por EtherNet/IP.
 - **Avaliação de limites** → status colorido no dashboard + saída de debug.
 - **Status do dispositivo** → `mqtt in` em `monitoramento/+/status` mostra
   ONLINE/OFFLINE (via LWT do ESP32) no dashboard.
@@ -79,11 +110,13 @@ mosquitto_pub -h localhost -t 'monitoramento/motor-01/cmd' -m '{"comando":"publi
   em outra máquina, edite o nó de configuração do broker.
 - **Limites de alarme:** edite a função **"avaliar limites"** (constante
   `LIM`) — calibre com o equipamento em condição normal.
-- **Corrente:** substitua a função **"fonte de corrente"** pela leitura real
-  do PowerFlex 525 via EtherNet/IP (nó `node-red-contrib-cip-ethernet-ip`,
-  parâmetro *b003 [Output Current]*). Configure o IP do drive e confirme o
-  mapeamento no manual *520COM-UM001*. Detalhes em
-  [`docs/hardware.md`](../docs/hardware.md).
+- **Credenciais do broker:** o `flows.json` vem sem senha. Com o Mosquitto
+  autenticado, abra qualquer nó MQTT → edite o broker → aba **Security** →
+  usuário e senha → **Deploy**. Uma vez só.
+- **Corrente:** o gauge é alimentado por MQTT. Quem lê o drive é o sidecar
+  [`integracoes/powerflex525`](../integracoes/powerflex525/README.md)
+  (parâmetro *b003 [Output Current]*, manual *520COM-UM001*). Configure o IP
+  do inversor lá, no `config.env`.
 
 ## Verificar a chegada dos dados
 
