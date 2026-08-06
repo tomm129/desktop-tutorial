@@ -48,6 +48,7 @@ PAGINA_ATIVOS, PAGINA_TEND = "pg_ativos", "pg_tendencias"
 PAGINA_IA, PAGINA_REL = "pg_ia", "pg_relatorios"
 
 G_RESUMO, G_CARDS = "grp_resumo", "grp_cards"
+G_LINHA = "grp_linha"
 G_CAB, G_TILES, G_PARTES, G_CMD = "grp_cab", "grp_tiles", "grp_partes", "grp_cmd"
 G_PLACA = "grp_placa"
 G_TEMP, G_VIB, G_CORR = "grp_temp", "grp_vib", "grp_corr"
@@ -143,7 +144,8 @@ def grupo(gid, nome, largura, ordem, altura=1, pagina=PAGINA, titulo=True):
 
 # --- Tela 1: visao geral (a parede de cards) --------------------------
 grupo(G_RESUMO, "Resumo",  12, 1, altura=4, titulo=False)
-grupo(G_CARDS,  "Ativos",  12, 2, altura=9, titulo=False)
+grupo(G_LINHA,  "",        12, 2, altura=7, titulo=False)
+grupo(G_CARDS,  "Ativos",  12, 3, altura=9, titulo=False)
 
 # --- Tela 2: detalhe de um ativo --------------------------------------
 # A altura dos grupos de grafico precisa caber o plot MAIS a faixa do eixo X;
@@ -426,11 +428,11 @@ no(id="tick", type="inject", z="flow_monitor", name="a cada 2s",
    x=140, y=380, wires=[["montar_painel"]])
 
 no(id="montar_painel", type="function", z="flow_monitor",
-   name="montar painel", outputs=9, timeout=0, noerr=0,
+   name="montar painel", outputs=10, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=350, y=380,
    wires=[["tabela_ativos"], ["txt_resumo"], ["stat_tiles"],
           ["cards_ativos"], ["cab_detalhe"], ["painel_placa"],
-          ["alarmes_kpi"], ["alarmes_lista"], ["tabela_planta"]],
+          ["alarmes_kpi"], ["alarmes_lista"], ["tabela_planta"], ["linha_tempo"]],
    func=r"""
 // Unico ponto que decide estado, cor e texto -- se os limites mudarem,
 // mudam aqui e valem para a tabela, os alarmes e os medidores.
@@ -1096,17 +1098,7 @@ if (!lista.length) {
                       '<div style="font-size:11px;color:#52525b;margin-top:2px">' +
                       e.det + '</div></div>';
            }).join('') +
-           kpi(COR.sem_dados, SIMB.sem_dados, 'Sem dados', cnt.sem_dados, 'offline/mudo') +
-           '<div style="margin-top:10px"></div>';
-    if (!alarmes.length) {
-        html += '<span style="color:' + COR.normal + '">' + SIMB.normal +
-                ' Todos os ' + n_pai + ' ativos monitorados estão em condição normal</span>';
-    } else {
-        html += alarmes.map(function (al) {
-            return '<span style="color:' + COR[al.estado] + '">' + SIMB[al.estado] +
-                   ' <b>' + al.id + '</b> — ' + al.motivos.join(' | ') + '</span>';
-        }).join('<br>');
-    }
+           kpi(COR.sem_dados, SIMB.sem_dados, 'Sem dados', cnt.sem_dados, 'offline/mudo');
 }
 const m2 = { payload: html };
 
@@ -1382,7 +1374,87 @@ const m8 = { payload: hist.map(function (h) {
 // esteja selecionado noutra tela.
 const m9 = { payload: linhas.map(limpar) };
 
-return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9];
+// ---- Saida 10: linha do tempo de eventos ---------------------------
+// Substitui a lista de alarmes em texto. A lista dizia O QUE esta errado
+// -- informacao que os cards ja dao, com mais contexto. A linha do tempo
+// acrescenta QUANDO e POR QUANTO TEMPO, que era a dimensao que faltava
+// nesta tela.
+// Janela ADAPTATIVA. Fixar 24h deixa a faixa vazia numa instalacao nova
+// e amontoa tudo na ponta direita -- que e exatamente o estado em que o
+// sistema passa os primeiros dias. A janela cobre desde o evento mais
+// antigo, com 10% de folga, entre 15 minutos e 24 horas.
+const MIN_JANELA = 15 * 60 * 1000;
+const MAX_JANELA = 24 * 3600 * 1000;
+const mais_antigo = hist.length
+    ? Math.min.apply(null, hist.map(function (h) { return h.inicio_ms; }))
+    : agora;
+const JANELA_MS = Math.max(MIN_JANELA,
+                  Math.min(MAX_JANELA, (agora - mais_antigo) * 1.1));
+const t0 = agora - JANELA_MS;
+
+function rotulo_janela(ms) {
+    const h = ms / 3600000;
+    if (h >= 1.5) { return 'ultimas ' + Math.round(h) + ' horas'; }
+    return 'ultimos ' + Math.round(ms / 60000) + ' minutos';
+}
+
+function pos(ms) { return Math.max(0, Math.min(100, ((ms - t0) / JANELA_MS) * 100)); }
+
+// Distribui em FAIXAS: eventos que se sobrepoem no tempo vao para linhas
+// diferentes. Numa linha so, varios ativos em alarme ao mesmo tempo -- que
+// e o caso normal quando algo serio acontece -- se cobrem, e a tela mostra
+// menos justamente quando ha mais o que ver.
+const fim_faixa = [];          // instante em que cada faixa ficou livre
+
+const eventos = hist
+    .filter(function (h) { return (h.fim_ms || agora) >= t0; })
+    .slice()
+    .sort(function (a, b) { return a.inicio_ms - b.inicio_ms; })
+    .map(function (h) {
+        const ini = Math.max(h.inicio_ms, t0);
+        const fim = h.fim_ms || agora;
+        const dur_s = Math.round((fim - h.inicio_ms) / 1000);
+        const d = new Date(h.inicio_ms);
+        // Primeira faixa livre; com folga de 2% da janela para dois
+        // eventos quase encostados nao parecerem um so.
+        const folga = JANELA_MS * 0.02;
+        let faixa = fim_faixa.findIndex(function (f) { return f + folga <= h.inicio_ms; });
+        if (faixa < 0) { faixa = fim_faixa.length; }
+        fim_faixa[faixa] = fim;
+
+        return {
+            faixa: faixa,
+            ini: pos(ini),
+            // Largura minima de 0,35% para um evento de segundos ainda ser
+            // clicavel -- senao vira uma linha de 1px impossivel de acertar.
+            larg: Math.max(0.35, pos(fim) - pos(ini)),
+            cor: COR[h.estado],
+            simb: SIMB[h.estado],
+            estado: ROTULO[h.estado],
+            aberto: !h.fim_ms,
+            ativo: h.ativo,
+            parte: h.parte,
+            motivos: h.motivos.join(' | '),
+            quando: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            duracao: dur_s < 60 ? (dur_s + 's')
+                   : dur_s < 3600 ? (Math.round(dur_s / 60) + 'min')
+                   : (Math.round(dur_s / 360) / 10 + 'h')
+        };
+    });
+
+// Marca de 4 em 4 horas: seis rotulos cabem sem se atropelar.
+const marcas = [];
+for (let k = 0; k <= 6; k++) {
+    const t = t0 + (JANELA_MS * k / 6);
+    marcas.push({ pct: (k / 6) * 100,
+                  rot: new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+}
+
+const m10 = { payload: { eventos: eventos, marcas: marcas,
+                         faixas: Math.max(1, fim_faixa.length),
+                         janela: rotulo_janela(JANELA_MS) } };
+
+return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9, m10];
 """)
 
 # =====================================================================
@@ -2211,6 +2283,132 @@ no(id="pg_rel_conteudo", type="ui-template", z="flow_monitor", group=G_REL,
 # width/height em 0 = automatico, quem dimensiona e o grupo. Fixar 12x16
 # aqui colapsava o contêiner de rolagem interno da tabela para 38px: as
 # linhas existiam no DOM e ficavam cortadas, dando cara de tela vazia.
+LINHA_TEMPO = r"""
+<template>
+    <div class="lt">
+        <div class="cab">
+            <span class="tit">{{ janela }}</span>
+            <span class="leg">
+                <span class="pt" style="background:#f59e0b"></span> atencao
+                <span class="pt" style="background:#ef4444"></span> critico
+                <span class="pt" style="background:#71717a"></span> sem dados
+            </span>
+        </div>
+
+        <div class="faixa" ref="faixa" @mouseleave="dica = null"
+             :style="{ height: (18 + faixas * 14) + 'px' }">
+            <!-- grade de horas -->
+            <div v-for="m in marcas" :key="'m'+m.pct" class="marca"
+                 :style="{ left: m.pct + '%' }">
+                <span class="rot">{{ m.rot }}</span>
+            </div>
+
+            <!-- trilho -->
+            <div v-for="k in faixas" :key="'t'+k" class="trilho"
+                 :style="{ top: (2 + (k-1) * 14) + 'px' }"></div>
+
+            <!-- eventos: barra quando tem duracao, tick quando e instantaneo -->
+            <div v-for="(e, i) in eventos" :key="i"
+                 class="evt" :class="{ aberto: e.aberto }"
+                 :style="{ left: e.ini + '%', width: e.larg + '%',
+                           top: (2 + e.faixa * 14) + 'px', background: e.cor }"
+                 @mouseenter="mostrar(e, $event)">
+            </div>
+
+            <div v-if="!eventos.length" class="vazio">
+                Nenhum evento nas ultimas 24 horas
+            </div>
+        </div>
+
+        <!-- tooltip -->
+        <div v-if="dica" class="dica" :style="{ left: dica.x + 'px' }">
+            <div class="d-l1">
+                <span :style="{ color: dica.cor }">{{ dica.simb }}</span>
+                <b>{{ dica.ativo }}</b>
+                <span v-if="dica.parte" class="d-parte">› {{ dica.parte }}</span>
+                <span class="d-tempo">{{ dica.quando }} · {{ dica.duracao }}</span>
+            </div>
+            <div class="d-mot">{{ dica.motivos }}</div>
+        </div>
+    </div>
+</template>
+
+<script>
+export default {
+    data () { return { eventos: [], marcas: [], janela: '', faixas: 1, dica: null } },
+    methods: {
+        mostrar (e, ev) {
+            const f = this.$refs.faixa.getBoundingClientRect();
+            // Prende o tooltip dentro da faixa, senao ele escapa nas pontas.
+            const x = Math.min(Math.max(ev.clientX - f.left - 150, 0), f.width - 320);
+            this.dica = Object.assign({}, e, { x: x });
+        }
+    },
+    watch: {
+        msg: {
+            immediate: true,
+            handler (m) {
+                const p = (m && m.payload) || {};
+                if (!p.eventos) { return; }
+                this.eventos = p.eventos;
+                this.marcas = p.marcas || [];
+                this.janela = p.janela || '';
+                this.faixas = p.faixas || 1;
+            }
+        }
+    }
+}
+</script>
+
+<style scoped>
+.lt   { position: relative; }
+.cab  { display: flex; justify-content: space-between; align-items: baseline;
+        margin-bottom: 6px; }
+.tit  { font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+        color: #71717a; }
+.leg  { font-size: 11px; color: #71717a; }
+.pt   { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+        margin: 0 4px 0 12px; vertical-align: 0; }
+
+.faixa   { position: relative; min-height: 32px; }
+.trilho  { position: absolute; left: 0; right: 0; height: 10px;
+           background: #1c1c1f; border: 1px solid #27272a; border-radius: 3px; }
+
+.marca   { position: absolute; top: 0; bottom: 16px; width: 1px;
+           background: #27272a; }
+.rot     { position: absolute; bottom: -14px; left: 3px; font-size: 10px;
+           color: #52525b; white-space: nowrap; }
+
+/* Evento com duracao vira barra; instantaneo tem largura minima e vira
+   tick. Assim "piscou uma vez" e "esta ha 3 horas" nao parecem iguais. */
+.evt     { position: absolute; height: 12px; border-radius: 2px;
+           min-width: 3px; cursor: pointer; opacity: .85;
+           transition: opacity .15s, transform .15s; }
+.evt:hover { opacity: 1; transform: scaleY(1.35); }
+/* Evento ainda aberto ganha contorno claro: e o que exige acao agora. */
+.evt.aberto { box-shadow: 0 0 0 1px #f4f4f5; }
+
+.vazio { position: absolute; top: 12px; left: 12px; font-size: 12px;
+         color: #52525b; }
+
+.dica  { position: absolute; top: -2px; z-index: 20; min-width: 300px;
+         max-width: 460px; background: #1e1e22; border: 1px solid #3f3f46;
+         border-radius: 8px; padding: 7px 12px;
+         box-shadow: 0 6px 18px rgba(0,0,0,.55); pointer-events: none; }
+.d-l1    { font-size: 12px; color: #f4f4f5; white-space: nowrap; }
+.d-l1 b  { font-weight: 600; margin-left: 4px; }
+.d-parte { color: #a1a1aa; margin-left: 4px; }
+.d-tempo { color: #71717a; font-size: 11px; margin-left: 10px; }
+.d-mot   { color: #a1a1aa; font-size: 12px; margin-top: 3px; line-height: 1.35; }
+</style>
+"""
+
+no(id="linha_tempo", type="ui-template", z="flow_monitor", group=G_LINHA,
+   name="linha do tempo de eventos", order=1, width="0", height="0",
+   head="", format=LINHA_TEMPO, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=1000, wires=[[]])
+
 no(id="tabela_planta", type="ui-table", z="flow_monitor", group=G_ATIVOS_TAB,
    name="todos os ativos", label="", order=1, width="0", height="0",
    maxrows=0, passthru=False, autocols=True, columns=[],
