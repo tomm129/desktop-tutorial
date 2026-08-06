@@ -14,10 +14,15 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
 # Status: paleta reservada, nunca usada para serie.
 STATUS = {"good": "#0ca30c", "warning": "#fab219", "critical": "#d03b3b"}
 
-BASE, TEMA, PAGINA = "ui_base", "ui_tema", "pg_monitor"
-G_ATIVOS, G_ALARMES = "grp_ativos", "grp_alarmes"
+BASE, TEMA = "ui_base", "ui_tema"
+
+# Duas telas: a visao geral e uma parede de cards (um por ativo principal),
+# e o clique num card abre o detalhe daquele ativo.
+PAGINA, PAGINA_DET = "pg_visao", "pg_detalhe"
+
+G_RESUMO, G_CARDS = "grp_resumo", "grp_cards"
+G_CAB, G_TILES, G_PARTES, G_CMD = "grp_cab", "grp_tiles", "grp_partes", "grp_cmd"
 G_TEMP, G_VIB, G_CORR = "grp_temp", "grp_vib", "grp_corr"
-G_DETALHE, G_CMD = "grp_detalhe", "grp_cmd"
 
 flows = []
 
@@ -55,30 +60,40 @@ no(id=TEMA, type="ui-theme", name="Industrial",
    sizes={"density": "default", "pagePadding": "12px", "groupGap": "12px",
           "groupBorderRadius": "4px", "widgetGap": "12px"})
 
-no(id=PAGINA, type="ui-page", name="Monitoramento", ui=BASE, path="/monitor",
-   icon="gauge", layout="grid", theme=TEMA, order=1, className="",
-   visible=True, disabled=False,
-   breakpoints=[{"name": "Default", "px": "0", "cols": "3"},
-                {"name": "Tablet", "px": "576", "cols": "6"},
-                {"name": "Small Desktop", "px": "768", "cols": "9"},
-                {"name": "Desktop", "px": "1024", "cols": "12"}])
+BREAKPOINTS = [{"name": "Default", "px": "0", "cols": "3"},
+               {"name": "Tablet", "px": "576", "cols": "6"},
+               {"name": "Small Desktop", "px": "768", "cols": "9"},
+               {"name": "Desktop", "px": "1024", "cols": "12"}]
+
+no(id=PAGINA, type="ui-page", name="Visao Geral", ui=BASE, path="/visao",
+   icon="view-dashboard", layout="grid", theme=TEMA, order=1, className="",
+   visible=True, disabled=False, breakpoints=BREAKPOINTS)
+
+no(id=PAGINA_DET, type="ui-page", name="Detalhe", ui=BASE, path="/detalhe",
+   icon="magnify", layout="grid", theme=TEMA, order=2, className="",
+   visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
 
-def grupo(gid, nome, largura, ordem, altura=1):
-    no(id=gid, type="ui-group", name=nome, page=PAGINA, width=str(largura),
-       height=str(altura), order=ordem, showTitle=True, className="",
+def grupo(gid, nome, largura, ordem, altura=1, pagina=PAGINA, titulo=True):
+    no(id=gid, type="ui-group", name=nome, page=pagina, width=str(largura),
+       height=str(altura), order=ordem, showTitle=titulo, className="",
        visible=True, disabled=False, groupType="default")
 
 
+# --- Tela 1: visao geral (a parede de cards) --------------------------
+grupo(G_RESUMO, "Resumo",  12, 1, altura=1, titulo=False)
+grupo(G_CARDS,  "Ativos",  12, 2, altura=8, titulo=False)
+
+# --- Tela 2: detalhe de um ativo --------------------------------------
 # A altura dos grupos de grafico precisa caber o plot MAIS a faixa do eixo X;
-# com altura 1 o grafico virava um risco e o eixo sumia.
-grupo(G_ATIVOS,  "Ativos",                12, 1)
-grupo(G_ALARMES, "Alarmes",               12, 2)
-grupo(G_DETALHE, "Detalhe do ativo",       6, 3, altura=3)
-grupo(G_CMD,     "Comandos",               6, 4, altura=3)
-grupo(G_TEMP,    "Temperatura (°C)",       6, 5, altura=7)
-grupo(G_VIB,     "Vibracao RMS (g)",       6, 6, altura=7)
-grupo(G_CORR,    "Corrente (A)",          12, 7, altura=7)
+# com altura 1 o grafico vira um risco e o eixo some.
+grupo(G_CAB,    "",                       12, 1, altura=2, pagina=PAGINA_DET, titulo=False)
+grupo(G_TILES,  "Leituras agora",          6, 2, altura=2, pagina=PAGINA_DET)
+grupo(G_CMD,    "Comandos",                6, 3, altura=2, pagina=PAGINA_DET)
+grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=4, pagina=PAGINA_DET)
+grupo(G_TEMP,   "Temperatura (°C)",        6, 5, altura=7, pagina=PAGINA_DET)
+grupo(G_VIB,    "Vibracao RMS (g)",        6, 6, altura=7, pagina=PAGINA_DET)
+grupo(G_CORR,   "Corrente (A)",           12, 7, altura=7, pagina=PAGINA_DET)
 
 # =====================================================================
 #  Ingestao: tres topicos alimentam UM registro em flow context
@@ -204,9 +219,10 @@ no(id="tick", type="inject", z="flow_monitor", name="a cada 2s",
    x=140, y=380, wires=[["montar_painel"]])
 
 no(id="montar_painel", type="function", z="flow_monitor",
-   name="montar painel", outputs=3, timeout=0, noerr=0,
+   name="montar painel", outputs=5, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=350, y=380,
-   wires=[["tabela_ativos"], ["txt_alarmes"], ["stat_tiles"]],
+   wires=[["tabela_ativos"], ["txt_resumo"], ["stat_tiles"],
+          ["cards_ativos"], ["cab_detalhe"]],
    func=r"""
 // Unico ponto que decide estado, cor e texto -- se os limites mudarem,
 // mudam aqui e valem para a tabela, os alarmes e os medidores.
@@ -343,6 +359,10 @@ function consolidar_pai(tag, cfg, partes) {
     };
 }
 
+// Quais ESP32 respondem por cada chave -- e o que o botao "Publicar agora"
+// precisa para saber a quem mandar o comando.
+const esp32_por_chave = {};
+
 function consolidar() {
     const tags = Object.keys(ATIVOS);
 
@@ -350,6 +370,8 @@ function consolidar() {
         // Sem cadastro: cada device_id vira uma linha solta. Modo util
         // enquanto a instalacao ainda esta sendo montada.
         return Object.keys(registro).sort().map(function (id) {
+            // Na descoberta automatica a chave JA e o device_id.
+            esp32_por_chave[id] = [id];
             return Object.assign({ chave: id, rotulo: id, nivel: 0 }, registro[id]);
         });
     }
@@ -360,6 +382,7 @@ function consolidar() {
 
         // Ativo sem 'partes': trata como equipamento unico (um nivel so).
         if (!cfg.partes) {
+            if (cfg.esp32) { esp32_por_chave[tag] = [cfg.esp32]; }
             saida.push(juntar_parte(tag,
                 cfg.descricao ? (tag + ' — ' + cfg.descricao) : tag, cfg, 0));
             continue;
@@ -367,8 +390,16 @@ function consolidar() {
 
         const nomes = Object.keys(cfg.partes);
         const partes = nomes.map(function (nome) {
-            return juntar_parte(tag + '/' + nome, nome, cfg.partes[nome], 1);
+            const chave = tag + '/' + nome;
+            if (cfg.partes[nome].esp32) {
+                esp32_por_chave[chave] = [cfg.partes[nome].esp32];
+            }
+            return juntar_parte(chave, nome, cfg.partes[nome], 1);
         });
+        // O ativo principal comanda todas as suas partes de uma vez.
+        esp32_por_chave[tag] = nomes
+            .map(function (n) { return cfg.partes[n].esp32; })
+            .filter(Boolean);
 
         saida.push(consolidar_pai(tag, cfg, partes));
         for (const p of partes) { saida.push(p); }
@@ -377,19 +408,15 @@ function consolidar() {
 }
 
 const lista = consolidar();
+flow.set('esp32_por_chave', esp32_por_chave);
 const agora = Date.now();
 
-// O dropdown precisa das mesmas chaves da tabela. Publicamos aqui para o
-// cadastro ATIVOS existir num lugar so. O recuo do sub-ativo vai junto no
-// rotulo, senao a lista perde a hierarquia.
-flow.set('opcoes_ativos', lista.map(function (x) {
-    return { value: x.chave,
-             label: (x.nivel > 0 ? '   └ ' : '') + x.rotulo };
-}));
 
 const linhas = [];
 const alarmes = [];
+const estados = {};
 let pai_atual = '';
+let pai_chave = '';
 
 for (const a of lista) {
     const id = a.rotulo;
@@ -433,8 +460,16 @@ for (const a of lista) {
         'Vibracao RMS': fmt(a.vib_rms_g, 3, 'g'),
         Corrente: fmt(a.corrente_a, 2, 'A'),
         Estado: SIMB[estado] + ' ' + ROTULO[estado],
-        'Visto ha': ha_quanto(a.visto_em)
+        'Visto ha': ha_quanto(a.visto_em),
+        // Campos de trabalho, retirados antes de exibir: servem para
+        // filtrar as partes do ativo aberto na tela de detalhe.
+        _chave: a.chave,
+        _pai: (a.nivel > 0) ? pai_chave : a.chave
     });
+
+    // Guarda o estado apurado: o card do pai e o cabecalho do detalhe
+    // reaproveitam, em vez de recalcular com regra possivelmente diferente.
+    estados[a.chave] = { estado: estado, motivos: motivos, item: a };
 
     // O ativo principal so vira alarme proprio quando ele mesmo esta mudo.
     // Se o problema esta numa parte, quem alarma e a parte -- senao a mesma
@@ -444,42 +479,46 @@ for (const a of lista) {
         alarmes.push({ id: a.nivel > 0 ? (pai_atual + ' / ' + id) : id,
                        estado: estado, motivos: motivos });
     }
-    if (a.nivel === 0) { pai_atual = id; }
+    if (a.nivel === 0) { pai_atual = id; pai_chave = a.chave; }
 }
 
-// ---- Saida 1: tabela (tambem e a "table view" que garante acesso aos
-//      valores sem depender de cor) ------------------------------------
-const m1 = { payload: linhas };
+// ---- Saida 1: tabela das PARTES do ativo aberto ----------------------
+// Na tela de detalhe so interessam as partes daquele ativo.  E tambem a
+// "table view" que garante acesso a todo valor sem depender de cor.
+const sel = flow.get('ativo_sel');
 
-// ---- Saida 2: alarmes -------------------------------------------------
-let html;
-// Conta so os ativos principais: dizer "12 ativos" quando sao 3 linhas com
-// 4 motores cada da uma nocao errada do tamanho da planta.
+function limpar(l) {
+    const c = Object.assign({}, l);
+    delete c._pai; delete c._chave;
+    return c;
+}
+let linhas_det = linhas.filter(function (l) { return l._pai === sel; });
+if (!linhas_det.length) { linhas_det = linhas; }
+const m1 = { payload: linhas_det.map(limpar) };
+
+// ---- Saida 2: faixa de resumo da visao geral -------------------------
 const n_pai = lista.filter(function (x) { return x.nivel === 0; }).length;
+let html;
 if (!lista.length) {
-    html = '<div style="color:#898781">Aguardando o primeiro ativo publicar...</div>';
+    html = '<span style="color:#898781">Aguardando o primeiro ativo publicar...</span>';
 } else if (!alarmes.length) {
-    html = '<div style="color:' + COR.normal + '">' + SIMB.normal +
-           ' Todos os ' + n_pai + ' ativos em condicao normal</div>';
+    html = '<span style="color:' + COR.normal + '">' + SIMB.normal +
+           ' Todos os ' + n_pai + ' ativos em condicao normal</span>';
 } else {
     html = alarmes.map(function (al) {
-        return '<div style="color:' + COR[al.estado] + '">' + SIMB[al.estado] +
-               ' <b>' + al.id + '</b> — ' + al.motivos.join(' | ') + '</div>';
-    }).join('');
+        return '<span style="color:' + COR[al.estado] + '">' + SIMB[al.estado] +
+               ' <b>' + al.id + '</b> — ' + al.motivos.join(' | ') + '</span>';
+    }).join('<br>');
 }
 const m2 = { payload: html };
 
-// ---- Saida 3: stat tiles do ativo selecionado -------------------------
-// Um painel de detalhe mostra UM ativo; com varios em tela os valores se
-// sobrescreveriam alternadamente. Por isso segue a selecao do dropdown.
-const sel = flow.get('ativo_sel');
+// ---- Saidas 3..5: a tela de detalhe ----------------------------------
 const alvo = lista.find(function (x) { return x.chave === sel; }) || lista[0];
-if (!alvo) { return [m1, m2, null]; }
+if (!alvo) { return [m1, m2, null, m4_cards(), null]; }
 
 function tile(nome, campo, casas, un) {
     const v = alvo[campo];
     const lim = LIM[campo];
-
     if (v === undefined) {
         return { nome: nome, texto: '--', un: '', pct: 0,
                  cor: COR.sem_dados, simb: SIMB.sem_dados, rotulo: 'sem sensor' };
@@ -501,13 +540,211 @@ const m3 = { payload: [
     tile('Corrente',     'corrente_a',    2, 'A')
 ], topic: alvo.chave };
 
-return [m1, m2, m3];
+// ---- Saida 4: os cards da visao geral --------------------------------
+// Um card por ativo PRINCIPAL. As partes aparecem quando o card e aberto.
+function m4_cards() {
+    const cards = lista.filter(function (x) { return x.nivel === 0; })
+    .map(function (a) {
+        const e = (estados[a.chave] || {}).estado || 'sem_dados';
+        const partes = lista.filter(function (x) {
+            return x.nivel > 0 && x.chave.split('/')[0] === a.chave;
+        }).length;
+
+        function medida(nome, campo, casas, un) {
+            const v = a[campo];
+            const lim = LIM[campo];
+            if (v === undefined) {
+                return { nome: nome, texto: '--', un: '', pct: 0,
+                         cor: COR.sem_dados, vazio: true };
+            }
+            if (v === null) {
+                return { nome: nome, texto: 'FALHA', un: '', pct: 0,
+                         cor: COR.atencao, vazio: true };
+            }
+            return { nome: nome, texto: v.toFixed(casas), un: un,
+                     pct: Math.max(0, Math.min(100, (v / lim.critico) * 100)),
+                     cor: COR[avaliar(v, lim)], vazio: false };
+        }
+
+        const partes_txt = partes ? (partes + (partes > 1 ? ' partes' : ' parte'))
+                                  : 'equipamento unico';
+        const rot = a.rotulo.split(' — ');
+        return {
+            chave: a.chave,
+            tag: rot[0],
+            descricao: rot.slice(1).join(' — '),
+            cor: COR[e], simb: SIMB[e], rotulo: ROTULO[e],
+            n_partes: partes_txt,
+            visto: ha_quanto(a.visto_em),
+            medidas: [ medida('Temp', 'temperatura_c', 1, '°C'),
+                       medida('Vib',  'vib_rms_g',     3, 'g'),
+                       medida('Corr', 'corrente_a',    2, 'A') ]
+        };
+    });
+    return { payload: cards };
+}
+
+// ---- Saida 5: cabecalho da tela de detalhe ---------------------------
+const e_alvo = (estados[alvo.chave] || {}).estado || 'sem_dados';
+const m5 = { payload:
+    '<span style="font-size:20px;font-weight:600">' + alvo.rotulo + '</span>' +
+    '<span style="margin-left:12px;color:' + COR[e_alvo] + '">' +
+    SIMB[e_alvo] + ' ' + ROTULO[e_alvo] + '</span>' };
+
+return [m1, m2, m3, m4_cards(), m5];
 """)
 
 # =====================================================================
 #  Widgets
 # =====================================================================
-no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_ATIVOS,
+CARDS = r"""
+<template>
+    <div class="parede">
+        <div v-if="!cards.length" class="vazio">
+            Aguardando o primeiro ativo publicar...
+        </div>
+        <div v-for="c in cards" :key="c.chave" class="card"
+             :style="{ borderLeftColor: c.cor }"
+             role="button" tabindex="0"
+             @click="abrir(c)" @keyup.enter="abrir(c)">
+
+            <div class="topo">
+                <div class="nome">
+                    <div class="tag">{{ c.tag }}</div>
+                    <div class="desc" v-if="c.descricao">{{ c.descricao }}</div>
+                </div>
+                <!-- simbolo + texto: a cor nunca carrega o estado sozinha -->
+                <div class="chip" :style="{ color: c.cor, borderColor: c.cor }">
+                    {{ c.simb }} {{ c.rotulo }}
+                </div>
+            </div>
+
+            <div class="medidas">
+                <div v-for="m in c.medidas" :key="m.nome" class="medida">
+                    <div class="mrot">{{ m.nome }}</div>
+                    <div class="mval" :class="{ vazio: m.vazio }">
+                        {{ m.texto }}<span v-if="m.un" class="mun">{{ m.un }}</span>
+                    </div>
+                    <div class="trilho">
+                        <div class="preenche"
+                             :style="{ width: m.pct + '%', background: m.cor }"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="rodape">
+                <span>{{ c.n_partes }}</span>
+                <span>visto ha {{ c.visto }}</span>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script>
+export default {
+    data () { return { cards: [] } },
+    methods: {
+        // Manda a chave para o fluxo, que guarda a selecao e navega.
+        abrir (c) { this.send({ payload: c.chave }) }
+    },
+    watch: {
+        msg: {
+            immediate: true,
+            handler (m) { if (m && Array.isArray(m.payload)) { this.cards = m.payload } }
+        }
+    }
+}
+</script>
+
+<style scoped>
+/* align-content/items em start: sem isso o grid estica os cards para
+   preencher a altura do grupo, e cada card vira uma coluna vazia enorme. */
+.parede { display: grid; gap: 12px; align-content: start; align-items: start;
+          grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+.vazio  { color: #898781; padding: 8px; }
+
+.card {
+    background: #fff;
+    border: 1px solid #e1e0d9;
+    border-left: 4px solid #898781;   /* faixa de estado */
+    border-radius: 4px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: box-shadow .15s ease, transform .15s ease;
+}
+.card:hover, .card:focus-visible {
+    box-shadow: 0 2px 10px rgba(11,11,11,.12);
+    transform: translateY(-1px);
+    outline: none;
+}
+
+.topo { display: flex; justify-content: space-between; align-items: flex-start;
+        gap: 8px; margin-bottom: 10px; }
+.tag  { font-size: 16px; font-weight: 600; color: #0b0b0b; }
+.desc { font-size: 12px; color: #52514e; margin-top: 1px; }
+.chip { font-size: 11px; white-space: nowrap; border: 1px solid;
+        border-radius: 10px; padding: 1px 8px; }
+
+.medidas { display: flex; gap: 10px; }
+.medida  { flex: 1; min-width: 0; }
+.mrot { font-size: 10px; color: #898781; text-transform: uppercase;
+        letter-spacing: .3px; }
+/* Figuras proporcionais: tabular deixa o numero solto nesse tamanho */
+.mval { font-size: 20px; color: #0b0b0b; line-height: 1.2;
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+.mval.vazio { font-size: 14px; color: #898781; }
+.mun  { font-size: 11px; color: #52514e; margin-left: 2px; }
+.trilho   { height: 3px; background: #e1e0d9; border-radius: 2px; margin-top: 4px; }
+.preenche { height: 100%; border-radius: 2px; transition: width .3s ease; }
+
+.rodape { display: flex; justify-content: space-between; margin-top: 10px;
+          font-size: 11px; color: #898781; }
+</style>
+"""
+
+no(id="cards_ativos", type="ui-template", z="flow_monitor", group=G_CARDS,
+   name="cards dos ativos", order=1, width="12", height="8",
+   head="", format=CARDS, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=340, wires=[["abrir_ativo"]])
+
+no(id="abrir_ativo", type="function", z="flow_monitor",
+   name="abrir detalhe", outputs=1, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=840, y=340,
+   wires=[["nav_detalhe"]],
+   func=r"""
+// Clique num card: guarda o ativo e pede a troca de tela. O nome tem de
+// bater com o do no ui-page, senao o ui-control reclama que nao achou.
+flow.set('ativo_sel', msg.payload);
+return { payload: { page: 'Detalhe' } };
+""")
+
+no(id="nav_detalhe", type="ui-control", z="flow_monitor", ui=BASE,
+   name="navegar", events="all", x=1020, y=340, wires=[[]])
+
+no(id="btn_voltar", type="ui-button", z="flow_monitor", group=G_CAB,
+   name="voltar", label="← Todos os ativos", order=1, width="3", height="1",
+   tooltip="", color="", bgcolor="", className="", icon="",
+   iconPosition="left", payload="", payloadType="str", topic="topic",
+   topicType="msg", buttonColor="", textColor="", iconColor="",
+   enableClick=True, enablePointerdown=False, pointerdownPayload="",
+   pointerdownPayloadType="str", enablePointerup=False, pointerupPayload="",
+   pointerupPayloadType="str", x=140, y=660, wires=[["voltar_visao"]])
+
+no(id="voltar_visao", type="function", z="flow_monitor", name="voltar",
+   outputs=1, timeout=0, noerr=0, initialize="", finalize="", libs=[],
+   x=340, y=660, wires=[["nav_detalhe"]],
+   func=r"""
+return { payload: { page: 'Visao Geral' } };
+""")
+
+no(id="cab_detalhe", type="ui-text", z="flow_monitor", group=G_CAB,
+   order=2, width="9", height="1", name="cabecalho do detalhe", label="",
+   format="{{msg.payload}}", layout="row-left", style=False, font="",
+   fontSize=16, color="#717171", wrapText=True, className="",
+   x=640, y=460, wires=[])
+
+no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
    name="tabela de ativos", label="", order=1, width="0", height="0",
    maxrows=0, passthru=False, autocols=True, columns=[],
    # 'none' desliga o modo cartao: num painel a tabela e sempre tabela,
@@ -517,8 +754,8 @@ no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_ATIVOS,
    action="replace", selectionType="none", className="",
    x=620, y=340, wires=[[]])
 
-no(id="txt_alarmes", type="ui-text", z="flow_monitor", group=G_ALARMES,
-   order=1, width="0", height="0", name="alarmes", label="",
+no(id="txt_resumo", type="ui-text", z="flow_monitor", group=G_RESUMO,
+   order=1, width="12", height="1", name="resumo", label="",
    format="{{msg.payload}}", layout="row-left", style=False, font="",
    fontSize=16, color="#717171", wrapText=True, className="",
    x=620, y=380, wires=[])
@@ -574,8 +811,8 @@ export default {
 </style>
 """
 
-no(id="stat_tiles", type="ui-template", z="flow_monitor", group=G_DETALHE,
-   name="stat tiles do ativo", order=2, width="6", height="4",
+no(id="stat_tiles", type="ui-template", z="flow_monitor", group=G_TILES,
+   name="stat tiles do ativo", order=1, width="6", height="2",
    head="", format=STAT_TILES, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=420, wires=[[]])
@@ -606,50 +843,9 @@ grafico("chart_corr", G_CORR,  "Corrente",     "A",  "0", "", largura=12)
 # =====================================================================
 #  Comandos: escolher o ativo e mandar publicar
 # =====================================================================
-no(id="dd_ativo", type="ui-dropdown", z="flow_monitor", group=G_CMD,
-   name="seletor de ativo", label="Ativo", tooltip="", order=1,
-   width="0", height="0", passthru=False, multiple=False, chips=False,
-   clearable=False, topic="topic", topicType="msg", className="",
-   options=[], payload="", payloadType="str", x=140, y=480,
-   wires=[["sel_ativo"]])
-
-no(id="sel_ativo", type="function", z="flow_monitor",
-   name="guardar selecao", outputs=0, timeout=0, noerr=0,
-   initialize="", finalize="", libs=[], x=340, y=480, wires=[],
-   func=r"""
-flow.set('ativo_sel', msg.payload);
-return null;
-""")
-
-# O dropdown precisa da lista de ativos; ela vem do mesmo registro.
-no(id="tick_opcoes", type="inject", z="flow_monitor", name="lista de ativos",
-   props=[{"p": "payload"}], repeat="5", crontab="", once=True,
-   onceDelay="2", topic="", payload="", payloadType="date",
-   x=140, y=540, wires=[["montar_opcoes"]])
-
-no(id="montar_opcoes", type="function", z="flow_monitor",
-   name="montar opcoes", outputs=1, timeout=0, noerr=0,
-   initialize="", finalize="", libs=[], x=340, y=540,
-   wires=[["dd_ativo"]],
-   func=r"""
-// Alimenta o dropdown com as opcoes que o renderizador publicou -- assim
-// o cadastro ATIVOS fica definido num lugar so ("montar painel").
-//
-// Reenvia sempre, de proposito: o widget so guarda o que recebe DEPOIS de
-// existir, e uma versao anterior guardava a lista para nao repetir -- o
-// resultado era um dropdown eternamente vazio quando a pagina abria antes
-// da primeira leitura chegar.
-const opcoes = flow.get('opcoes_ativos') || [];
-if (!opcoes.length) { return null; }
-
-if (!flow.get('ativo_sel')) { flow.set('ativo_sel', opcoes[0].value); }
-
-return { ui_update: { options: opcoes }, payload: flow.get('ativo_sel') };
-""")
-
 no(id="btn_publicar", type="ui-button", z="flow_monitor", group=G_CMD,
-   name="publicar agora", label="Publicar agora", order=2, width="0",
-   height="0", tooltip="Forca uma leitura imediata no ativo selecionado",
+   name="publicar agora", label="Publicar agora", order=1, width="6",
+   height="1", tooltip="Forca uma leitura imediata no ativo aberto",
    color="", bgcolor="", className="", icon="", iconPosition="left",
    payload="", payloadType="str", topic="topic", topicType="msg",
    buttonColor="", textColor="", iconColor="", enableClick=True,
@@ -662,12 +858,27 @@ no(id="monta_cmd", type="function", z="flow_monitor", name="monta comando",
    outputs=1, timeout=0, noerr=0, initialize="", finalize="", libs=[],
    x=340, y=600, wires=[["mqtt_cmd"]],
    func=r"""
-// Manda para o ativo SELECIONADO no dropdown, em vez de um id fixo no codigo.
-const id = flow.get('ativo_sel');
-if (!id) { node.warn('nenhum ativo selecionado'); return null; }
-msg.topic = 'monitoramento/' + id + '/cmd';
-msg.payload = JSON.stringify({ comando: 'publicar' });
-return msg;
+// Manda para o ativo ABERTO na tela, em vez de um id fixo no codigo.
+//
+// A chave pode ser um device_id ("motor-01", descoberta automatica) ou uma
+// TAG do cadastro ("U1", "U1/Motor principal"). O comando so faz sentido
+// para um ESP32 de verdade, entao quem resolve isso e o registro publicado
+// pelo renderizador.
+const chave = flow.get('ativo_sel');
+if (!chave) { node.warn('nenhum ativo aberto'); return null; }
+
+const destinos = (flow.get('esp32_por_chave') || {})[chave] || [];
+if (!destinos.length) {
+    node.warn('ativo "' + chave + '" nao tem ESP32 conhecido para comandar');
+    return null;
+}
+
+// Um ativo principal com varias partes dispara em todas elas. O array
+// vem aninhado de proposito: assim as N mensagens saem PELA MESMA saida.
+return [destinos.map(function (dev) {
+    return { topic: 'monitoramento/' + dev + '/cmd',
+             payload: JSON.stringify({ comando: 'publicar' }) };
+})];
 """)
 
 no(id="mqtt_cmd", type="mqtt out", z="flow_monitor", name="comando -> ESP32",

@@ -71,18 +71,27 @@ e o dashboard em `http://<IP_DO_ORANGE_PI>:1880/dashboard`.
 2. Selecione o arquivo [`flows.json`](flows.json) (ou cole o conteúdo).
 3. Clique em **Import** e depois em **Deploy**.
 
-O fluxo já inclui:
+## Duas telas
 
-- **Tabela de ativos** — uma linha por ativo, com temperatura, vibração,
-  corrente, estado e há quanto tempo foi visto. É também a *table view* que
-  garante acesso a todo valor sem depender de cor.
-- **Alarmes** — lista só o que está fora do normal, com o motivo escrito.
-- **Detalhe do ativo** — *stat tiles* (valor + barra contra o limite +
-  estado) do ativo escolhido no seletor.
-- **Gráficos** de temperatura, vibração RMS e corrente, com uma série por
-  ativo.
-- **Comando → ESP32** — o botão *Publicar agora* manda para o ativo
-  **selecionado no seletor**, e não para um `device_id` fixo no código.
+**1. Visão Geral** (`/dashboard/visao`) — uma **parede de cards**, um por
+ativo principal. Cada card traz a TAG, a descrição, o estado (símbolo +
+texto + faixa colorida na lateral), as três grandezas com barra contra o
+limite, quantas partes tem e há quanto tempo foi visto.
+
+**Clicar no card abre o detalhe daquele ativo.** Acima dos cards, uma faixa
+de resumo diz se está tudo normal ou lista o que não está.
+
+**2. Detalhe** (`/dashboard/detalhe`) — do ativo aberto:
+
+- Cabeçalho com nome, estado e botão **← Todos os ativos**
+- *Stat tiles* — valor, barra contra o limite, estado
+- **Partes deste ativo** — tabela só com as partes dele, não da planta
+  inteira. É também a *table view* que garante acesso a todo valor sem
+  depender de cor
+- Gráficos de temperatura, vibração RMS e corrente, uma série por
+  dispositivo
+- **Publicar agora** — força leitura imediata. Num ativo principal, dispara
+  em **todas** as suas partes de uma vez
 
 ### Três estados, não dois
 
@@ -130,7 +139,8 @@ const ATIVOS = {
 };
 ```
 
-Resultado na tabela:
+Cada entrada de primeiro nível vira **um card** na visão geral. Abrindo o
+card, a tabela de partes mostra:
 
 ```
 U1 — Linha de Transporte 1     52.5 °C   0.905 g   10.77 A   ▲ ATENCAO
