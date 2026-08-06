@@ -70,7 +70,8 @@ Estrutura hierárquica baseada em `<planta>/<area>/<equipamento>`:
     "pico_g": 0.640,
     "eixo_x_g": 0.05,
     "eixo_y_g": 0.02,
-    "eixo_z_g": 1.01
+    "eixo_z_g": 1.01,
+    "fs_hz": 371.4
   },
   "rede": {
     "rssi_dbm": -61,

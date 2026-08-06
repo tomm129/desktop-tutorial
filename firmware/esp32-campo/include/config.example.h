@@ -49,7 +49,13 @@
 
 // Amostragem de vibração
 #define VIB_AMOSTRAS           256     // amostras por janela de cálculo
-#define VIB_INTERVALO_US       2000    // ~500 Hz de amostragem
+// Pausa ENTRE leituras. A taxa real é menor que 1/VIB_INTERVALO_US, porque
+// cada getEvent() gasta ~0,7 ms no barramento I²C a 100 kHz: com 2000 us dá
+// ~370 Hz, não 500 Hz. O firmware mede e publica a taxa real em
+// "vibracao.fs_hz". Se mudar este valor, reveja o ODR do ADXL em
+// iniciarADXL() — ele precisa ficar abaixo de metade da taxa real, senão há
+// aliasing (sinal alto rebate para dentro da banda e vira pico fantasma).
+#define VIB_INTERVALO_US       2000
 
 // ---------------------------------------------------------------------
 //  Publicação

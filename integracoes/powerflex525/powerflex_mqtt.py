@@ -33,6 +33,11 @@ PARAM_INSTANCE = int(os.getenv("PF525_PARAM_INSTANCE", "3"))
 # drive: muitas faixas usam 2 casas decimais (bruto/100 => escala 0.01).
 ESCALA = float(os.getenv("PF525_ESCALA", "0.01"))
 
+# Classe CIP do objeto de parâmetros. 0x0F = Parameter Object (padrão); em
+# alguns firmwares só o DPI Parameter Object (0x93) responde. Aceita "0x93"
+# ou decimal — a base 0 do int() resolve as duas formas.
+CLASSE = int(os.getenv("PF525_CLASSE", "0x0F"), 0)
+
 INTERVALO_S = float(os.getenv("PF525_INTERVALO_S", "1.0"))
 
 MQTT_HOST = os.getenv("MQTT_HOST", "localhost")
@@ -49,17 +54,29 @@ log = logging.getLogger("pf525")
 
 
 def ler_corrente(drive: CIPDriver) -> float:
-    """Lê b003 (corrente de saída) via Parameter Object (classe 0x0F)."""
+    """Lê b003 (corrente de saída) via Parameter Object.
+
+    Usa mensageria CIP *desconectada* (UCMM). O padrão do pycomm3 é
+    ``connected=True``, que dispara um Forward Open antes da requisição — isso
+    é o esperado num rack Logix, mas o adaptador EtherNet/IP embarcado do
+    PowerFlex 525 não é tag-based e costuma recusar a abertura de conexão.
+    Leitura pontual de parâmetro é justamente o caso de uso de UCMM.
+    """
     resp = drive.generic_message(
         service=Services.get_attribute_single,
-        class_code=0x0F,           # Parameter Object
+        class_code=CLASSE,         # 0x0F Parameter Object (ou 0x93 DPI)
         instance=PARAM_INSTANCE,   # número do parâmetro (b003 -> 3)
         attribute=1,               # atributo 1 = valor do parâmetro
         data_type=INT,             # inteiro 16 bits com sinal
         name="b003_output_current",
+        connected=False,           # UCMM: sem Forward Open
+        unconnected_send=True,     # encapsula em Unconnected Send
     )
     if not resp:
-        raise RuntimeError(f"Falha CIP ao ler parâmetro {PARAM_INSTANCE}: {resp.error}")
+        raise RuntimeError(
+            f"Falha CIP ao ler parâmetro {PARAM_INSTANCE} "
+            f"(classe {CLASSE:#04x}): {resp.error}"
+        )
     return resp.value * ESCALA
 
 

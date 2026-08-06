@@ -174,66 +174,107 @@ static bool iniciarADXL() {
     return false;
   }
   adxl.setRange(ADXL345_RANGE_16_G);
-  adxl.setDataRate(ADXL345_DATARATE_800_HZ);
+
+  // ANTI-ALIASING: o ODR do ADXL define a banda interna (BW = ODR/2). Ele
+  // precisa ficar abaixo de metade da taxa com que ESTE loop consegue ler o
+  // sensor — não da taxa que gostaríamos. Com VIB_INTERVALO_US=2000 mais o
+  // tempo do getEvent() por I²C (~0,7 ms a 100 kHz), a taxa real fica em
+  // ~370 Hz, então o teto honesto é ~185 Hz. Com 800 Hz (BW 400 Hz), tudo
+  // entre 185 e 400 Hz voltava rebatido para dentro da banda útil,
+  // indistinguível de sinal real.
+  //   200 Hz -> BW 100 Hz, com folga confortável para ~370 Hz de amostragem.
+  // A taxa real medida vai no JSON como vibracao.fs_hz — confira lá se
+  // mexer em VIB_INTERVALO_US ou na velocidade do barramento I²C.
+  adxl.setDataRate(ADXL345_DATARATE_200_HZ);
   Serial.println("[ADXL] Inicializado.");
   return true;
 }
 
-// Amostra a aceleração por uma janela e calcula RMS e pico do componente
-// AC (magnitude com a gravidade removida pela média da janela). Resultado
-// em unidades de g.
+// Amostra a aceleração por uma janela e calcula RMS e pico do componente AC
+// (gravidade removida pela média da janela, EIXO A EIXO). Resultado em g.
+//
+// Por que eixo a eixo, e não pela magnitude do vetor: com a = g + v, temos
+//   |a| = sqrt(g² + 2·g·v + |v|²) ≈ g + v_paralelo_à_gravidade
+// ou seja, a vibração transversal à gravidade só aparece no termo de 2ª
+// ordem (|v_perp|²/2g) — atenuada ~1/2g e retificada. Medir pela magnitude
+// faz o resultado depender da orientação de montagem do sensor: um motor
+// com vibração radial horizontal reportaria RMS quase zero. Somando a
+// variância dos três eixos, o RMS fica invariante à orientação.
 struct ResultadoVibracao {
-  float rms_g;
-  float pico_g;
-  float media_x_g;
+  float rms_g;       // RMS AC combinado dos 3 eixos
+  float pico_g;      // maior desvio AC absoluto (eixo mais excitado)
+  float media_x_g;   // componente DC por eixo (orientação/gravidade)
   float media_y_g;
   float media_z_g;
+  float fs_hz;       // taxa de amostragem REAL medida nesta janela
 };
 
 static ResultadoVibracao medirVibracao() {
   static const float G = 9.80665f;   // m/s² por g
   const int N = VIB_AMOSTRAS;
 
-  float somaMag = 0.0f;
-  float somaX = 0.0f, somaY = 0.0f, somaZ = 0.0f;
-  float mags[N];
+  // Referência para "variância deslocada": as somas ficam perto de zero e
+  // evitam o cancelamento catastrófico de E[x²]-E[x]² em float — o sinal AC
+  // é tipicamente 100–1000x menor que o 1 g estático. A variância não muda
+  // ao subtrair uma constante; só a média precisa somá-la de volta.
+  sensors_event_t ref;
+  adxl.getEvent(&ref);
+  const float rx = ref.acceleration.x / G;
+  const float ry = ref.acceleration.y / G;
+  const float rz = ref.acceleration.z / G;
+
+  float sx = 0.0f, sy = 0.0f, sz = 0.0f;         // somas (já deslocadas)
+  float sxx = 0.0f, syy = 0.0f, szz = 0.0f;      // somas dos quadrados
+  // Inicia em ±infinito para que o primeiro valor real vença a comparação —
+  // iniciar em 0 embutiria um zero que pode não pertencer à janela.
+  float minx = INFINITY, maxx = -INFINITY;
+  float miny = INFINITY, maxy = -INFINITY;
+  float minz = INFINITY, maxz = -INFINITY;
+
+  unsigned long t0 = micros();
 
   for (int i = 0; i < N; i++) {
     sensors_event_t ev;
     adxl.getEvent(&ev);
 
-    float x = ev.acceleration.x / G;
-    float y = ev.acceleration.y / G;
-    float z = ev.acceleration.z / G;
+    float x = ev.acceleration.x / G - rx;
+    float y = ev.acceleration.y / G - ry;
+    float z = ev.acceleration.z / G - rz;
 
-    float mag = sqrtf(x * x + y * y + z * z);
-    mags[i] = mag;
+    sx += x;  sy += y;  sz += z;
+    sxx += x * x;  syy += y * y;  szz += z * z;
 
-    somaMag += mag;
-    somaX += x;
-    somaY += y;
-    somaZ += z;
+    if (x < minx) minx = x;  if (x > maxx) maxx = x;
+    if (y < miny) miny = y;  if (y > maxy) maxy = y;
+    if (z < minz) minz = z;  if (z > maxz) maxz = z;
 
     delayMicroseconds(VIB_INTERVALO_US);
   }
 
-  float mediaMag = somaMag / N;
+  unsigned long dt_us = micros() - t0;
 
-  // RMS do componente AC (magnitude - média) e pico absoluto do AC.
-  float somaQuad = 0.0f;
-  float pico = 0.0f;
-  for (int i = 0; i < N; i++) {
-    float ac = mags[i] - mediaMag;
-    somaQuad += ac * ac;
-    if (fabsf(ac) > pico) pico = fabsf(ac);
-  }
+  // Médias dos valores deslocados (o DC verdadeiro soma a referência).
+  float mx = sx / N, my = sy / N, mz = sz / N;
+
+  // Variância = potência AC de cada eixo. Clamp em 0: erro de arredondamento
+  // pode produzir um negativo minúsculo quando o eixo está praticamente parado.
+  float vx = sxx / N - mx * mx;   if (vx < 0.0f) vx = 0.0f;
+  float vy = syy / N - my * my;   if (vy < 0.0f) vy = 0.0f;
+  float vz = szz / N - mz * mz;   if (vz < 0.0f) vz = 0.0f;
+
+  // Pico AC exato por eixo (maior afastamento da própria média); reporta o
+  // eixo mais excitado.
+  float px = fmaxf(maxx - mx, mx - minx);
+  float py = fmaxf(maxy - my, my - miny);
+  float pz = fmaxf(maxz - mz, mz - minz);
 
   ResultadoVibracao r;
-  r.rms_g     = sqrtf(somaQuad / N);
-  r.pico_g    = pico;
-  r.media_x_g = somaX / N;
-  r.media_y_g = somaY / N;
-  r.media_z_g = somaZ / N;
+  r.rms_g     = sqrtf(vx + vy + vz);
+  r.pico_g    = fmaxf(px, fmaxf(py, pz));
+  r.media_x_g = mx + rx;
+  r.media_y_g = my + ry;
+  r.media_z_g = mz + rz;
+  r.fs_hz     = (dt_us > 0) ? (1000000.0f * N / (float)dt_us) : 0.0f;
   return r;
 }
 
@@ -260,6 +301,7 @@ static void publicarTelemetria() {
   v["eixo_x_g"] = round(vib.media_x_g * 100) / 100.0;
   v["eixo_y_g"] = round(vib.media_y_g * 100) / 100.0;
   v["eixo_z_g"] = round(vib.media_z_g * 100) / 100.0;
+  v["fs_hz"]    = round(vib.fs_hz * 10) / 10.0;   // taxa real, não a nominal
 
   JsonObject rede = doc["rede"].to<JsonObject>();
   rede["rssi_dbm"] = WiFi.RSSI();

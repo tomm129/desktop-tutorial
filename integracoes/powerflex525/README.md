@@ -36,9 +36,18 @@ porta serial do drive — mas aqui o alvo é EtherNet/IP.)
 parâmetro`, `atributo 1 = valor`, serviço `Get_Attribute_Single (0x0E)`. O
 valor volta como **inteiro 16 bits** com escala implícita.
 
+**Mensageria desconectada (UCMM).** O `generic_message()` do pycomm3 assume
+`connected=True` por padrão, o que dispara um **Forward Open** antes da
+requisição — comportamento certo para um rack Logix, mas o adaptador embarcado
+do PowerFlex costuma recusar a abertura de conexão. Por isso a leitura aqui usa
+`connected=False, unconnected_send=True`. O sintoma de esquecer esse detalhe é
+falhar na *abertura da conexão*, não na leitura do parâmetro — o que manda você
+investigar o lado errado.
+
 > **Fallback:** em alguns firmwares o acesso é pelo **DPI Parameter Object
 > (classe `0x93`)**, mesma lógica de instância/atributo. Se a classe `0x0F` não
-> responder, troque `class_code=0x0F` por `0x93` em `powerflex_mqtt.py`.
+> responder, ajuste `PF525_CLASSE=0x93` no `config.env` — não precisa mexer no
+> código.
 
 ## ⚠️ Os dois ajustes que você provavelmente vai precisar fazer
 
@@ -47,7 +56,14 @@ valor volta como **inteiro 16 bits** com escala implícita.
    **Confirme comparando com o display `b003` no teclado do drive** e ajuste
    até bater. Ex.: se o bruto lido for `1234` e o teclado mostrar `12,34 A`,
    a escala é `0.01`.
-2. **Classe do objeto (`0x0F` vs `0x93`).** Veja o fallback acima.
+2. **Classe do objeto (`PF525_CLASSE`).** `0x0F` ou `0x93` — veja o fallback
+   acima.
+
+> ⚠️ **No `config.env`, comentário só em linha própria.** O `EnvironmentFile=`
+> do systemd não corta comentário no fim da linha: `PF525_ESCALA=0.01  # ...`
+> faz o valor virar a string inteira e o serviço entra em crash-loop no
+> `float()`. O bash corta e esconde o problema — funciona quando você testa na
+> mão e quebra quando vira serviço.
 
 ## Instalação (no Orange Pi)
 
