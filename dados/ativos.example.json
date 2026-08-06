@@ -1,13 +1,18 @@
 {
   "_leiame": [
-    "Cadastro de ativos: dados de placa e sobressalentes.",
+    "Cadastro de ativos: mapeamento de hardware, dados de placa e sobressalentes.",
     "",
-    "Copie para 'ativos.json' (esse nao e versionado) e preencha com os seus",
-    "equipamentos. O Node-RED le este arquivo a cada 60s, entao editar aqui",
-    "reflete no painel sem precisar de deploy.",
+    "Copie para 'ativos.json' (esse nao e versionado). Voce NAO precisa editar",
+    "este arquivo na mao: a tela de Cadastro do painel (/dashboard/cadastro)",
+    "escreve nele. Edite aqui so o que a tela nao cobre -- dados de placa e",
+    "sobressalentes.",
     "",
-    "As chaves de topo e de 'partes' tem de ser IGUAIS as do cadastro ATIVOS",
-    "na funcao 'montar painel' -- e por elas que os dois se encontram.",
+    "O painel rele o arquivo a cada 60s, entao editar reflete sem deploy.",
+    "",
+    "Cada parte declara de onde vem cada numero:",
+    "   esp32         quem manda temperatura e vibracao",
+    "   inversor      device_id do sidecar que le a corrente",
+    "   tag_inversor  como esse inversor e chamado no painel (U11, U12...)",
     "",
     "Tudo e opcional: o painel mostra o que existir e omite o resto.",
     "",
@@ -20,7 +25,6 @@
     "arquivo. Fotografe a plaqueta de frente, com luz, sem flash direto (o",
     "reflexo no metal apaga justamente os numeros gravados)."
   ],
-
   "Transporte 1": {
     "local": "Galpao 2 — lateral norte",
     "partes": {
@@ -47,14 +51,32 @@
           "foto": "transporte1-motor1.jpg"
         },
         "sobressalentes": [
-          { "item": "Rolamento dianteiro", "codigo": "6208-ZZ", "qtd": 1,
-            "obs": "lado do acoplamento" },
-          { "item": "Rolamento traseiro", "codigo": "6206-ZZ", "qtd": 1 },
-          { "item": "Retentor dianteiro", "codigo": "40x62x8", "qtd": 1 },
-          { "item": "Correia", "codigo": "A-52", "qtd": 2 }
-        ]
+          {
+            "item": "Rolamento dianteiro",
+            "codigo": "6208-ZZ",
+            "qtd": 1,
+            "obs": "lado do acoplamento"
+          },
+          {
+            "item": "Rolamento traseiro",
+            "codigo": "6206-ZZ",
+            "qtd": 1
+          },
+          {
+            "item": "Retentor dianteiro",
+            "codigo": "40x62x8",
+            "qtd": 1
+          },
+          {
+            "item": "Correia",
+            "codigo": "A-52",
+            "qtd": 2
+          }
+        ],
+        "esp32": "esp-a1b2c3",
+        "inversor": "powerflex-01",
+        "tag_inversor": "U1"
       },
-
       "Motor 2": {
         "placa": {
           "fabricante": "WEG",
@@ -66,9 +88,18 @@
           "grau_protecao": "IP55"
         },
         "sobressalentes": [
-          { "item": "Rolamento dianteiro", "codigo": "6206-ZZ", "qtd": 1 },
-          { "item": "Rolamento traseiro", "codigo": "6205-ZZ", "qtd": 1 }
-        ]
+          {
+            "item": "Rolamento dianteiro",
+            "codigo": "6206-ZZ",
+            "qtd": 1
+          },
+          {
+            "item": "Rolamento traseiro",
+            "codigo": "6205-ZZ",
+            "qtd": 1
+          }
+        ],
+        "esp32": "esp-d4e5f6"
       }
     }
   }

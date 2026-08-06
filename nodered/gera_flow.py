@@ -36,12 +36,13 @@ BASE, TEMA = "ui_base", "ui_tema"
 
 # Duas telas: a visao geral e uma parede de cards (um por ativo principal),
 # e o clique num card abre o detalhe daquele ativo.
-PAGINA, PAGINA_DET = "pg_visao", "pg_detalhe"
+PAGINA, PAGINA_DET, PAGINA_CAD = "pg_visao", "pg_detalhe", "pg_cadastro"
 
 G_RESUMO, G_CARDS = "grp_resumo", "grp_cards"
 G_CAB, G_TILES, G_PARTES, G_CMD = "grp_cab", "grp_tiles", "grp_partes", "grp_cmd"
 G_PLACA = "grp_placa"
 G_TEMP, G_VIB, G_CORR = "grp_temp", "grp_vib", "grp_corr"
+G_CAD = "grp_cadastro"
 
 flows = []
 
@@ -93,6 +94,10 @@ no(id=PAGINA_DET, type="ui-page", name="Detalhe", ui=BASE, path="/detalhe",
    icon="magnify", layout="grid", theme=TEMA, order=2, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
+no(id=PAGINA_CAD, type="ui-page", name="Cadastro", ui=BASE, path="/cadastro",
+   icon="playlist-plus", layout="grid", theme=TEMA, order=3, className="",
+   visible=True, disabled=False, breakpoints=BREAKPOINTS)
+
 
 def grupo(gid, nome, largura, ordem, altura=1, pagina=PAGINA, titulo=True):
     no(id=gid, type="ui-group", name=nome, page=pagina, width=str(largura),
@@ -116,6 +121,9 @@ grupo(G_PLACA,  "Dados de placa e sobressalentes", 12, 5, altura=13,
 grupo(G_TEMP,   "Temperatura (°C)",        6, 6, altura=7, pagina=PAGINA_DET)
 grupo(G_VIB,    "Vibracao RMS (g)",        6, 7, altura=7, pagina=PAGINA_DET)
 grupo(G_CORR,   "Corrente (A)",           12, 8, altura=7, pagina=PAGINA_DET)
+
+# --- Tela 3: cadastro de dispositivos ---------------------------------
+grupo(G_CAD, "", 12, 1, altura=14, pagina=PAGINA_CAD, titulo=False)
 
 # =====================================================================
 #  Ingestao: tres topicos alimentam UM registro em flow context
@@ -145,6 +153,10 @@ if (!id) { node.warn('telemetria sem device_id, descartada'); return null; }
 const ativos = flow.get('ativos') || {};
 const a = ativos[id] || { id: id };
 
+// Quem publica telemetria e sensor de campo; quem publica no topico do
+// inversor e drive. A tela de Cadastro usa isso para nao oferecer um
+// inversor onde se espera um ESP32.
+a.tipo = 'esp32';
 a.visto_em = Date.now();
 
 // null explicito quando o sensor falhou -- a UI mostra FALHA, e nao o
@@ -203,6 +215,7 @@ if (!p || typeof p !== 'object') {
 const id = (msg.topic || '').split('/')[1] || 'inversor';
 const ativos = flow.get('ativos') || {};
 const a = ativos[id] || { id: id };
+a.tipo = 'inversor';
 
 if (typeof p.corrente_a === 'number')    { a.corrente_a    = p.corrente_a; }
 if (typeof p.tensao_v === 'number')      { a.tensao_v      = p.tensao_v; }
@@ -319,41 +332,29 @@ no(id="montar_painel", type="function", z="flow_monitor",
 // mudam aqui e valem para a tabela, os alarmes e os medidores.
 
 // ---- Cadastro de ativos ----------------------------------------------
-// A chave de topo e o ATIVO (o equipamento que a producao conhece pelo
-// nome). Dentro dele vem as PARTES -- normalmente um motor por parte, cada
-// uma com seu ESP32.
+// Vem INTEIRO de dados/ativos.json -- mapeamento de hardware e dados de
+// placa no mesmo lugar.
 //
-// Cada parte declara de onde vem cada numero:
-//   esp32         quem manda temperatura e vibracao
-//   inversor      device_id do sidecar que le a corrente
-//   tag_inversor  como esse inversor e identificado no painel (U1, U2...)
+// Antes o mapeamento morava numa constante aqui e a placa no arquivo, com
+// as chaves tendo de bater na mao. Alem de fragil, impedia a tela de
+// Cadastro de existir: nenhuma tela edita constante de codigo.
 //
-// A tag do inversor e so rotulo: e por ela que o eletricista acha o drive
-// no painel, entao ela aparece na tela -- mas quem tem estado, historico e
-// alarme e o ATIVO e a PARTE, nao o inversor. Um inversor nao "esta
-// critico"; quem esta e o motor que ele aciona.
+// Formato:
+//   'Nome do ativo': {
+//       local: 'onde fica',
+//       partes: {
+//           'Motor 1': {
+//               esp32: 'esp-a1b2c3',        // quem manda temp + vibracao
+//               inversor: 'pf-01',          // quem manda corrente
+//               tag_inversor: 'U11',        // como o drive e chamado no painel
+//               placa: { ... }, sobressalentes: [ ... ]
+//           }
+//       }
+//   }
 //
-// Deixe VAZIO para descoberta automatica: cada device_id vira uma linha
-// solta. E o modo util enquanto a instalacao ainda esta sendo montada.
-//
-// Os nomes vivem AQUI, nao no firmware (mesmo criterio de
-// docs/visualizacao.md): trocar um ESP32 queimado e editar uma linha deste
-// cadastro, sem regravar nada e sem perder o historico do ativo.
-const ATIVOS = {
-    // 'Transporte 1': {
-    //     partes: {
-    //         'Motor 1': { esp32: 'motor-01',
-    //                      inversor: 'powerflex-01', tag_inversor: 'U1' },
-    //         'Motor 2': { esp32: 'motor-02',
-    //                      inversor: 'powerflex-02', tag_inversor: 'U2' }
-    //     }
-    // },
-    // 'Exaustor de Cabine': {
-    //     partes: {
-    //         'Motor': { esp32: 'motor-03' }   // sem inversor monitorado
-    //     }
-    // },
-};
+// Vazio = descoberta automatica: todo device_id que publicar vira uma linha
+// solta, e a tela de Cadastro serve para atribui-lo a um ativo.
+const ATIVOS = flow.get('cadastro') || {};
 
 // ---- Limites. Calibre com o equipamento em condicao normal. ----------
 const LIM = {
@@ -432,8 +433,7 @@ function marcha_txt(a) {
 const registro = flow.get('ativos') || {};
 
 // Junta os device_id de UMA parte (o ESP32 e o inversor dela).
-// Cadastro de engenharia lido de dados/ativos.json.
-const cadastro = flow.get('cadastro') || {};
+const cadastro = ATIVOS;
 
 function ficha(tag, nome_parte) {
     const at = cadastro[tag] || {};
@@ -593,6 +593,39 @@ function consolidar() {
 const lista = consolidar();
 flow.set('esp32_por_chave', esp32_por_chave);
 const agora = Date.now();
+
+// ---- Dispositivos ainda nao atribuidos a nenhum ativo ----------------
+// E o que a tela de Cadastro mostra. Um dispositivo esta "atribuido"
+// quando aparece como esp32 ou inversor de alguma parte.
+const atribuidos = new Set();
+for (const tag of Object.keys(ATIVOS)) {
+    const cfg = ATIVOS[tag];
+    const partes = cfg.partes || { '': cfg };
+    for (const nome of Object.keys(partes)) {
+        const pt = partes[nome] || {};
+        if (pt.esp32) { atribuidos.add(pt.esp32); }
+        if (pt.inversor) { atribuidos.add(pt.inversor); }
+    }
+}
+flow.set('nao_atribuidos', Object.keys(registro)
+    .filter(function (id) { return !atribuidos.has(id); })
+    .map(function (id) {
+        const r = registro[id];
+        return {
+            id: id,
+            tipo: r.tipo || 'desconhecido',
+            visto: ha_quanto(r.visto_em),
+            mudo: (Date.now() - (r.visto_em || 0)) > SEM_DADOS_MS,
+            resumo: (r.tipo === 'inversor')
+                ? ((r.corrente_a !== undefined ? r.corrente_a.toFixed(2) + ' A' : '--') +
+                   (r.frequencia_hz !== undefined ? '  ·  ' + r.frequencia_hz.toFixed(1) + ' Hz' : ''))
+                : ((r.temperatura_c !== undefined && r.temperatura_c !== null
+                        ? r.temperatura_c.toFixed(1) + ' °C' : '--') +
+                   (r.vib_rms_g !== undefined && r.vib_rms_g !== null
+                        ? '  ·  ' + r.vib_rms_g.toFixed(3) + ' g' : ''))
+        };
+    }));
+flow.set('ativos_existentes', Object.keys(ATIVOS).sort());
 
 
 // ---- Passo 1: apura o estado de CADA item ----------------------------
@@ -1255,6 +1288,333 @@ no(id="painel_placa", type="ui-template", z="flow_monitor", group=G_PLACA,
    head="", format=PLACA, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=500, wires=[[]])
+
+CADASTRO = r"""
+<template>
+    <div class="tela">
+        <h2>Cadastro de dispositivos</h2>
+        <p class="ajuda">
+            Todo ESP32 ou inversor que comeca a publicar aparece aqui ate ser
+            atribuido a um ativo. Ligue o dispositivo na rede e ele surge
+            sozinho — nao ha nada a digitar antes.
+        </p>
+
+        <!-- ---------------- Dispositivos novos ---------------- -->
+        <div class="secao">
+            <div class="titulo">
+                Aguardando cadastro
+                <span v-if="novos.length" class="conta">{{ novos.length }}</span>
+            </div>
+
+            <div v-if="!novos.length" class="vazio">
+                Nenhum dispositivo pendente — todos os que estao publicando ja
+                pertencem a um ativo.
+            </div>
+
+            <table v-else class="lista">
+                <tr v-for="d in novos" :key="d.id"
+                    :class="{ sel: sel && sel.id === d.id }"
+                    @click="escolher(d)">
+                    <td class="id">
+                        {{ d.id }}
+                        <span class="tipo" :class="d.tipo">{{ d.tipo }}</span>
+                    </td>
+                    <td class="resumo">{{ d.resumo }}</td>
+                    <td class="visto" :class="{ mudo: d.mudo }">
+                        {{ d.mudo ? 'sem dados' : 'visto ha ' + d.visto }}
+                    </td>
+                    <td class="acao">{{ sel && sel.id === d.id ? '✓' : '›' }}</td>
+                </tr>
+            </table>
+        </div>
+
+        <!-- ---------------- Formulario ---------------- -->
+        <div v-if="sel" class="secao form">
+            <div class="titulo">
+                Atribuir <code>{{ sel.id }}</code>
+                <span class="tipo" :class="sel.tipo">{{ sel.tipo }}</span>
+            </div>
+
+            <div class="linha">
+                <label>Ativo</label>
+                <select v-model="ativo">
+                    <option value="">— escolha —</option>
+                    <option v-for="a in ativos" :key="a" :value="a">{{ a }}</option>
+                    <option value="__novo__">+ novo ativo…</option>
+                </select>
+            </div>
+
+            <div class="linha" v-if="ativo === '__novo__'">
+                <label>Nome do ativo</label>
+                <input v-model="ativo_novo" placeholder="ex.: Caldeira 02">
+            </div>
+
+            <div class="linha" v-if="ativo === '__novo__'">
+                <label>Local</label>
+                <input v-model="local" placeholder="ex.: Casa de Caldeiras — Setor A">
+            </div>
+
+            <div class="linha">
+                <label>Parte</label>
+                <input v-model="parte" placeholder="ex.: Motor 1, Bomba, Ventilador">
+            </div>
+
+            <div class="linha" v-if="sel.tipo === 'inversor'">
+                <label>TAG do inversor</label>
+                <input v-model="tag" placeholder="ex.: U11">
+            </div>
+
+            <p class="nota" v-if="sel.tipo === 'inversor'">
+                O inversor entra como fonte de corrente da parte. Se essa parte
+                ja tem um ESP32 cadastrado, os dois passam a alimentar o mesmo
+                equipamento.
+            </p>
+
+            <div class="botoes">
+                <button class="ok" :disabled="!valido" @click="salvar">
+                    Cadastrar
+                </button>
+                <button class="cancelar" @click="sel = null">Cancelar</button>
+            </div>
+
+            <div v-if="aviso" class="aviso">{{ aviso }}</div>
+        </div>
+
+        <!-- ---------------- Ja cadastrados ---------------- -->
+        <div class="secao">
+            <div class="titulo">Ja cadastrados</div>
+            <div v-if="!Object.keys(mapa).length" class="vazio">
+                Nenhum ativo cadastrado ainda.
+            </div>
+            <table v-else class="lista compacta">
+                <template v-for="(cfg, nome) in mapa">
+                    <tr class="pai" :key="nome">
+                        <td colspan="3"><b>{{ nome }}</b>
+                            <span v-if="cfg.local" class="local">{{ cfg.local }}</span>
+                        </td>
+                    </tr>
+                    <tr v-for="(pt, pn) in (cfg.partes || {})" :key="nome + '/' + pn">
+                        <td class="parte-nome">└ {{ pn }}</td>
+                        <td class="devs">
+                            <span v-if="pt.esp32"><code>{{ pt.esp32 }}</code></span>
+                            <span v-if="pt.inversor">
+                                <code>{{ pt.inversor }}</code>
+                                <span v-if="pt.tag_inversor" class="tagi">{{ pt.tag_inversor }}</span>
+                            </span>
+                        </td>
+                        <td class="acao">
+                            <button class="mini" @click="remover(nome, pn)">remover</button>
+                        </td>
+                    </tr>
+                </template>
+            </table>
+        </div>
+    </div>
+</template>
+
+<script>
+export default {
+    data () {
+        return {
+            novos: [], ativos: [], mapa: {},
+            sel: null, ativo: '', ativo_novo: '', local: '', parte: '', tag: '',
+            aviso: ''
+        }
+    },
+    computed: {
+        valido () {
+            const a = (this.ativo === '__novo__') ? this.ativo_novo.trim() : this.ativo;
+            return !!a && !!this.parte.trim();
+        }
+    },
+    methods: {
+        escolher (d) {
+            this.sel = d;
+            this.aviso = '';
+            this.parte = ''; this.tag = ''; this.ativo = ''; this.ativo_novo = '';
+        },
+        salvar () {
+            const alvo = (this.ativo === '__novo__')
+                ? this.ativo_novo.trim() : this.ativo;
+            this.send({ payload: {
+                acao: 'atribuir',
+                dispositivo: this.sel.id,
+                tipo: this.sel.tipo,
+                ativo: alvo,
+                local: this.local.trim(),
+                parte: this.parte.trim(),
+                tag_inversor: this.tag.trim()
+            } });
+            this.aviso = 'Enviado. A lista atualiza em alguns segundos.';
+            this.sel = null;
+        },
+        remover (ativo, parte) {
+            this.send({ payload: { acao: 'remover', ativo: ativo, parte: parte } });
+        }
+    },
+    watch: {
+        msg: {
+            immediate: true,
+            handler (m) {
+                const p = (m && m.payload) || {};
+                if (!p.novos && !p.mapa) { return; }
+                this.novos = p.novos || [];
+                this.ativos = p.ativos || [];
+                this.mapa = p.mapa || {};
+                // Se o dispositivo selecionado sumiu da lista, ele foi
+                // cadastrado -- fecha o formulario sozinho.
+                if (this.sel && !this.novos.find(d => d.id === this.sel.id)) {
+                    this.sel = null;
+                }
+            }
+        }
+    }
+}
+</script>
+
+<style scoped>
+.tela  { color: #c3c2b7; font-size: 14px; }
+h2     { color: #ffffff; font-size: 20px; margin: 0 0 4px; font-weight: 600; }
+.ajuda { color: #898781; font-size: 13px; margin: 0 0 18px; max-width: 70ch; }
+
+.secao  { margin-bottom: 22px; }
+.titulo { font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
+          color: #898781; margin-bottom: 8px; }
+.conta  { background: #2c2c2a; color: #ffffff; border-radius: 8px;
+          padding: 0 7px; margin-left: 6px; }
+.vazio  { color: #5a5a55; font-size: 13px; border: 1px dashed #383835;
+          border-radius: 4px; padding: 14px; }
+
+table  { border-collapse: collapse; width: 100%; }
+.lista td { padding: 9px 10px; border-bottom: 1px solid #2c2c2a;
+            vertical-align: middle; }
+.lista tr { cursor: pointer; }
+.lista tr:hover td { background: #212120; }
+.lista tr.sel td    { background: #1d2a3a; }
+.compacta tr { cursor: default; }
+.compacta tr:hover td { background: transparent; }
+
+.id   { color: #ffffff; font-family: ui-monospace, "Cascadia Code", monospace; }
+.tipo { font-size: 10px; text-transform: uppercase; letter-spacing: .3px;
+        border: 1px solid; border-radius: 8px; padding: 1px 6px; margin-left: 8px; }
+.tipo.esp32    { color: #3987e5; border-color: #3987e5; }
+.tipo.inversor { color: #c98500; border-color: #c98500; }
+.tipo.desconhecido { color: #898781; border-color: #383835; }
+
+.resumo { color: #c3c2b7; font-variant-numeric: tabular-nums; }
+.visto  { color: #898781; font-size: 12px; text-align: right; }
+.visto.mudo { color: #d03b3b; }
+.acao   { color: #898781; text-align: right; width: 90px; }
+
+.form   { border: 1px solid #383835; border-radius: 4px; padding: 16px; }
+.linha  { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+label   { width: 130px; color: #898781; font-size: 13px; flex: none; }
+input, select {
+    background: #0d0d0d; color: #ffffff; border: 1px solid #383835;
+    border-radius: 4px; padding: 7px 10px; font-size: 14px;
+    flex: 1; max-width: 420px; font-family: inherit;
+}
+input:focus, select:focus { outline: none; border-color: #3987e5; }
+.nota { color: #898781; font-size: 12px; margin: 4px 0 12px; max-width: 70ch; }
+
+.botoes { display: flex; gap: 10px; margin-top: 14px; }
+button  { border: none; border-radius: 4px; padding: 9px 18px; font-size: 14px;
+          cursor: pointer; font-family: inherit; }
+.ok       { background: #3987e5; color: #ffffff; }
+.ok:disabled { background: #2c2c2a; color: #5a5a55; cursor: not-allowed; }
+.cancelar { background: transparent; color: #898781; border: 1px solid #383835; }
+.mini     { background: transparent; color: #898781; border: 1px solid #383835;
+            font-size: 11px; padding: 3px 9px; }
+.mini:hover { color: #d03b3b; border-color: #d03b3b; }
+.aviso    { color: #0ca30c; font-size: 13px; margin-top: 12px; }
+
+.pai td   { padding-top: 14px; color: #ffffff; }
+.local    { color: #898781; font-size: 12px; margin-left: 10px; font-weight: 400; }
+.parte-nome { color: #c3c2b7; padding-left: 14px !important; }
+.devs code  { color: #ffffff; font-family: ui-monospace, monospace;
+              margin-right: 10px; }
+.tagi { color: #c98500; font-size: 11px; border: 1px solid #c98500;
+        border-radius: 8px; padding: 0 6px; margin-left: 4px; }
+</style>
+"""
+
+no(id="tela_cadastro", type="ui-template", z="flow_monitor", group=G_CAD,
+   name="cadastro de dispositivos", order=1, width="12", height="14",
+   head="", format=CADASTRO, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=800, wires=[["aplicar_cadastro"]])
+
+no(id="tick_cad_ui", type="inject", z="flow_monitor",
+   name="atualizar tela (3s)", props=[{"p": "payload"}], repeat="3",
+   crontab="", once=True, onceDelay="2", topic="", payload="",
+   payloadType="date", x=140, y=800, wires=[["montar_cadastro"]])
+
+no(id="montar_cadastro", type="function", z="flow_monitor",
+   name="montar tela de cadastro", outputs=1, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=380, y=800,
+   wires=[["tela_cadastro"]],
+   func=r"""
+// Alimenta a tela com o que o renderizador ja apurou: quem esta publicando
+// sem dono, quais ativos existem, e o mapa atual.
+return { payload: {
+    novos:  flow.get('nao_atribuidos') || [],
+    ativos: flow.get('ativos_existentes') || [],
+    mapa:   flow.get('cadastro') || {}
+} };
+""")
+
+no(id="aplicar_cadastro", type="function", z="flow_monitor",
+   name="aplicar cadastro", outputs=1, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=860, y=800,
+   wires=[["gravar_cadastro"]],
+   func=r"""
+// Aplica a alteracao no cadastro e devolve o JSON inteiro para gravacao.
+//
+// Le do flow context e nao do disco: o arquivo e relido a cada 60s, entao
+// gravar por cima do que esta em memoria e coerente -- e evita uma leitura
+// sincrona no meio da interacao do usuario.
+const p = msg.payload || {};
+const cad = JSON.parse(JSON.stringify(flow.get('cadastro') || {}));
+
+if (p.acao === 'remover') {
+    const at = cad[p.ativo];
+    if (at && at.partes) {
+        delete at.partes[p.parte];
+        // Ativo sem nenhuma parte nao tem por que continuar existindo.
+        if (!Object.keys(at.partes).length) { delete cad[p.ativo]; }
+    }
+} else if (p.acao === 'atribuir') {
+    if (!p.ativo || !p.parte) { node.warn('cadastro incompleto, ignorado'); return null; }
+
+    if (!cad[p.ativo]) { cad[p.ativo] = { partes: {} }; }
+    if (p.local) { cad[p.ativo].local = p.local; }
+    if (!cad[p.ativo].partes) { cad[p.ativo].partes = {}; }
+    if (!cad[p.ativo].partes[p.parte]) { cad[p.ativo].partes[p.parte] = {}; }
+
+    const pt = cad[p.ativo].partes[p.parte];
+    if (p.tipo === 'inversor') {
+        pt.inversor = p.dispositivo;
+        if (p.tag_inversor) { pt.tag_inversor = p.tag_inversor; }
+    } else {
+        pt.esp32 = p.dispositivo;
+    }
+} else {
+    return null;
+}
+
+// Atualiza a memoria na hora: a tela reflete a mudanca no proximo ciclo de
+// 3s, sem esperar a releitura do arquivo.
+flow.set('cadastro', cad);
+
+msg.filename = (env.get('IOT_DADOS') || '/opt/iot/dados') + '/ativos.json';
+msg.payload = JSON.stringify(cad, null, 2) + '\n';
+return msg;
+""")
+
+no(id="gravar_cadastro", type="file", z="flow_monitor", name="ativos.json",
+   filename="filename", filenameType="msg", appendNewline=False,
+   createDir=True, overwriteFile="true", encoding="utf8",
+   x=1080, y=800, wires=[[]])
 
 no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
    name="tabela de ativos", label="", order=1, width="0", height="0",

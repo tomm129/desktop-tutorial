@@ -71,7 +71,7 @@ e o dashboard em `http://<IP_DO_ORANGE_PI>:1880/dashboard`.
 2. Selecione o arquivo [`flows.json`](flows.json) (ou cole o conteúdo).
 3. Clique em **Import** e depois em **Deploy**.
 
-## Duas telas
+## Três telas
 
 **1. Visão Geral** (`/dashboard/visao`) — uma **parede de cards**, um por
 ativo principal. Cada card traz a TAG, a descrição, o estado (símbolo +
@@ -81,7 +81,12 @@ limite, quantas partes tem e há quanto tempo foi visto.
 **Clicar no card abre o detalhe daquele ativo.** Acima dos cards, uma faixa
 de resumo diz se está tudo normal ou lista o que não está.
 
-**2. Detalhe** (`/dashboard/detalhe`) — do ativo aberto:
+**2. Cadastro** (`/dashboard/cadastro`) — todo ESP32 ou inversor que começa a
+publicar aparece aqui até ser atribuído a um ativo. Ligue o dispositivo na
+rede e ele surge sozinho; escolha o ativo e a parte, e pronto. **Não há nada
+a digitar antes, nem arquivo a editar.**
+
+**3. Detalhe** (`/dashboard/detalhe`) — do ativo aberto:
 
 - Cabeçalho com nome, estado e botão **← Todos os ativos**
 - *Stat tiles* — valor, barra contra o limite, estado
@@ -114,12 +119,19 @@ lê exatamente como "está tudo bem".
 
 ## Cadastro de ativos e sub-ativos
 
-Por padrão o painel faz **descoberta automática**: cada `device_id` que
-publicar vira uma linha. É o modo útil enquanto a instalação está sendo
-montada.
+O cadastro vive **inteiro** em `dados/ativos.json` — mapeamento de hardware
+e dados de placa no mesmo lugar — e a tela de **Cadastro** escreve nele.
+Você não precisa editar o arquivo à mão para associar um dispositivo; só
+para o que a tela não cobre (placa e sobressalentes).
 
-Quando a planta toma forma, preencha o `ATIVOS` no topo da função
-**montar painel**. Ele resolve dois problemas de uma vez:
+> Antes o mapeamento morava numa constante no fluxo e a placa no arquivo,
+> com as chaves tendo de bater manualmente. Além de frágil, impedia a tela
+> de existir: nenhuma tela edita constante de código.
+
+Por padrão o painel faz **descoberta automática**: cada `device_id` que
+publicar vira uma linha solta, e a tela de Cadastro serve para atribuí-lo.
+
+O cadastro resolve dois problemas de uma vez:
 
 1. **Um equipamento, dois `device_id`.** Temperatura e vibração vêm do
    ESP32; a corrente vem do inversor. Sem o cadastro, o mesmo motor aparece
@@ -128,19 +140,22 @@ Quando a planta toma forma, preencha o `ATIVOS` no topo da função
    prensa ou um conjunto costuma ter um ESP32 por motor, por bomba, por
    redutor. São **sub-ativos**.
 
-```javascript
-const ATIVOS = {
-    'Transporte 1': {
-        partes: {
-            'Motor 1': { esp32: 'motor-01',
-                         inversor: 'powerflex-01', tag_inversor: 'U1' },
-            'Motor 2': { esp32: 'motor-02' }
-        }
-    },
-    'Exaustor de Cabine': {
-        partes: { 'Motor': { esp32: 'motor-03' } }   // sem inversor monitorado
+```json
+{
+  "Transporte 1": {
+    "local": "Galpao 2 — lateral norte",
+    "partes": {
+      "Motor 1": {
+        "esp32": "esp-a1b2c3",
+        "inversor": "powerflex-01",
+        "tag_inversor": "U1",
+        "placa": { "corrente_nominal_a": 8.2, "...": "..." },
+        "sobressalentes": [ { "item": "Rolamento dianteiro", "codigo": "6208-ZZ", "qtd": 1 } ]
+      },
+      "Motor 2": { "esp32": "esp-d4e5f6" }
     }
-};
+  }
+}
 ```
 
 Cada entrada de primeiro nível vira **um card** na visão geral. Abrindo o
@@ -265,6 +280,30 @@ degrau 3 do roadmap vai precisar**: o diagnóstico espectral de vibração
 calcula as frequências de falha (BPFO, BPFI, BSF, FTF) a partir da
 geometria do rolamento. Cadastrar isso agora é acumular o dado antes de
 precisar dele.
+
+## Como cadastrar um dispositivo novo
+
+1. Ligue o ESP32 (ou suba o sidecar do inversor) na rede
+2. Abra `http://<ip-do-pi>:1880/dashboard/cadastro` — do celular serve
+3. Ele aparece em **Aguardando cadastro**, com as leituras ao vivo, o que
+   ajuda a confirmar que é o dispositivo certo antes de atribuir
+4. Clique nele, escolha o ativo (ou crie um novo), dê nome à parte
+5. **Cadastrar**
+
+O card aparece na visão geral em segundos. Para desfazer, o botão
+*remover* na lista de já cadastrados — o ativo some sozinho quando fica
+sem partes.
+
+> A tela distingue **ESP32** de **inversor** pelo tópico em que cada um
+> publica, e só pede a TAG do drive quando é inversor. Assim não dá para
+> cadastrar um drive onde se espera um sensor.
+
+### O que a tela não faz
+
+Dados de placa e sobressalentes continuam sendo edição do
+`dados/ativos.json`. É conteúdo que vem da plaqueta e do almoxarifado, não
+do dispositivo — um formulário com vinte campos na tela de cadastro
+atrapalharia o que ela faz bem, que é atribuir rápido.
 
 ## Editar o fluxo
 
