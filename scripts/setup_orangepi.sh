@@ -170,9 +170,13 @@ instalar_nodered() {
         ok "Node-RED instalado"
     fi
 
+    # Dashboard 2.0 (@flowfuse/node-red-dashboard), NAO o node-red-dashboard
+    # antigo: aquele foi descontinuado em jun/2024, roda sobre Angular v1 sem
+    # manutencao e nao recebe mais correcao. O flows.json deste repo usa os
+    # nos ui-* do 2.0; instalar o antigo faria o fluxo importar quebrado.
     mkdir -p "$NODERED_DIR"
-    ( cd "$NODERED_DIR" && npm install --no-fund --no-audit node-red-dashboard )
-    ok "node-red-dashboard instalado"
+    ( cd "$NODERED_DIR" && npm install --no-fund --no-audit @flowfuse/node-red-dashboard )
+    ok "Dashboard 2.0 instalado"
 
     # Para o servico antes de mexer no flows.json, senao ele reescreve por cima.
     sudo systemctl stop nodered 2>/dev/null || true
@@ -264,7 +268,7 @@ resumo() {
     azul "Pronto"
     cat <<EOF
 
-  Dashboard ao vivo   http://${ip}:1880/ui
+  Dashboard ao vivo   http://${ip}:1880/dashboard
   Editor do Node-RED  http://${ip}:1880
   Broker MQTT         ${ip}:1883  (usuario: ${MQTT_USER})
 

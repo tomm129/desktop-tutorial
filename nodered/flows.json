@@ -1,323 +1,813 @@
 [
-  {
-    "id": "flow_monitor",
-    "type": "tab",
-    "label": "Monitoramento",
-    "disabled": false,
-    "info": "Monitoramento de corrente, temperatura e vibração."
-  },
-  {
-    "id": "broker_local",
-    "type": "mqtt-broker",
-    "name": "Mosquitto local",
-    "broker": "localhost",
-    "port": "1883",
-    "clientid": "nodered-painel",
-    "keepalive": "60",
-    "cleansession": true,
-    "birthTopic": "",
-    "closeTopic": "",
-    "willTopic": ""
-  },
-  {
-    "id": "ui_tab_1",
-    "type": "ui_tab",
-    "name": "Monitoramento",
-    "icon": "dashboard",
-    "order": 1
-  },
-  {
-    "id": "ui_grp_temp",
-    "type": "ui_group",
-    "name": "Temperatura",
-    "tab": "ui_tab_1",
-    "order": 1,
-    "disp": true,
-    "width": 6
-  },
-  {
-    "id": "ui_grp_vib",
-    "type": "ui_group",
-    "name": "Vibração",
-    "tab": "ui_tab_1",
-    "order": 2,
-    "disp": true,
-    "width": 6
-  },
-  {
-    "id": "ui_grp_corr",
-    "type": "ui_group",
-    "name": "Corrente (painel)",
-    "tab": "ui_tab_1",
-    "order": 3,
-    "disp": true,
-    "width": 6
-  },
-  {
-    "id": "ui_grp_alarm",
-    "type": "ui_group",
-    "name": "Alarmes",
-    "tab": "ui_tab_1",
-    "order": 4,
-    "disp": true,
-    "width": 6
-  },
-  {
-    "id": "mqtt_telemetria",
-    "type": "mqtt in",
-    "z": "flow_monitor",
-    "name": "telemetria de campo",
-    "topic": "monitoramento/+/telemetria",
-    "qos": "0",
-    "datatype": "auto",
-    "broker": "broker_local",
-    "x": 150,
-    "y": 120,
-    "wires": [["parse_json"]]
-  },
-  {
-    "id": "parse_json",
-    "type": "json",
-    "z": "flow_monitor",
-    "name": "",
-    "property": "payload",
-    "action": "obj",
-    "x": 350,
-    "y": 120,
-    "wires": [["separar"]]
-  },
-  {
-    "id": "separar",
-    "type": "function",
-    "z": "flow_monitor",
-    "name": "separar grandezas",
-    "func": "// Divide a telemetria em saídas separadas.\nconst p = msg.payload || {};\nconst id = p.device_id || 'desconhecido';\n\n// Saída 1: temperatura\nlet temp = null;\nif (p.temperatura_c !== undefined && p.temperatura_c !== null) {\n    temp = { topic: id, payload: p.temperatura_c };\n}\n\n// Saída 2: vibração (RMS)\nlet vib = null;\nif (p.vibracao) {\n    vib = { topic: id, payload: p.vibracao.rms_g };\n}\n\n// Saída 3: objeto completo para o avaliador de alarmes\nconst full = { payload: p };\n\nreturn [temp, vib, full];",
-    "outputs": 3,
-    "x": 560,
-    "y": 120,
-    "wires": [["gauge_temp"], ["chart_vib"], ["avaliar_alarme"]]
-  },
-  {
-    "id": "gauge_temp",
-    "type": "ui_gauge",
-    "z": "flow_monitor",
-    "name": "Temperatura",
-    "group": "ui_grp_temp",
-    "order": 1,
-    "width": 6,
-    "height": 4,
-    "gtype": "gage",
-    "title": "Temperatura",
-    "label": "°C",
-    "format": "{{value}}",
-    "min": 0,
-    "max": 100,
-    "colors": ["#00b500", "#e6e600", "#ca3838"],
-    "seg1": 60,
-    "seg2": 75,
-    "x": 820,
-    "y": 80,
-    "wires": []
-  },
-  {
-    "id": "chart_vib",
-    "type": "ui_chart",
-    "z": "flow_monitor",
-    "name": "Vibração RMS",
-    "group": "ui_grp_vib",
-    "order": 1,
-    "width": 6,
-    "height": 4,
-    "label": "Vibração RMS (g)",
-    "chartType": "line",
-    "legend": "false",
-    "ymin": "0",
-    "ymax": "",
-    "removeOlder": "1",
-    "removeOlderUnit": "3600",
-    "x": 820,
-    "y": 140,
-    "wires": [[]]
-  },
-  {
-    "id": "avaliar_alarme",
-    "type": "function",
-    "z": "flow_monitor",
-    "name": "avaliar limites",
-    "func": "// Limites de alarme — calibre conforme o equipamento.\nconst LIM = {\n    temp:  { atencao: 60,  critico: 75 },\n    vibRms:{ atencao: 0.5, critico: 1.0 }\n};\n\nconst p = msg.payload || {};\nconst id = p.device_id || 'desconhecido';\nlet nivel = 'normal';\nconst motivos = [];\n\nfunction avalia(valor, lim, nome, unid) {\n    if (valor === undefined || valor === null) return;\n    if (valor >= lim.critico) {\n        nivel = 'critico';\n        motivos.push(`${nome} crítico: ${valor}${unid}`);\n    } else if (valor >= lim.atencao) {\n        if (nivel !== 'critico') nivel = 'atencao';\n        motivos.push(`${nome} em atenção: ${valor}${unid}`);\n    }\n}\n\navalia(p.temperatura_c, LIM.temp, 'Temperatura', '°C');\nif (p.vibracao) avalia(p.vibracao.rms_g, LIM.vibRms, 'Vibração RMS', 'g');\n\nconst cores = { normal: '#00b500', atencao: '#e6e600', critico: '#ca3838' };\nmsg.payload = motivos.length ? `${id}: ${motivos.join(' | ')}` : `${id}: OK`;\nmsg.color = cores[nivel];\nmsg.nivel = nivel;\nreturn msg;",
-    "outputs": 1,
-    "x": 810,
-    "y": 220,
-    "wires": [["status_alarme", "debug_alarme"]]
-  },
-  {
-    "id": "status_alarme",
-    "type": "ui_text",
-    "z": "flow_monitor",
-    "group": "ui_grp_alarm",
-    "order": 1,
-    "width": 6,
-    "height": 2,
-    "name": "Status",
-    "label": "Status",
-    "format": "<span style=\"color:{{msg.color}}\">{{msg.payload}}</span>",
-    "layout": "row-left",
-    "x": 1030,
-    "y": 200,
-    "wires": []
-  },
-  {
-    "id": "debug_alarme",
-    "type": "debug",
-    "z": "flow_monitor",
-    "name": "alarme",
-    "active": true,
-    "console": false,
-    "complete": "payload",
-    "x": 1030,
-    "y": 260,
-    "wires": []
-  },
-  {
-    "id": "mqtt_corrente",
-    "type": "mqtt in",
-    "z": "flow_monitor",
-    "name": "corrente PowerFlex 525",
-    "topic": "monitoramento/+/corrente",
-    "qos": "0",
-    "datatype": "auto",
-    "broker": "broker_local",
-    "x": 170,
-    "y": 320,
-    "wires": [["parse_corrente"]]
-  },
-  {
-    "id": "parse_corrente",
-    "type": "function",
-    "z": "flow_monitor",
-    "name": "extrai corrente (A)",
-    "func": "// Recebe o que o sidecar pycomm3 publica em monitoramento/<id>/corrente.\n// Aceita objeto { corrente_a: <valor> } ou numero puro.\nlet v = msg.payload;\nif (v && typeof v === 'object') { v = v.corrente_a; }\nv = Number(v);\nif (!isFinite(v)) { return null; }\nconst id = (msg.topic || '').split('/')[1] || 'powerflex';\nmsg.topic = id;\nmsg.payload = Math.round(v * 10) / 10;\nreturn msg;",
-    "outputs": 1,
-    "x": 450,
-    "y": 320,
-    "wires": [["gauge_corr"]]
-  },
-  {
-    "id": "gauge_corr",
-    "type": "ui_gauge",
-    "z": "flow_monitor",
-    "name": "Corrente",
-    "group": "ui_grp_corr",
-    "order": 1,
-    "width": 6,
-    "height": 4,
-    "gtype": "gage",
-    "title": "Corrente",
-    "label": "A",
-    "format": "{{value}}",
-    "min": 0,
-    "max": 50,
-    "colors": ["#00b500", "#e6e600", "#ca3838"],
-    "seg1": 40,
-    "seg2": 45,
-    "x": 700,
-    "y": 320,
-    "wires": []
-  },
-  {
-    "id": "ui_grp_disp",
-    "type": "ui_group",
-    "name": "Dispositivo de campo",
-    "tab": "ui_tab_1",
-    "order": 5,
-    "disp": true,
-    "width": 6
-  },
-  {
-    "id": "mqtt_status",
-    "type": "mqtt in",
-    "z": "flow_monitor",
-    "name": "status de campo (online/offline)",
-    "topic": "monitoramento/+/status",
-    "qos": "1",
-    "datatype": "utf8",
-    "broker": "broker_local",
-    "x": 180,
-    "y": 440,
-    "wires": [["fmt_status"]]
-  },
-  {
-    "id": "fmt_status",
-    "type": "function",
-    "z": "flow_monitor",
-    "name": "formata status",
-    "func": "const id = (msg.topic || '').split('/')[1] || 'dispositivo';\nconst online = String(msg.payload).trim() === 'online';\nmsg.payload = `${id}: ${online ? 'ONLINE' : 'OFFLINE'}`;\nmsg.color = online ? '#00b500' : '#ca3838';\nreturn msg;",
-    "outputs": 1,
-    "x": 440,
-    "y": 440,
-    "wires": [["txt_conexao"]]
-  },
-  {
-    "id": "txt_conexao",
-    "type": "ui_text",
-    "z": "flow_monitor",
-    "group": "ui_grp_disp",
-    "order": 1,
-    "width": 6,
-    "height": 1,
-    "name": "Conexão",
-    "label": "Conexão",
-    "format": "<span style=\"color:{{msg.color}}\">{{msg.payload}}</span>",
-    "layout": "row-left",
-    "x": 660,
-    "y": 440,
-    "wires": []
-  },
-  {
-    "id": "btn_publicar",
-    "type": "ui_button",
-    "z": "flow_monitor",
-    "name": "Publicar agora",
-    "group": "ui_grp_disp",
-    "order": 2,
-    "width": 6,
-    "height": 1,
-    "label": "Publicar agora",
-    "tooltip": "Solicita uma leitura imediata ao ESP32",
-    "color": "",
-    "bgcolor": "",
-    "className": "",
-    "icon": "",
-    "payload": "publicar",
-    "payloadType": "str",
-    "topic": "",
-    "topicType": "str",
-    "x": 180,
-    "y": 520,
-    "wires": [["monta_cmd"]]
-  },
-  {
-    "id": "monta_cmd",
-    "type": "function",
-    "z": "flow_monitor",
-    "name": "monta comando",
-    "func": "// Ajuste o device_id de destino conforme o equipamento.\nconst deviceId = 'motor-01';\nmsg.topic = `monitoramento/${deviceId}/cmd`;\nmsg.payload = JSON.stringify({ comando: 'publicar' });\nreturn msg;",
-    "outputs": 1,
-    "x": 430,
-    "y": 520,
-    "wires": [["mqtt_cmd"]]
-  },
-  {
-    "id": "mqtt_cmd",
-    "type": "mqtt out",
-    "z": "flow_monitor",
-    "name": "comando -> ESP32",
-    "topic": "",
-    "qos": "1",
-    "retain": "false",
-    "broker": "broker_local",
-    "x": 680,
-    "y": 520,
-    "wires": []
-  }
+    {
+        "id": "flow_monitor",
+        "type": "tab",
+        "label": "Monitoramento",
+        "disabled": false,
+        "info": "Monitoramento de corrente, temperatura e vibracao.\nDashboard em /dashboard"
+    },
+    {
+        "id": "broker_local",
+        "type": "mqtt-broker",
+        "name": "Mosquitto local",
+        "broker": "localhost",
+        "port": "1883",
+        "clientid": "",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": ""
+    },
+    {
+        "id": "ui_base",
+        "type": "ui-base",
+        "name": "Monitoramento",
+        "path": "/dashboard",
+        "appIcon": "",
+        "includeClientData": true,
+        "acceptsClientConfig": [
+            "ui-notification",
+            "ui-control"
+        ],
+        "showPathInSidebar": false,
+        "headerContent": "page",
+        "navigationStyle": "default",
+        "titleBarStyle": "default",
+        "showReconnectNotification": true,
+        "notificationDisplayTime": "5",
+        "showDisconnectNotification": true,
+        "allowInstall": true
+    },
+    {
+        "id": "ui_tema",
+        "type": "ui-theme",
+        "name": "Industrial",
+        "colors": {
+            "surface": "#fafafa",
+            "primary": "#2a78d6",
+            "bgPage": "#f1f1ee",
+            "groupBg": "#ffffff",
+            "groupOutline": "#d8d7d0"
+        },
+        "sizes": {
+            "density": "default",
+            "pagePadding": "12px",
+            "groupGap": "12px",
+            "groupBorderRadius": "4px",
+            "widgetGap": "12px"
+        }
+    },
+    {
+        "id": "pg_monitor",
+        "type": "ui-page",
+        "name": "Monitoramento",
+        "ui": "ui_base",
+        "path": "/monitor",
+        "icon": "gauge",
+        "layout": "grid",
+        "theme": "ui_tema",
+        "order": 1,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": "0",
+                "cols": "3"
+            },
+            {
+                "name": "Tablet",
+                "px": "576",
+                "cols": "6"
+            },
+            {
+                "name": "Small Desktop",
+                "px": "768",
+                "cols": "9"
+            },
+            {
+                "name": "Desktop",
+                "px": "1024",
+                "cols": "12"
+            }
+        ]
+    },
+    {
+        "id": "grp_ativos",
+        "type": "ui-group",
+        "name": "Ativos",
+        "page": "pg_monitor",
+        "width": "12",
+        "height": "1",
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default"
+    },
+    {
+        "id": "grp_alarmes",
+        "type": "ui-group",
+        "name": "Alarmes",
+        "page": "pg_monitor",
+        "width": "12",
+        "height": "1",
+        "order": 2,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default"
+    },
+    {
+        "id": "grp_detalhe",
+        "type": "ui-group",
+        "name": "Detalhe do ativo",
+        "page": "pg_monitor",
+        "width": "6",
+        "height": "3",
+        "order": 3,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default"
+    },
+    {
+        "id": "grp_cmd",
+        "type": "ui-group",
+        "name": "Comandos",
+        "page": "pg_monitor",
+        "width": "6",
+        "height": "3",
+        "order": 4,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default"
+    },
+    {
+        "id": "grp_temp",
+        "type": "ui-group",
+        "name": "Temperatura (°C)",
+        "page": "pg_monitor",
+        "width": "6",
+        "height": "7",
+        "order": 5,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default"
+    },
+    {
+        "id": "grp_vib",
+        "type": "ui-group",
+        "name": "Vibracao RMS (g)",
+        "page": "pg_monitor",
+        "width": "6",
+        "height": "7",
+        "order": 6,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default"
+    },
+    {
+        "id": "grp_corr",
+        "type": "ui-group",
+        "name": "Corrente (A)",
+        "page": "pg_monitor",
+        "width": "12",
+        "height": "7",
+        "order": 7,
+        "showTitle": true,
+        "className": "",
+        "visible": true,
+        "disabled": false,
+        "groupType": "default"
+    },
+    {
+        "id": "mqtt_telemetria",
+        "type": "mqtt in",
+        "z": "flow_monitor",
+        "name": "telemetria de campo",
+        "topic": "monitoramento/+/telemetria",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "broker_local",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 100,
+        "wires": [
+            [
+                "parse_json"
+            ]
+        ]
+    },
+    {
+        "id": "parse_json",
+        "type": "json",
+        "z": "flow_monitor",
+        "name": "",
+        "property": "payload",
+        "action": "obj",
+        "pretty": false,
+        "x": 330,
+        "y": 100,
+        "wires": [
+            [
+                "reg_telemetria"
+            ]
+        ]
+    },
+    {
+        "id": "reg_telemetria",
+        "type": "function",
+        "z": "flow_monitor",
+        "name": "registrar telemetria",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 500,
+        "y": 100,
+        "wires": [
+            [
+                "chart_temp"
+            ],
+            [
+                "chart_vib"
+            ]
+        ],
+        "func": "\n// Guarda a ultima leitura de cada ativo num registro unico (flow context)\n// e repassa os valores para os graficos.\n//\n// msg.topic vira o device_id: e ele que separa as series no grafico, o que\n// faz o dashboard funcionar com N ativos em vez de um so.\nconst p = msg.payload || {};\nconst id = p.device_id;\nif (!id) { node.warn('telemetria sem device_id, descartada'); return null; }\n\nconst ativos = flow.get('ativos') || {};\nconst a = ativos[id] || { id: id };\n\na.visto_em = Date.now();\n\n// null explicito quando o sensor falhou -- a UI mostra FALHA, e nao o\n// ultimo valor bom congelado, que leria como \"esta tudo bem\".\na.temperatura_c = (p.temperatura_c === undefined || p.temperatura_c === null)\n    ? null : p.temperatura_c;\n\nif (p.vibracao) {\n    a.vib_rms_g  = p.vibracao.rms_g  ?? null;\n    a.vib_pico_g = p.vibracao.pico_g ?? null;\n    a.fs_hz      = p.vibracao.fs_hz  ?? null;\n} else {\n    a.vib_rms_g = null;\n}\nif (p.rede) { a.rssi_dbm = p.rede.rssi_dbm ?? null; }\n\nativos[id] = a;\nflow.set('ativos', ativos);\n\nconst temp = (a.temperatura_c === null) ? null : { topic: id, payload: a.temperatura_c };\nconst vib  = (a.vib_rms_g === null)     ? null : { topic: id, payload: a.vib_rms_g };\nreturn [temp, vib];\n"
+    },
+    {
+        "id": "mqtt_corrente",
+        "type": "mqtt in",
+        "z": "flow_monitor",
+        "name": "corrente do PowerFlex 525",
+        "topic": "monitoramento/+/corrente",
+        "qos": "0",
+        "datatype": "auto",
+        "broker": "broker_local",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 180,
+        "wires": [
+            [
+                "reg_corrente"
+            ]
+        ]
+    },
+    {
+        "id": "reg_corrente",
+        "type": "function",
+        "z": "flow_monitor",
+        "name": "registrar corrente",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 500,
+        "y": 180,
+        "wires": [
+            [
+                "chart_corr"
+            ]
+        ],
+        "func": "\n// O sidecar pycomm3 publica {\"corrente_a\": <n>, \"ts\": <epoch_ms>}.\n//\n// Nao confie no datatype do no MQTT: dependendo da versao e do que chega,\n// o payload pode vir objeto ja parseado, string JSON ou Buffer. Tratar os\n// tres aqui e mais barato que descobrir depois que a corrente sumiu.\nlet v = msg.payload;\n\nif (Buffer.isBuffer(v)) { v = v.toString('utf8'); }\nif (typeof v === 'string') {\n    try { v = JSON.parse(v); } catch (e) { /* pode ser numero puro */ }\n}\nif (v && typeof v === 'object') { v = v.corrente_a; }\n\nv = Number(v);\nif (!isFinite(v)) {\n    node.warn('payload de corrente ilegivel: ' + JSON.stringify(msg.payload));\n    return null;\n}\n\nconst id = (msg.topic || '').split('/')[1] || 'powerflex';\nconst ativos = flow.get('ativos') || {};\nconst a = ativos[id] || { id: id };\na.corrente_a = v;\na.corrente_vista_em = Date.now();\na.visto_em = Date.now();\nativos[id] = a;\nflow.set('ativos', ativos);\n\nreturn { topic: id, payload: Math.round(v * 100) / 100 };\n"
+    },
+    {
+        "id": "mqtt_status",
+        "type": "mqtt in",
+        "z": "flow_monitor",
+        "name": "status de campo (LWT)",
+        "topic": "monitoramento/+/status",
+        "qos": "0",
+        "datatype": "utf8",
+        "broker": "broker_local",
+        "nl": false,
+        "rap": true,
+        "rh": 0,
+        "inputs": 0,
+        "x": 140,
+        "y": 260,
+        "wires": [
+            [
+                "reg_status"
+            ]
+        ]
+    },
+    {
+        "id": "reg_status",
+        "type": "function",
+        "z": "flow_monitor",
+        "name": "registrar status",
+        "outputs": 0,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 500,
+        "y": 260,
+        "wires": [],
+        "func": "\n// online/offline vindo do LWT. O broker publica 'offline' sozinho se o\n// dispositivo cair, entao isso e mais confiavel que so olhar o silencio.\nconst id = (msg.topic || '').split('/')[1];\nif (!id) { return null; }\n\nconst ativos = flow.get('ativos') || {};\nconst a = ativos[id] || { id: id };\na.conexao = String(msg.payload).trim();\nativos[id] = a;\nflow.set('ativos', ativos);\nreturn null;\n"
+    },
+    {
+        "id": "tick",
+        "type": "inject",
+        "z": "flow_monitor",
+        "name": "a cada 2s",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "2",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "1",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 140,
+        "y": 380,
+        "wires": [
+            [
+                "montar_painel"
+            ]
+        ]
+    },
+    {
+        "id": "montar_painel",
+        "type": "function",
+        "z": "flow_monitor",
+        "name": "montar painel",
+        "outputs": 3,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 350,
+        "y": 380,
+        "wires": [
+            [
+                "tabela_ativos"
+            ],
+            [
+                "txt_alarmes"
+            ],
+            [
+                "stat_tiles"
+            ]
+        ],
+        "func": "\n// Unico ponto que decide estado, cor e texto -- se os limites mudarem,\n// mudam aqui e valem para a tabela, os alarmes e os medidores.\n\n// ---- Cadastro de ativos (hierarquico) --------------------------------\n// Dois problemas resolvidos aqui:\n//\n// 1. Um mesmo equipamento manda dado por DOIS caminhos -- o ESP32\n//    (temperatura + vibracao) e o inversor (corrente), cada um com seu\n//    device_id. Sem mapeamento ele apareceria em duas linhas, cada uma\n//    sem metade das grandezas.\n//\n// 2. Um ativo principal (uma linha, uma prensa, um conjunto) costuma ter\n//    VARIOS ESP32 dentro dele -- um por motor, por bomba, por redutor.\n//    Sao SUB-ATIVOS: cada um tem leitura propria, mas quem opera pergunta\n//    \"a Linha 1 esta bem?\", nao \"o ESP32 de numero 7 esta bem?\".\n//\n// O painel entao mostra dois niveis: o ativo principal com o estado\n// consolidado (o PIOR entre suas partes, e o valor mais alto de cada\n// grandeza) e, abaixo, cada parte com seu proprio numero.\n//\n// Deixe VAZIO para descoberta automatica: cada device_id vira uma linha\n// solta. E o modo util enquanto voce ainda esta montando a instalacao.\n//\n// A TAG vive AQUI, nao no firmware (mesmo criterio de docs/visualizacao.md):\n// trocar um ESP32 queimado e editar uma linha deste cadastro, sem regravar\n// nada e sem perder o historico do ativo.\nconst ATIVOS = {\n    // 'U1': {\n    //     descricao: 'Linha de Transporte 1',\n    //     partes: {\n    //         'Motor principal':  { esp32: 'motor-01', inversor: 'powerflex-01' },\n    //         'Bomba hidraulica': { esp32: 'motor-02' },\n    //         'Redutor':          { esp32: 'motor-03' }\n    //     }\n    // },\n};\n\n// ---- Limites. Calibre com o equipamento em condicao normal. ----------\nconst LIM = {\n    temperatura_c: { atencao: 60,  critico: 75,   nome: 'Temperatura', un: '°C' },\n    vib_rms_g:     { atencao: 0.5, critico: 1.0,  nome: 'Vibracao',    un: 'g'  },\n    corrente_a:    { atencao: 9.0, critico: 11.0, nome: 'Corrente',    un: 'A'  }\n};\n\n// Sem telemetria por mais que isso, o ativo entra em SEM DADOS. Tem de ser\n// maior que o intervalo de publicacao (5s no firmware) com folga, senao\n// pisca a cada atraso de rede.\nconst SEM_DADOS_MS = 20000;\n\n// Paleta de status reservada -- nunca usada para identificar serie.\nconst COR = { normal: '#0ca30c', atencao: '#fab219', critico: '#d03b3b',\n              sem_dados: '#898781' };\n// A cor nunca carrega o significado sozinha: sempre vem com simbolo e texto.\nconst SIMB = { normal: '●', atencao: '▲', critico: '■', sem_dados: '○' };\nconst ROTULO = { normal: 'OK', atencao: 'ATENCAO', critico: 'CRITICO',\n                 sem_dados: 'SEM DADOS' };\n\nconst PIOR = { sem_dados: 0, normal: 1, atencao: 2, critico: 3 };\n\nfunction avaliar(valor, lim) {\n    if (valor === null || valor === undefined) { return null; }\n    if (valor >= lim.critico) { return 'critico'; }\n    if (valor >= lim.atencao) { return 'atencao'; }\n    return 'normal';\n}\n\nfunction ha_quanto(ms) {\n    if (!ms) { return '--'; }\n    const s = Math.floor((Date.now() - ms) / 1000);\n    if (s < 60)   { return s + 's'; }\n    if (s < 3600) { return Math.floor(s / 60) + 'min'; }\n    return Math.floor(s / 3600) + 'h';\n}\n\n// Tres estados distintos, e a diferenca importa:\n//   '--'    o ativo nao tem esse sensor (nunca reportou)  -> nao e problema\n//   'FALHA' reportou null: o sensor existe e nao respondeu -> E problema\n//   valor   leitura boa\nfunction fmt(v, casas, un) {\n    if (v === undefined) { return '--'; }\n    if (v === null) { return 'FALHA'; }\n    return v.toFixed(casas) + ' ' + un;\n}\n\nconst registro = flow.get('ativos') || {};\n\n// Junta os device_id de UMA parte (o ESP32 e o inversor dela).\nfunction juntar_parte(chave, rotulo, cfg, nivel) {\n    const esp = registro[cfg.esp32] || {};\n    const inv = registro[cfg.inversor] || {};\n    return {\n        chave: chave,\n        rotulo: rotulo,\n        nivel: nivel,\n        temperatura_c: esp.temperatura_c,\n        vib_rms_g: esp.vib_rms_g,\n        corrente_a: inv.corrente_a,\n        // A parte so esta muda quando TODAS as suas fontes estao mudas.\n        visto_em: Math.max(esp.visto_em || 0, inv.visto_em || 0),\n        conexao: (esp.conexao === 'offline' || inv.conexao === 'offline')\n            ? 'offline' : 'online'\n    };\n}\n\n// Consolida N partes num ativo principal: cada grandeza vira o valor mais\n// alto entre as partes (o ponto mais quente da linha, a maior vibracao),\n// que e o numero pelo qual o ativo deve ser cobrado.\nfunction consolidar_pai(tag, cfg, partes) {\n    function pior(campo) {\n        // undefined = nenhuma parte tem o sensor; null = alguma tem e falhou.\n        let melhor;\n        let houve_falha = false;\n        for (const p of partes) {\n            const v = p[campo];\n            if (v === undefined) { continue; }\n            if (v === null) { houve_falha = true; continue; }\n            melhor = (melhor === undefined) ? v : Math.max(melhor, v);\n        }\n        if (melhor !== undefined) { return melhor; }\n        return houve_falha ? null : undefined;\n    }\n    return {\n        chave: tag,\n        rotulo: cfg.descricao ? (tag + ' — ' + cfg.descricao) : tag,\n        nivel: 0,\n        eh_pai: true,\n        temperatura_c: pior('temperatura_c'),\n        vib_rms_g: pior('vib_rms_g'),\n        corrente_a: pior('corrente_a'),\n        visto_em: Math.max.apply(null, partes.map(function (p) { return p.visto_em || 0; })),\n        conexao: partes.some(function (p) { return p.conexao === 'offline'; })\n            ? 'offline' : 'online'\n    };\n}\n\nfunction consolidar() {\n    const tags = Object.keys(ATIVOS);\n\n    if (!tags.length) {\n        // Sem cadastro: cada device_id vira uma linha solta. Modo util\n        // enquanto a instalacao ainda esta sendo montada.\n        return Object.keys(registro).sort().map(function (id) {\n            return Object.assign({ chave: id, rotulo: id, nivel: 0 }, registro[id]);\n        });\n    }\n\n    const saida = [];\n    for (const tag of tags.sort()) {\n        const cfg = ATIVOS[tag];\n\n        // Ativo sem 'partes': trata como equipamento unico (um nivel so).\n        if (!cfg.partes) {\n            saida.push(juntar_parte(tag,\n                cfg.descricao ? (tag + ' — ' + cfg.descricao) : tag, cfg, 0));\n            continue;\n        }\n\n        const nomes = Object.keys(cfg.partes);\n        const partes = nomes.map(function (nome) {\n            return juntar_parte(tag + '/' + nome, nome, cfg.partes[nome], 1);\n        });\n\n        saida.push(consolidar_pai(tag, cfg, partes));\n        for (const p of partes) { saida.push(p); }\n    }\n    return saida;\n}\n\nconst lista = consolidar();\nconst agora = Date.now();\n\n// O dropdown precisa das mesmas chaves da tabela. Publicamos aqui para o\n// cadastro ATIVOS existir num lugar so. O recuo do sub-ativo vai junto no\n// rotulo, senao a lista perde a hierarquia.\nflow.set('opcoes_ativos', lista.map(function (x) {\n    return { value: x.chave,\n             label: (x.nivel > 0 ? '   └ ' : '') + x.rotulo };\n}));\n\nconst linhas = [];\nconst alarmes = [];\nlet pai_atual = '';\n\nfor (const a of lista) {\n    const id = a.rotulo;\n    const mudo = (agora - (a.visto_em || 0)) > SEM_DADOS_MS;\n    const offline = a.conexao === 'offline';\n\n    let estado = 'normal';\n    const motivos = [];\n\n    if (mudo || offline) {\n        estado = 'sem_dados';\n        motivos.push(offline ? 'dispositivo offline (LWT)' : 'sem telemetria');\n    } else {\n        for (const campo of Object.keys(LIM)) {\n            const lim = LIM[campo];\n            const v = a[campo];\n            if (v === undefined) { continue; }   // ativo nao tem esse sensor\n            if (v === null) {\n                // Reportou null: o sensor existe e nao respondeu. Isso e\n                // ausencia de informacao, nao \"esta tudo bem\" -- por isso\n                // vira ATENCAO, e nao passa despercebido.\n                if (PIOR.atencao > PIOR[estado]) { estado = 'atencao'; }\n                motivos.push(lim.nome + ' sem leitura');\n                continue;\n            }\n            const nivel = avaliar(v, lim);\n            if (PIOR[nivel] > PIOR[estado]) { estado = nivel; }\n            if (nivel !== 'normal') {\n                motivos.push(lim.nome + ' ' + ROTULO[nivel].toLowerCase() +\n                             ': ' + v + lim.un);\n            }\n        }\n    }\n\n    // Sub-ativo entra recuado, para a hierarquia se ler de relance.\n    const nome = (a.nivel > 0) ? ('    └ ' + id) : id;\n\n    linhas.push({\n        Ativo: nome,\n        Temperatura: fmt(a.temperatura_c, 1, '°C'),\n        'Vibracao RMS': fmt(a.vib_rms_g, 3, 'g'),\n        Corrente: fmt(a.corrente_a, 2, 'A'),\n        Estado: SIMB[estado] + ' ' + ROTULO[estado],\n        'Visto ha': ha_quanto(a.visto_em)\n    });\n\n    // O ativo principal so vira alarme proprio quando ele mesmo esta mudo.\n    // Se o problema esta numa parte, quem alarma e a parte -- senao a mesma\n    // ocorrencia apareceria duas vezes, com o pai repetindo o pior filho.\n    const so_consolidado = a.eh_pai && estado !== 'sem_dados';\n    if (estado !== 'normal' && !so_consolidado) {\n        alarmes.push({ id: a.nivel > 0 ? (pai_atual + ' / ' + id) : id,\n                       estado: estado, motivos: motivos });\n    }\n    if (a.nivel === 0) { pai_atual = id; }\n}\n\n// ---- Saida 1: tabela (tambem e a \"table view\" que garante acesso aos\n//      valores sem depender de cor) ------------------------------------\nconst m1 = { payload: linhas };\n\n// ---- Saida 2: alarmes -------------------------------------------------\nlet html;\n// Conta so os ativos principais: dizer \"12 ativos\" quando sao 3 linhas com\n// 4 motores cada da uma nocao errada do tamanho da planta.\nconst n_pai = lista.filter(function (x) { return x.nivel === 0; }).length;\nif (!lista.length) {\n    html = '<div style=\"color:#898781\">Aguardando o primeiro ativo publicar...</div>';\n} else if (!alarmes.length) {\n    html = '<div style=\"color:' + COR.normal + '\">' + SIMB.normal +\n           ' Todos os ' + n_pai + ' ativos em condicao normal</div>';\n} else {\n    html = alarmes.map(function (al) {\n        return '<div style=\"color:' + COR[al.estado] + '\">' + SIMB[al.estado] +\n               ' <b>' + al.id + '</b> — ' + al.motivos.join(' | ') + '</div>';\n    }).join('');\n}\nconst m2 = { payload: html };\n\n// ---- Saida 3: stat tiles do ativo selecionado -------------------------\n// Um painel de detalhe mostra UM ativo; com varios em tela os valores se\n// sobrescreveriam alternadamente. Por isso segue a selecao do dropdown.\nconst sel = flow.get('ativo_sel');\nconst alvo = lista.find(function (x) { return x.chave === sel; }) || lista[0];\nif (!alvo) { return [m1, m2, null]; }\n\nfunction tile(nome, campo, casas, un) {\n    const v = alvo[campo];\n    const lim = LIM[campo];\n\n    if (v === undefined) {\n        return { nome: nome, texto: '--', un: '', pct: 0,\n                 cor: COR.sem_dados, simb: SIMB.sem_dados, rotulo: 'sem sensor' };\n    }\n    if (v === null) {\n        return { nome: nome, texto: 'FALHA', un: '', pct: 0,\n                 cor: COR.atencao, simb: SIMB.atencao, rotulo: 'sem leitura' };\n    }\n    const nivel = avaliar(v, lim);\n    // A barra e um medidor contra o limite critico: cheia = no limite.\n    const pct = Math.max(0, Math.min(100, (v / lim.critico) * 100));\n    return { nome: nome, texto: v.toFixed(casas), un: un, pct: pct,\n             cor: COR[nivel], simb: SIMB[nivel], rotulo: ROTULO[nivel] };\n}\n\nconst m3 = { payload: [\n    tile('Temperatura',  'temperatura_c', 1, '°C'),\n    tile('Vibracao RMS', 'vib_rms_g',     3, 'g'),\n    tile('Corrente',     'corrente_a',    2, 'A')\n], topic: alvo.chave };\n\nreturn [m1, m2, m3];\n"
+    },
+    {
+        "id": "tabela_ativos",
+        "type": "ui-table",
+        "z": "flow_monitor",
+        "group": "grp_ativos",
+        "name": "tabela de ativos",
+        "label": "",
+        "order": 1,
+        "width": "0",
+        "height": "0",
+        "maxrows": 0,
+        "passthru": false,
+        "autocols": true,
+        "columns": [],
+        "mobileBreakpoint": "",
+        "mobileBreakpointType": "none",
+        "showSearch": false,
+        "deselect": true,
+        "action": "replace",
+        "selectionType": "none",
+        "className": "",
+        "x": 620,
+        "y": 340,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "txt_alarmes",
+        "type": "ui-text",
+        "z": "flow_monitor",
+        "group": "grp_alarmes",
+        "order": 1,
+        "width": "0",
+        "height": "0",
+        "name": "alarmes",
+        "label": "",
+        "format": "{{msg.payload}}",
+        "layout": "row-left",
+        "style": false,
+        "font": "",
+        "fontSize": 16,
+        "color": "#717171",
+        "wrapText": true,
+        "className": "",
+        "x": 620,
+        "y": 380,
+        "wires": []
+    },
+    {
+        "id": "stat_tiles",
+        "type": "ui-template",
+        "z": "flow_monitor",
+        "group": "grp_detalhe",
+        "name": "stat tiles do ativo",
+        "order": 2,
+        "width": "6",
+        "height": "4",
+        "head": "",
+        "format": "\n<template>\n    <div class=\"tiles\">\n        <div v-for=\"t in tiles\" :key=\"t.nome\" class=\"tile\">\n            <div class=\"rot\">{{ t.nome }}</div>\n            <div class=\"val\" :class=\"{ vazio: t.texto === '--' || t.texto === 'FALHA' }\">\n                {{ t.texto }}<span v-if=\"t.un\" class=\"un\">{{ t.un }}</span>\n            </div>\n            <div class=\"trilho\">\n                <div class=\"preenche\" :style=\"{ width: t.pct + '%', background: t.cor }\"></div>\n            </div>\n            <div class=\"estado\" :style=\"{ color: t.cor }\">{{ t.simb }} {{ t.rotulo }}</div>\n        </div>\n    </div>\n</template>\n\n<script>\nexport default {\n    data () { return { tiles: [] } },\n    watch: {\n        msg: {\n            immediate: true,\n            handler (m) { if (m && m.payload) { this.tiles = m.payload } }\n        }\n    }\n}\n</script>\n\n<style scoped>\n.tiles { display: flex; gap: 12px; flex-wrap: wrap; }\n.tile  { flex: 1 1 120px; min-width: 110px; }\n.rot   { font-size: 12px; color: #52514e; margin-bottom: 2px; }\n/* Figuras proporcionais no numero grande: tabular deixa solto nesse tamanho */\n.val   { font-size: 30px; line-height: 1.1; color: #0b0b0b;\n         font-family: system-ui, -apple-system, \"Segoe UI\", sans-serif; }\n.val.vazio { color: #898781; font-size: 22px; }\n.un    { font-size: 13px; color: #52514e; margin-left: 4px; }\n.trilho   { height: 4px; background: #e1e0d9; border-radius: 2px; margin: 6px 0 4px; }\n.preenche { height: 100%; border-radius: 2px; transition: width .3s ease; }\n.estado   { font-size: 12px; }\n</style>\n",
+        "storeOutMessages": true,
+        "passthru": false,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 640,
+        "y": 420,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "chart_temp",
+        "type": "ui-chart",
+        "z": "flow_monitor",
+        "group": "grp_temp",
+        "name": "Temperatura",
+        "label": "",
+        "order": 1,
+        "chartType": "line",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisLabel": "",
+        "xAxisProperty": "",
+        "xAxisPropertyType": "timestamp",
+        "xAxisType": "time",
+        "xAxisFormat": "",
+        "xAxisFormatType": "auto",
+        "yAxisLabel": "°C",
+        "yAxisProperty": "payload",
+        "yAxisPropertyType": "msg",
+        "ymin": "",
+        "ymax": "",
+        "xmin": "",
+        "xmax": "",
+        "bins": 100,
+        "action": "append",
+        "stackSeries": false,
+        "pointShape": "circle",
+        "pointRadius": 0,
+        "showLegend": true,
+        "removeOlder": "30",
+        "removeOlderUnit": "60",
+        "removeOlderPoints": "",
+        "colors": [
+            "#2a78d6",
+            "#eb6834",
+            "#1baf7a",
+            "#eda100",
+            "#e87ba4",
+            "#008300",
+            "#4a3aa7",
+            "#e34948"
+        ],
+        "textColor": [
+            "#52514e"
+        ],
+        "textColorDefault": false,
+        "gridColor": [
+            "#e1e0d9"
+        ],
+        "gridColorDefault": false,
+        "width": "6",
+        "height": "6",
+        "className": "",
+        "interpolation": "linear",
+        "x": 820,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "chart_vib",
+        "type": "ui-chart",
+        "z": "flow_monitor",
+        "group": "grp_vib",
+        "name": "Vibracao RMS",
+        "label": "",
+        "order": 1,
+        "chartType": "line",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisLabel": "",
+        "xAxisProperty": "",
+        "xAxisPropertyType": "timestamp",
+        "xAxisType": "time",
+        "xAxisFormat": "",
+        "xAxisFormatType": "auto",
+        "yAxisLabel": "g",
+        "yAxisProperty": "payload",
+        "yAxisPropertyType": "msg",
+        "ymin": "0",
+        "ymax": "",
+        "xmin": "",
+        "xmax": "",
+        "bins": 100,
+        "action": "append",
+        "stackSeries": false,
+        "pointShape": "circle",
+        "pointRadius": 0,
+        "showLegend": true,
+        "removeOlder": "30",
+        "removeOlderUnit": "60",
+        "removeOlderPoints": "",
+        "colors": [
+            "#2a78d6",
+            "#eb6834",
+            "#1baf7a",
+            "#eda100",
+            "#e87ba4",
+            "#008300",
+            "#4a3aa7",
+            "#e34948"
+        ],
+        "textColor": [
+            "#52514e"
+        ],
+        "textColorDefault": false,
+        "gridColor": [
+            "#e1e0d9"
+        ],
+        "gridColorDefault": false,
+        "width": "6",
+        "height": "6",
+        "className": "",
+        "interpolation": "linear",
+        "x": 820,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "chart_corr",
+        "type": "ui-chart",
+        "z": "flow_monitor",
+        "group": "grp_corr",
+        "name": "Corrente",
+        "label": "",
+        "order": 1,
+        "chartType": "line",
+        "category": "topic",
+        "categoryType": "msg",
+        "xAxisLabel": "",
+        "xAxisProperty": "",
+        "xAxisPropertyType": "timestamp",
+        "xAxisType": "time",
+        "xAxisFormat": "",
+        "xAxisFormatType": "auto",
+        "yAxisLabel": "A",
+        "yAxisProperty": "payload",
+        "yAxisPropertyType": "msg",
+        "ymin": "0",
+        "ymax": "",
+        "xmin": "",
+        "xmax": "",
+        "bins": 100,
+        "action": "append",
+        "stackSeries": false,
+        "pointShape": "circle",
+        "pointRadius": 0,
+        "showLegend": true,
+        "removeOlder": "30",
+        "removeOlderUnit": "60",
+        "removeOlderPoints": "",
+        "colors": [
+            "#2a78d6",
+            "#eb6834",
+            "#1baf7a",
+            "#eda100",
+            "#e87ba4",
+            "#008300",
+            "#4a3aa7",
+            "#e34948"
+        ],
+        "textColor": [
+            "#52514e"
+        ],
+        "textColorDefault": false,
+        "gridColor": [
+            "#e1e0d9"
+        ],
+        "gridColorDefault": false,
+        "width": "12",
+        "height": "6",
+        "className": "",
+        "interpolation": "linear",
+        "x": 820,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "dd_ativo",
+        "type": "ui-dropdown",
+        "z": "flow_monitor",
+        "group": "grp_cmd",
+        "name": "seletor de ativo",
+        "label": "Ativo",
+        "tooltip": "",
+        "order": 1,
+        "width": "0",
+        "height": "0",
+        "passthru": false,
+        "multiple": false,
+        "chips": false,
+        "clearable": false,
+        "topic": "topic",
+        "topicType": "msg",
+        "className": "",
+        "options": [],
+        "payload": "",
+        "payloadType": "str",
+        "x": 140,
+        "y": 480,
+        "wires": [
+            [
+                "sel_ativo"
+            ]
+        ]
+    },
+    {
+        "id": "sel_ativo",
+        "type": "function",
+        "z": "flow_monitor",
+        "name": "guardar selecao",
+        "outputs": 0,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 480,
+        "wires": [],
+        "func": "\nflow.set('ativo_sel', msg.payload);\nreturn null;\n"
+    },
+    {
+        "id": "tick_opcoes",
+        "type": "inject",
+        "z": "flow_monitor",
+        "name": "lista de ativos",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "5",
+        "crontab": "",
+        "once": true,
+        "onceDelay": "2",
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 140,
+        "y": 540,
+        "wires": [
+            [
+                "montar_opcoes"
+            ]
+        ]
+    },
+    {
+        "id": "montar_opcoes",
+        "type": "function",
+        "z": "flow_monitor",
+        "name": "montar opcoes",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 540,
+        "wires": [
+            [
+                "dd_ativo"
+            ]
+        ],
+        "func": "\n// Alimenta o dropdown com as opcoes que o renderizador publicou -- assim\n// o cadastro ATIVOS fica definido num lugar so (\"montar painel\").\n//\n// Reenvia sempre, de proposito: o widget so guarda o que recebe DEPOIS de\n// existir, e uma versao anterior guardava a lista para nao repetir -- o\n// resultado era um dropdown eternamente vazio quando a pagina abria antes\n// da primeira leitura chegar.\nconst opcoes = flow.get('opcoes_ativos') || [];\nif (!opcoes.length) { return null; }\n\nif (!flow.get('ativo_sel')) { flow.set('ativo_sel', opcoes[0].value); }\n\nreturn { ui_update: { options: opcoes }, payload: flow.get('ativo_sel') };\n"
+    },
+    {
+        "id": "btn_publicar",
+        "type": "ui-button",
+        "z": "flow_monitor",
+        "group": "grp_cmd",
+        "name": "publicar agora",
+        "label": "Publicar agora",
+        "order": 2,
+        "width": "0",
+        "height": "0",
+        "tooltip": "Forca uma leitura imediata no ativo selecionado",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 140,
+        "y": 600,
+        "wires": [
+            [
+                "monta_cmd"
+            ]
+        ]
+    },
+    {
+        "id": "monta_cmd",
+        "type": "function",
+        "z": "flow_monitor",
+        "name": "monta comando",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 600,
+        "wires": [
+            [
+                "mqtt_cmd"
+            ]
+        ],
+        "func": "\n// Manda para o ativo SELECIONADO no dropdown, em vez de um id fixo no codigo.\nconst id = flow.get('ativo_sel');\nif (!id) { node.warn('nenhum ativo selecionado'); return null; }\nmsg.topic = 'monitoramento/' + id + '/cmd';\nmsg.payload = JSON.stringify({ comando: 'publicar' });\nreturn msg;\n"
+    },
+    {
+        "id": "mqtt_cmd",
+        "type": "mqtt out",
+        "z": "flow_monitor",
+        "name": "comando -> ESP32",
+        "topic": "",
+        "qos": "1",
+        "retain": "false",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "broker_local",
+        "x": 560,
+        "y": 600,
+        "wires": []
+    }
 ]
