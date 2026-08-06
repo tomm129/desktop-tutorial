@@ -602,6 +602,11 @@ function juntar_parte(chave, rotulo, cfg, nivel, tag, nome_parte) {
         nivel: nivel,
         // Procedencia: de onde veio cada numero. E o que o eletricista
         // precisa para achar o drive no painel.
+        hist: {
+            temp: (esp.hist || {}).temp || [],
+            vib:  (esp.hist || {}).vib  || [],
+            corr: (inv.hist || {}).corr || []
+        },
         fonte_esp32: cfg.esp32,
         fonte_inversor: cfg.inversor,
         tag_inversor: cfg.tag_inversor,
@@ -625,6 +630,11 @@ function juntar_parte(chave, rotulo, cfg, nivel, tag, nome_parte) {
 // alto entre as partes (o ponto mais quente da linha, a maior vibracao),
 // que e o numero pelo qual o ativo deve ser cobrado.
 function consolidar_pai(tag, cfg, partes) {
+    // Guarda de qual parte veio cada maximo, para o sparkline do card do
+    // pai mostrar a serie DAQUELA parte -- e nao uma media que nao existe
+    // em lugar nenhum da planta.
+    const dono = {};
+
     function pior(campo) {
         // undefined = nenhuma parte tem o sensor; null = alguma tem e falhou.
         let melhor;
@@ -633,7 +643,7 @@ function consolidar_pai(tag, cfg, partes) {
             const v = p[campo];
             if (v === undefined) { continue; }
             if (v === null) { houve_falha = true; continue; }
-            melhor = (melhor === undefined) ? v : Math.max(melhor, v);
+            if (melhor === undefined || v > melhor) { melhor = v; dono[campo] = p; }
         }
         if (melhor !== undefined) { return melhor; }
         return houve_falha ? null : undefined;
@@ -683,6 +693,11 @@ function consolidar_pai(tag, cfg, partes) {
         dc_bus_v: pior('dc_bus_v'),
         frequencia_hz: pior('frequencia_hz'),
         rodando: sabe_rodando ? algum_rodando : undefined,
+        hist: {
+            temp: ((dono.temperatura_c || {}).hist || {}).temp || [],
+            vib:  ((dono.vib_rms_g || {}).hist || {}).vib  || [],
+            corr: ((dono.corrente_a || {}).hist || {}).corr || []
+        },
         falha_codigo: com_falha ? com_falha.falha_codigo : 0,
         falha_texto: com_falha ? com_falha.falha_texto : null,
         visto_em: Math.max.apply(null, partes.map(function (p) { return p.visto_em || 0; })),
@@ -986,6 +1001,56 @@ let linhas_det = linhas.filter(function (l) { return l._pai === sel; });
 if (!linhas_det.length) { linhas_det = linhas; }
 const m1 = { payload: linhas_det.map(limpar) };
 
+// ---- Saude dos elos ---------------------------------------------------
+//
+// "Gateway online" mostrado PELO gateway e tautologia: se o Orange Pi
+// cair, esta pagina nem carrega -- o navegador da erro de conexao, nao um
+// ponto vermelho. Um indicador que so sabe dizer "sim" nao informa nada.
+//
+// O que vale mostrar sao os elos que quebram COM a pagina ainda de pe:
+//
+//   broker    Mosquitto pode morrer com o Node-RED vivo. A tela continua
+//             abrindo, os dados congelam. E o modo de falha silencioso.
+//   sidecar   o servico do PowerFlex pode cair sozinho (LWT avisa).
+//   ciclo     prova que o renderizador esta girando, e nao travado numa
+//             excecao -- valores "de agora" que na verdade sao de ontem.
+const ciclo_ant = flow.get('ultimo_ciclo') || 0;
+flow.set('ultimo_ciclo', agora);
+
+// O sidecar publica online/offline retido no proprio topico de status.
+const sidecars = Object.keys(registro).filter(function (id) {
+    return registro[id].tipo === 'inversor';
+});
+const sidecars_ok = sidecars.filter(function (id) {
+    return registro[id].conexao !== 'offline' &&
+           (agora - (registro[id].visto_em || 0)) <= SEM_DADOS_MS;
+}).length;
+
+// Sem dispositivo nenhum publicando ha mais de SEM_DADOS_MS, o suspeito
+// nao e cada dispositivo: e o barramento.
+const visto_algum = Math.max.apply(null,
+    [0].concat(Object.keys(registro).map(function (id) {
+        return registro[id].visto_em || 0;
+    })));
+const barramento_mudo = Object.keys(registro).length > 0 &&
+                        (agora - visto_algum) > SEM_DADOS_MS;
+
+const elos = [
+    { nome: 'Broker MQTT',
+      ok: !barramento_mudo,
+      det: barramento_mudo
+            ? 'nenhuma mensagem ha ' + ha_quanto(visto_algum)
+            : 'ultima mensagem ' + (visto_algum ? ha_quanto(visto_algum) : '--') + ' atras' },
+    { nome: 'Inversores',
+      ok: sidecars.length > 0 && sidecars_ok === sidecars.length,
+      det: sidecars.length
+            ? sidecars_ok + ' de ' + sidecars.length + ' respondendo'
+            : 'nenhum cadastrado' },
+    { nome: 'Painel',
+      ok: true,
+      det: 'ciclo a cada ' + (ciclo_ant ? Math.round((agora - ciclo_ant) / 1000) + 's' : '2s') }
+];
+
 // ---- Saida 2: faixa de resumo da visao geral -------------------------
 // A logo vem embutida como data URI (ver nodered/marca.py): assim a marca
 // acompanha o flows.json, sem depender de httpStatic no destino.
@@ -1016,6 +1081,18 @@ if (!lista.length) {
            kpi(COR.normal, SIMB.normal, 'Normais', cnt.normal, 'ativos OK') +
            kpi(COR.atencao, SIMB.atencao, 'Atenção', cnt.atencao, 'revisar') +
            kpi(COR.critico, SIMB.critico, 'Críticos', cnt.critico, 'ação urgente') +
+           elos.map(function (e) {
+               return '<div style="display:inline-block;margin:6px 10px 6px 0;' +
+                      'background:#151518;border:1px solid #3f3f46;border-radius:10px;' +
+                      'padding:10px 14px;min-width:150px">' +
+                      '<div style="font-size:11px;color:#71717a;text-transform:uppercase;' +
+                      'letter-spacing:.4px">' + e.nome + '</div>' +
+                      '<div style="font-size:14px;color:' +
+                      (e.ok ? COR.normal : COR.critico) + ';margin-top:2px">' +
+                      (e.ok ? '● conectado' : '■ sem resposta') + '</div>' +
+                      '<div style="font-size:11px;color:#52525b;margin-top:2px">' +
+                      e.det + '</div></div>';
+           }).join('') +
            kpi(COR.sem_dados, SIMB.sem_dados, 'Sem dados', cnt.sem_dados, 'offline/mudo') +
            '<div style="margin-top:10px"></div>';
     if (!alarmes.length) {
@@ -1095,16 +1172,19 @@ function m4_cards() {
         }).length;
 
         const lims_card = limites_de(a);
+        const series = { temperatura_c: 'temp', vib_rms_g: 'vib', corrente_a: 'corr' };
+
         function medida(nome, campo, casas, un) {
+            const serie = ((a.hist || {})[series[campo]]) || [];
             const v = a[campo];
             const lim = lims_card[campo];
             if (v === undefined) {
                 return { nome: nome, texto: '--', un: '', pct: 0,
-                         cor: COR.sem_dados, vazio: true };
+                         cor: COR.sem_dados, vazio: true, spark: [] };
             }
             if (v === null) {
                 return { nome: nome, texto: 'FALHA', un: '', pct: 0,
-                         cor: COR.atencao, vazio: true };
+                         cor: COR.atencao, vazio: true, spark: [] };
             }
             // No ativo pai, o nivel ja veio consolidado das partes (cada
             // uma com o limite da SUA placa); so no equipamento folha e
@@ -1113,7 +1193,7 @@ function m4_cards() {
                     || avaliar(v, lim, a.chave + '::' + campo);
             return { nome: nome, texto: v.toFixed(casas), un: un,
                      pct: Math.max(0, Math.min(100, (v / lim.critico) * 100)),
-                     cor: COR[n], vazio: false };
+                     cor: COR[n], vazio: false, spark: serie };
         }
 
         const partes_txt = partes ? (partes + (partes > 1 ? ' partes' : ' parte'))
@@ -1333,6 +1413,16 @@ CARDS = r"""
                     <div class="mval" :class="{ vazio: m.vazio }">
                         {{ m.texto }}<span v-if="m.un" class="mun">{{ m.un }}</span>
                     </div>
+                    <!-- Sparkline: mesma altura que a barra ocupava, mas
+                         mostrando PARA ONDE o valor vai, nao so onde esta.
+                         A barra logo abaixo continua dando o nivel. -->
+                    <svg v-if="m.spark && m.spark.length > 2" class="mini"
+                         viewBox="0 0 100 22" preserveAspectRatio="none">
+                        <polyline :points="pontos(m.spark)" fill="none"
+                                  :stroke="m.cor" stroke-width="1.6"
+                                  vector-effect="non-scaling-stroke"
+                                  stroke-linejoin="round" stroke-linecap="round" />
+                    </svg>
                     <div class="trilho">
                         <div class="preenche"
                              :style="{ width: m.pct + '%', background: m.cor }"></div>
@@ -1358,7 +1448,23 @@ export default {
     data () { return { cards: [] } },
     methods: {
         // Manda a chave para o fluxo, que guarda a selecao e navega.
-        abrir (c) { this.send({ payload: c.chave }) }
+        abrir (c) { this.send({ payload: c.chave }) },
+
+        // Projeta a serie no viewBox 100x22 usando a escala da PROPRIA
+        // serie (min..max), nao a do limite: numa faixa estreita o
+        // sparkline continua legivel -- o papel dele e mostrar forma.
+        // Quem mostra nivel e a barra logo abaixo.
+        pontos (arr) {
+            if (!arr || arr.length < 2) { return ''; }
+            const min = Math.min(...arr), max = Math.max(...arr);
+            const amp = (max - min) || 1;
+            const n = arr.length - 1;
+            return arr.map(function (v, i) {
+                const x = (i / n) * 100;
+                const y = 20 - ((v - min) / amp) * 18;
+                return x.toFixed(1) + ',' + y.toFixed(1);
+            }).join(' ');
+        }
     },
     watch: {
         msg: {
@@ -1411,7 +1517,8 @@ export default {
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
 .mval.vazio { font-size: 15px; color: #71717a; }
 .mun  { font-size: 12px; color: #a1a1aa; margin-left: 3px; }
-.trilho   { height: 4px; background: #27272a; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.mini     { width: 100%; height: 22px; display: block; margin-top: 3px; opacity: .85; }
+.trilho   { height: 4px; background: #27272a; border-radius: 2px; margin-top: 3px; overflow: hidden; }
 .preenche { height: 100%; border-radius: 2px; transition: width .4s ease, background .3s ease; }
 
 .rodape { display: flex; justify-content: space-between; margin-top: 14px;
