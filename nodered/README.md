@@ -79,7 +79,8 @@ texto + faixa colorida na lateral), as três grandezas com barra contra o
 limite, quantas partes tem e há quanto tempo foi visto.
 
 **Clicar no card abre o detalhe daquele ativo.** Acima dos cards, uma faixa
-de resumo diz se está tudo normal ou lista o que não está.
+de resumo mostra **KPIs** (normais, atenção, críticos, sem dados) e lista os
+alarmes atuais.
 
 **2. Cadastro** (`/dashboard/cadastro`) — todo ESP32 ou inversor que começa a
 publicar aparece aqui até ser atribuído a um ativo. Ligue o dispositivo na
@@ -89,7 +90,8 @@ a digitar antes, nem arquivo a editar.**
 **3. Detalhe** (`/dashboard/detalhe`) — do ativo aberto:
 
 - Cabeçalho com nome, estado e botão **← Todos os ativos**
-- *Stat tiles* — valor, barra contra o limite, estado
+- *Stat tiles* — valor, barra contra o limite, estado, **tendência** (seta
+  subindo/estável/descendo) e **mini sparkline** das últimas leituras
 - **Partes deste ativo** — tabela só com as partes dele, não da planta
   inteira. É também a *table view* que garante acesso a todo valor sem
   depender de cor
@@ -99,6 +101,11 @@ a digitar antes, nem arquivo a editar.**
   dispositivo
 - **Publicar agora** — força leitura imediata. Num ativo principal, dispara
   em **todas** as suas partes de uma vez
+
+**4. Alarmes** (`/dashboard/alarmes`) — histórico de eventos (atenção,
+crítico, sem dados) com timestamp, duração, ativo, parte e motivo. Um
+conjunto de KPIs no topo resume a fila. Use **Limpar histórico** para zerar
+a lista em memória.
 
 ### Três estados, não dois
 
@@ -373,6 +380,23 @@ propósito no equipamento real, e são onde o painel precisa acertar.
   [`integracoes/powerflex525`](../integracoes/powerflex525/README.md)
   (parâmetro *b003 [Output Current]*, manual *520COM-UM001*). Configure o IP
   do inversor lá, no `config.env`.
+
+## O que mudou visualmente e na robustez
+
+- **Tema escuro refinado:** superfícies em camadas, bordas sutis, sombras,
+  tipografia com hierarquia e transições suaves nos cards e tiles.
+- **Resumo com KPIs:** na Visão Geral, cards rápidos mostram quantos ativos
+  estão normais, em atenção, críticos ou sem dados.
+- **Tendência e sparkline:** os tiles do detalhe exibem uma seta de tendência
+  e um mini gráfico das últimas leituras, ajudando a ver para onde o número
+  está indo.
+- **Histórico de alarmes:** nova página `/dashboard/alarmes` mantém os
+  últimos eventos com timestamp e duração, sem depender de banco de dados.
+- **Validação de dados:** telemetria com valores fisicamente impossíveis
+  (temperatura > 200 °C, vibração negativa, corrente > 500 A) é descartada
+  com aviso no log do Node-RED.
+- **Cache curto:** as últimas 30 leituras de cada device são mantidas em
+  memória para alimentar as tendências.
 
 ## Verificar a chegada dos dados
 

@@ -5,7 +5,11 @@ Escrever 700 linhas de JSON na mao e um convite a erro; aqui o fluxo e
 descrito em Python e serializado. Rode e depois importe o resultado.
 """
 import json
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from marca import LOGO_LOCKUP, LOGO_ICONE
 
 # --- Paleta validada (validate_palette.js, modo escuro) ---------------
 #
@@ -19,30 +23,39 @@ import sys
 SERIES = ["#3987e5", "#d95926", "#199e70", "#c98500",
           "#d55181", "#008300", "#9085e9", "#e66767"]
 
-# Status: paleta reservada, nunca usada para serie. Os mesmos quatro passos
-# do tema claro -- todos limpam 3:1 na superficie escura.
-STATUS = {"good": "#0ca30c", "warning": "#fab219", "critical": "#d03b3b"}
+# Status: paleta reservada, nunca usada para serie. Tons vibrantes mas
+# controlados, com contraste > 3:1 sobre fundo escuro.
+STATUS = {"good": "#22c55e", "warning": "#f59e0b", "critical": "#ef4444"}
 
-# Superficies e tinta do tema escuro.
-FUNDO_PAGINA = "#0d0d0d"
-FUNDO_CARTAO = "#1a1a19"
-TINTA_1 = "#ffffff"    # primaria
-TINTA_2 = "#c3c2b7"    # secundaria
-TINTA_3 = "#898781"    # apagada (eixos, rotulos)
-LINHA   = "#2c2c2a"    # grade / divisoria
-BORDA   = "#383835"
+# Superficies e tinta do tema escuro moderno.
+FUNDO_PAGINA = "#0b0b0c"      # fundo geral quase preto
+FUNDO_CARTAO = "#151518"      # superficie dos cards/grupos
+FUNDO_ELEV   = "#1e1e22"      # hover/elevacao
+TINTA_1 = "#f4f4f5"           # primaria (quase branco)
+TINTA_2 = "#a1a1aa"           # secundaria
+TINTA_3 = "#71717a"           # apagada (eixos, rotulos)
+TINTA_4 = "#52525b"           # muito apagada
+LINHA   = "#27272a"           # grade / divisoria
+BORDA   = "#3f3f46"           # bordas sutis
+SOMBRA  = "rgba(0,0,0,0.35)"  # sombras dos cards
 
 BASE, TEMA = "ui_base", "ui_tema"
 
 # Duas telas: a visao geral e uma parede de cards (um por ativo principal),
 # e o clique num card abre o detalhe daquele ativo.
-PAGINA, PAGINA_DET, PAGINA_CAD = "pg_visao", "pg_detalhe", "pg_cadastro"
+PAGINA, PAGINA_DET, PAGINA_CAD, PAGINA_ALARMES = "pg_visao", "pg_detalhe", "pg_cadastro", "pg_alarmes"
+PAGINA_ATIVOS, PAGINA_TEND = "pg_ativos", "pg_tendencias"
+PAGINA_IA, PAGINA_REL = "pg_ia", "pg_relatorios"
 
 G_RESUMO, G_CARDS = "grp_resumo", "grp_cards"
 G_CAB, G_TILES, G_PARTES, G_CMD = "grp_cab", "grp_tiles", "grp_partes", "grp_cmd"
 G_PLACA = "grp_placa"
 G_TEMP, G_VIB, G_CORR = "grp_temp", "grp_vib", "grp_corr"
 G_CAD = "grp_cadastro"
+G_ALARMES_KPI, G_ALARMES_LISTA = "grp_alarmes_kpi", "grp_alarmes_lista"
+G_ATIVOS_TAB = "grp_ativos_tab"
+G_TEND_T, G_TEND_V, G_TEND_C = "grp_tend_t", "grp_tend_v", "grp_tend_c"
+G_IA, G_REL = "grp_ia", "grp_rel"
 
 flows = []
 
@@ -67,7 +80,7 @@ no(id="broker_local", type="mqtt-broker", name="Mosquitto local",
    willTopic="", willQos="0", willPayload="")
 
 no(id=BASE, type="ui-base", name="Monitoramento", path="/dashboard",
-   appIcon="", includeClientData=True, acceptsClientConfig=[
+   appIcon=LOGO_ICONE, includeClientData=True, acceptsClientConfig=[
        "ui-notification", "ui-control"],
    showPathInSidebar=False, headerContent="page", navigationStyle="default",
    titleBarStyle="default", showReconnectNotification=True,
@@ -78,12 +91,12 @@ no(id=TEMA, type="ui-theme", name="Industrial escuro",
    colors={"surface": FUNDO_CARTAO, "primary": SERIES[0],
            "bgPage": FUNDO_PAGINA, "groupBg": FUNDO_CARTAO,
            "groupOutline": BORDA},
-   sizes={"density": "default", "pagePadding": "12px", "groupGap": "12px",
-          "groupBorderRadius": "4px", "widgetGap": "12px"})
+   sizes={"density": "comfortable", "pagePadding": "16px", "groupGap": "16px",
+          "groupBorderRadius": "10px", "widgetGap": "14px"})
 
-BREAKPOINTS = [{"name": "Default", "px": "0", "cols": "3"},
-               {"name": "Tablet", "px": "576", "cols": "6"},
-               {"name": "Small Desktop", "px": "768", "cols": "9"},
+BREAKPOINTS = [{"name": "Mobile", "px": "0", "cols": "4"},
+               {"name": "Tablet", "px": "576", "cols": "8"},
+               {"name": "Small Desktop", "px": "768", "cols": "10"},
                {"name": "Desktop", "px": "1024", "cols": "12"}]
 
 no(id=PAGINA, type="ui-page", name="Visao Geral", ui=BASE, path="/visao",
@@ -91,11 +104,34 @@ no(id=PAGINA, type="ui-page", name="Visao Geral", ui=BASE, path="/visao",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
 no(id=PAGINA_DET, type="ui-page", name="Detalhe", ui=BASE, path="/detalhe",
-   icon="magnify", layout="grid", theme=TEMA, order=2, className="",
+   icon="magnify", layout="grid", theme=TEMA, order=99, className="",
+   # Fora do menu de proposito: e uma tela de aprofundamento, alcancada
+   # clicando num card. Um item de menu chamado "Detalhe" nao diz detalhe
+   # DE QUE, e clicado sem contexto abriria um ativo arbitrario.
+   visible=False, disabled=False, breakpoints=BREAKPOINTS)
+
+no(id=PAGINA_ATIVOS, type="ui-page", name="Ativos", ui=BASE, path="/ativos",
+   icon="factory", layout="grid", theme=TEMA, order=2, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
-no(id=PAGINA_CAD, type="ui-page", name="Cadastro", ui=BASE, path="/cadastro",
-   icon="playlist-plus", layout="grid", theme=TEMA, order=3, className="",
+no(id=PAGINA_TEND, type="ui-page", name="Tendencias", ui=BASE, path="/tendencias",
+   icon="chart-line", layout="grid", theme=TEMA, order=3, className="",
+   visible=True, disabled=False, breakpoints=BREAKPOINTS)
+
+no(id=PAGINA_IA, type="ui-page", name="IA", ui=BASE, path="/ia",
+   icon="robot-outline", layout="grid", theme=TEMA, order=4, className="",
+   visible=True, disabled=False, breakpoints=BREAKPOINTS)
+
+no(id=PAGINA_REL, type="ui-page", name="Relatorios", ui=BASE, path="/relatorios",
+   icon="file-document-outline", layout="grid", theme=TEMA, order=6,
+   className="", visible=True, disabled=False, breakpoints=BREAKPOINTS)
+
+no(id=PAGINA_CAD, type="ui-page", name="Configuracao", ui=BASE, path="/cadastro",
+   icon="cog-outline", layout="grid", theme=TEMA, order=7, className="",
+   visible=True, disabled=False, breakpoints=BREAKPOINTS)
+
+no(id=PAGINA_ALARMES, type="ui-page", name="Alarmes", ui=BASE, path="/alarmes",
+   icon="bell-alert", layout="grid", theme=TEMA, order=5, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
 
@@ -106,24 +142,43 @@ def grupo(gid, nome, largura, ordem, altura=1, pagina=PAGINA, titulo=True):
 
 
 # --- Tela 1: visao geral (a parede de cards) --------------------------
-grupo(G_RESUMO, "Resumo",  12, 1, altura=3, titulo=False)
-grupo(G_CARDS,  "Ativos",  12, 2, altura=8, titulo=False)
+grupo(G_RESUMO, "Resumo",  12, 1, altura=4, titulo=False)
+grupo(G_CARDS,  "Ativos",  12, 2, altura=9, titulo=False)
 
 # --- Tela 2: detalhe de um ativo --------------------------------------
 # A altura dos grupos de grafico precisa caber o plot MAIS a faixa do eixo X;
 # com altura 1 o grafico vira um risco e o eixo some.
 grupo(G_CAB,    "",                       12, 1, altura=2, pagina=PAGINA_DET, titulo=False)
-grupo(G_TILES,  "Leituras agora",          6, 2, altura=4, pagina=PAGINA_DET)
+grupo(G_TILES,  "Leituras agora",          6, 2, altura=5, pagina=PAGINA_DET)
 grupo(G_CMD,    "Comandos",                6, 3, altura=2, pagina=PAGINA_DET)
-grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=4, pagina=PAGINA_DET)
+grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=5, pagina=PAGINA_DET)
 grupo(G_PLACA,  "Dados de placa e sobressalentes", 12, 5, altura=13,
       pagina=PAGINA_DET)
-grupo(G_TEMP,   "Temperatura (°C)",        6, 6, altura=7, pagina=PAGINA_DET)
-grupo(G_VIB,    "Vibracao RMS (g)",        6, 7, altura=7, pagina=PAGINA_DET)
-grupo(G_CORR,   "Corrente (A)",           12, 8, altura=7, pagina=PAGINA_DET)
+grupo(G_TEMP,   "Temperatura (°C)",        6, 6, altura=8, pagina=PAGINA_DET)
+grupo(G_VIB,    "Vibracao RMS (g)",        6, 7, altura=8, pagina=PAGINA_DET)
+grupo(G_CORR,   "Corrente (A)",           12, 8, altura=8, pagina=PAGINA_DET)
 
 # --- Tela 3: cadastro de dispositivos ---------------------------------
 grupo(G_CAD, "", 12, 1, altura=14, pagina=PAGINA_CAD, titulo=False)
+
+# --- Tela: Ativos (tabela completa da planta) -------------------------
+grupo(G_ATIVOS_TAB, "Todos os ativos e partes", 12, 1, altura=16,
+      pagina=PAGINA_ATIVOS)
+
+# --- Tela: Tendencias (as tres grandezas, planta inteira) -------------
+grupo(G_TEND_T, "Temperatura (°C)",  12, 1, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_V, "Vibracao RMS (g)",  12, 2, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_C, "Corrente (A)",      12, 3, altura=8, pagina=PAGINA_TEND)
+
+# --- Telas de roadmap -------------------------------------------------
+grupo(G_IA,  "", 12, 1, altura=12, pagina=PAGINA_IA,  titulo=False)
+grupo(G_REL, "", 12, 1, altura=12, pagina=PAGINA_REL, titulo=False)
+
+# --- Tela 4: alarmes/historico ----------------------------------------
+grupo(G_ALARMES_KPI,  "Resumo de alarmes", 12, 1, altura=2,
+      pagina=PAGINA_ALARMES, titulo=False)
+grupo(G_ALARMES_LISTA, "Historico",         12, 2, altura=14,
+      pagina=PAGINA_ALARMES, titulo=False)
 
 # =====================================================================
 #  Ingestao: tres topicos alimentam UM registro em flow context
@@ -139,10 +194,11 @@ no(id="parse_json", type="json", z="flow_monitor", name="", property="payload",
 no(id="reg_telemetria", type="function", z="flow_monitor",
    name="registrar telemetria", outputs=2, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=500, y=100,
-   wires=[["chart_temp"], ["chart_vib"]],
+   wires=[["chart_temp", "tend_temp"], ["chart_vib", "tend_vib"]],
    func=r"""
 // Guarda a ultima leitura de cada ativo num registro unico (flow context)
-// e repassa os valores para os graficos.
+// e repassa os valores para os graficos. Tambem mantem um cache curto para
+// tendencia/sparklines e descarta valores fisicamente impossiveis.
 //
 // msg.topic vira o device_id: e ele que separa as series no grafico, o que
 // faz o dashboard funcionar com N ativos em vez de um so.
@@ -159,19 +215,45 @@ const a = ativos[id] || { id: id };
 a.tipo = 'esp32';
 a.visto_em = Date.now();
 
+// Validacao simples: descarta valores absurdos que so podem ser ruido/erro.
+function valida_temp(v) {
+    if (v === undefined || v === null) { return null; }
+    if (typeof v !== 'number' || !isFinite(v)) { return null; }
+    if (v < -40 || v > 200) { node.warn('temperatura fora da faixa para ' + id + ': ' + v); return null; }
+    return v;
+}
+function valida_vib(v) {
+    if (v === undefined || v === null) { return null; }
+    if (typeof v !== 'number' || !isFinite(v) || v < 0) { return null; }
+    if (v > 50) { node.warn('vibracao fora da faixa para ' + id + ': ' + v); return null; }
+    return v;
+}
+
 // null explicito quando o sensor falhou -- a UI mostra FALHA, e nao o
 // ultimo valor bom congelado, que leria como "esta tudo bem".
-a.temperatura_c = (p.temperatura_c === undefined || p.temperatura_c === null)
-    ? null : p.temperatura_c;
+a.temperatura_c = valida_temp(p.temperatura_c);
 
 if (p.vibracao) {
-    a.vib_rms_g  = p.vibracao.rms_g  ?? null;
-    a.vib_pico_g = p.vibracao.pico_g ?? null;
-    a.fs_hz      = p.vibracao.fs_hz  ?? null;
+    a.vib_rms_g  = valida_vib(p.vibracao.rms_g);
+    a.vib_pico_g = valida_vib(p.vibracao.pico_g);
+    a.fs_hz      = (typeof p.vibracao.fs_hz === 'number' && isFinite(p.vibracao.fs_hz))
+                       ? p.vibracao.fs_hz : null;
 } else {
     a.vib_rms_g = null;
 }
 if (p.rede) { a.rssi_dbm = p.rede.rssi_dbm ?? null; }
+
+// Cache curto das ultimas leituras para tendencia e sparklines.
+const MAX_HIST = 30;
+if (!a.hist) { a.hist = { temp: [], vib: [] }; }
+if (a.temperatura_c !== null) {
+    a.hist.temp.push(a.temperatura_c);
+    if (a.hist.temp.length > MAX_HIST) { a.hist.temp.shift(); }
+}
+if (a.vib_rms_g !== null) {
+    a.hist.vib.push(a.vib_rms_g);
+    if (a.hist.vib.length > MAX_HIST) { a.hist.vib.shift(); }
+}
 
 ativos[id] = a;
 flow.set('ativos', ativos);
@@ -189,7 +271,7 @@ no(id="mqtt_corrente", type="mqtt in", z="flow_monitor",
 no(id="reg_corrente", type="function", z="flow_monitor",
    name="registrar corrente", outputs=1, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=500, y=180,
-   wires=[["chart_corr"]],
+   wires=[["chart_corr", "tend_corr"]],
    func=r"""
 // O sidecar pycomm3 publica a telemetria do drive: corrente, tensao,
 // barramento CC, frequencia, se esta rodando e o codigo de falha.
@@ -217,14 +299,35 @@ const ativos = flow.get('ativos') || {};
 const a = ativos[id] || { id: id };
 a.tipo = 'inversor';
 
-if (typeof p.corrente_a === 'number')    { a.corrente_a    = p.corrente_a; }
-if (typeof p.tensao_v === 'number')      { a.tensao_v      = p.tensao_v; }
-if (typeof p.dc_bus_v === 'number')      { a.dc_bus_v      = p.dc_bus_v; }
-if (typeof p.frequencia_hz === 'number') { a.frequencia_hz = p.frequencia_hz; }
-if (typeof p.rodando === 'boolean')      { a.rodando       = p.rodando; }
+function valida_corr(v) {
+    if (typeof v !== 'number' || !isFinite(v) || v < 0) { return null; }
+    if (v > 500) { node.warn('corrente fora da faixa para ' + id + ': ' + v); return null; }
+    return v;
+}
+function valida_tensao(v) {
+    if (typeof v !== 'number' || !isFinite(v) || v < 0) { return null; }
+    if (v > 1000) { node.warn('tensao fora da faixa para ' + id + ': ' + v); return null; }
+    return v;
+}
+
+if (typeof p.corrente_a === 'number') { a.corrente_a = valida_corr(p.corrente_a); }
+if (typeof p.tensao_v === 'number')   { a.tensao_v   = valida_tensao(p.tensao_v); }
+if (typeof p.dc_bus_v === 'number')   { a.dc_bus_v   = valida_tensao(p.dc_bus_v); }
+if (typeof p.frequencia_hz === 'number' && isFinite(p.frequencia_hz) && p.frequencia_hz >= 0) {
+    a.frequencia_hz = p.frequencia_hz;
+}
+if (typeof p.rodando === 'boolean') { a.rodando = p.rodando; }
 if (p.falha) {
-    a.falha_codigo = p.falha.codigo || 0;
+    a.falha_codigo = (typeof p.falha.codigo === 'number') ? p.falha.codigo : 0;
     a.falha_texto  = p.falha.texto || null;
+}
+
+// Cache curto para tendencia de corrente.
+const MAX_HIST = 30;
+if (!a.hist) { a.hist = { corr: [] }; }
+if (typeof a.corrente_a === 'number') {
+    a.hist.corr.push(a.corrente_a);
+    if (a.hist.corr.length > MAX_HIST) { a.hist.corr.shift(); }
 }
 
 a.visto_em = Date.now();
@@ -323,10 +426,11 @@ no(id="tick", type="inject", z="flow_monitor", name="a cada 2s",
    x=140, y=380, wires=[["montar_painel"]])
 
 no(id="montar_painel", type="function", z="flow_monitor",
-   name="montar painel", outputs=6, timeout=0, noerr=0,
+   name="montar painel", outputs=9, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=350, y=380,
    wires=[["tabela_ativos"], ["txt_resumo"], ["stat_tiles"],
-          ["cards_ativos"], ["cab_detalhe"], ["painel_placa"]],
+          ["cards_ativos"], ["cab_detalhe"], ["painel_placa"],
+          ["alarmes_kpi"], ["alarmes_lista"], ["tabela_planta"]],
    func=r"""
 // Unico ponto que decide estado, cor e texto -- se os limites mudarem,
 // mudam aqui e valem para a tabela, os alarmes e os medidores.
@@ -369,20 +473,47 @@ const LIM = {
 const SEM_DADOS_MS = 20000;
 
 // Paleta de status reservada -- nunca usada para identificar serie.
-const COR = { normal: '#0ca30c', atencao: '#fab219', critico: '#d03b3b',
-              sem_dados: '#898781' };
+const COR = { normal: '#22c55e', atencao: '#f59e0b', critico: '#ef4444',
+              sem_dados: '#71717a' };
 // A cor nunca carrega o significado sozinha: sempre vem com simbolo e texto.
 const SIMB = { normal: '●', atencao: '▲', critico: '■', sem_dados: '○' };
-const ROTULO = { normal: 'OK', atencao: 'ATENCAO', critico: 'CRITICO',
+const ROTULO = { normal: 'OK', atencao: 'ATENÇÃO', critico: 'CRÍTICO',
                  sem_dados: 'SEM DADOS' };
 
 const PIOR = { sem_dados: 0, normal: 1, atencao: 2, critico: 3 };
 
-function avaliar(valor, lim) {
+// Fracao do limite usada como banda de histerese: o alarme dispara no
+// limite, mas so limpa 5% abaixo dele.
+//
+// Sem isso, um valor pousado em cima do limite (60,0 °C num limite de 60)
+// entra e sai de alarme a cada ciclo -- o histórico enche de ruido
+// justamente do ativo que mais interessa, e quem opera aprende a ignorar.
+const HISTERESE = 0.05;
+
+// Guarda o nivel anterior de cada grandeza para saber se estamos subindo
+// (aplica o limite cheio) ou descendo (aplica o limite reduzido).
+const niveis_ant = flow.get('niveis_anteriores') || {};
+const niveis_novos = {};
+
+function avaliar(valor, lim, id_hist) {
     if (valor === null || valor === undefined) { return null; }
-    if (valor >= lim.critico) { return 'critico'; }
-    if (valor >= lim.atencao) { return 'atencao'; }
-    return 'normal';
+
+    const ant = id_hist ? niveis_ant[id_hist] : null;
+
+    // Ja estava em atencao/critico? Entao so sai quando cair abaixo da
+    // banda -- e nao no instante em que cruza o limite de volta.
+    const lim_crit = (ant === 'critico')
+        ? lim.critico * (1 - HISTERESE) : lim.critico;
+    const lim_aten = (ant === 'critico' || ant === 'atencao')
+        ? lim.atencao * (1 - HISTERESE) : lim.atencao;
+
+    let n;
+    if (valor >= lim_crit)      { n = 'critico'; }
+    else if (valor >= lim_aten) { n = 'atencao'; }
+    else                        { n = 'normal'; }
+
+    if (id_hist) { niveis_novos[id_hist] = n; }
+    return n;
 }
 
 // Limites do ativo: os de LIM valem para todos, MENOS a corrente quando a
@@ -417,6 +548,24 @@ function fmt(v, casas, un) {
     if (v === undefined) { return '--'; }
     if (v === null) { return 'FALHA'; }
     return v.toFixed(casas) + ' ' + un;
+}
+
+// Tendencia a partir de um array de valores. Usa a media da primeira metade
+// contra a media da segunda metade -- suaviza ruido e ainda reage em
+// poucas leituras.
+function tendencia(hist) {
+    if (!hist || hist.length < 4) { return { simb: '—', pct: 0, cor: '#71717a' }; }
+    const meio = Math.floor(hist.length / 2);
+    const ant = hist.slice(0, meio).reduce((a, b) => a + b, 0) / meio;
+    const rec = hist.slice(meio).reduce((a, b) => a + b, 0) / (hist.length - meio);
+    if (ant === 0) { return { simb: '—', pct: 0, cor: '#71717a' }; }
+    const varia = (rec - ant) / ant;
+    if (Math.abs(varia) < 0.02) { return { simb: '—', pct: 0, cor: '#71717a' }; }
+    return {
+        simb: varia > 0 ? '▲' : '▼',
+        pct: Math.min(100, Math.abs(varia) * 100),
+        cor: varia > 0 ? '#ef4444' : '#22c55e'   // subindo -> quente, descendo -> frio
+    };
 }
 
 // Marcha nao e estado de saude: um motor parado nao esta "ruim". Mas e o
@@ -512,7 +661,7 @@ function consolidar_pai(tag, cfg, partes) {
         for (const pt of partes) {
             const v = pt[campo];
             if (v === null || v === undefined) { continue; }
-            const n = avaliar(v, limites_de(pt)[campo]);
+            const n = avaliar(v, limites_de(pt)[campo], pt.chave + '::' + campo);
             if (pior_n === null || PIOR[n] > PIOR[pior_n]) { pior_n = n; }
         }
         if (pior_n) { niveis[campo] = pior_n; }
@@ -663,7 +812,7 @@ for (const a of lista) {
                 motivos.push(lim.nome + ' sem leitura');
                 continue;
             }
-            const nivel = avaliar(v, lim);
+            const nivel = avaliar(v, lim, a.chave + '::' + campo);
             if (PIOR[nivel] > PIOR[estado]) { estado = nivel; }
             if (nivel !== 'normal') {
                 motivos.push(lim.nome + ' ' + ROTULO[nivel].toLowerCase() +
@@ -702,9 +851,85 @@ for (const a of lista) {
         if (PIOR[e] > PIOR[pior]) { pior = e; }
     }
     // Exceto quando o proprio ativo esta mudo: isso e dele, nao das partes.
-    if (estados[a.chave].estado === 'sem_dados') { pior = 'sem_dados'; }
+    if (estados[a.chave].estado === 'sem_dados') {
+        pior = 'sem_dados';
+    } else {
+        // Os MOTIVOS tambem sao das partes, nao da autoavaliacao do pai.
+        //
+        // Trocar so o estado deixava o texto contradizendo a cor: o pai e
+        // avaliado com os limites genericos (a placa e das partes), entao
+        // acusava "Corrente critico: 11.72A" num ativo cujas partes tem In
+        // de 21,5 A e estao folgadas. O estado ficava certo e o motivo
+        // errado -- pior que os dois errados, porque parece confiavel.
+        const motivos_filhos = [];
+        for (const f of filhos) {
+            const ef = estados[f.chave];
+            if (ef.estado === 'normal' || !ef.motivos.length) { continue; }
+            for (const m of ef.motivos) {
+                motivos_filhos.push(f.rotulo + ': ' + m);
+            }
+        }
+        estados[a.chave].motivos = motivos_filhos;
+    }
     estados[a.chave].estado = pior;
 }
+
+// Guarda os niveis deste ciclo: e a memoria de que a histerese depende.
+flow.set('niveis_anteriores', niveis_novos);
+
+// ---- Historico de alarmes --------------------------------------------
+// Mantem os ultimos eventos em memoria de fluxo. Um evento e identificado
+// por ativo + estado, entao o mesmo problema nao gera duplicatas a cada 2s.
+// Quando o estado volta a normal, marcamos o fim do evento para saber a
+// duracao.
+const MAX_HIST_ALARMES = 100;
+let hist = flow.get('historico_alarmes') || [];
+const chaves_ativas = new Set();
+for (const a of lista) {
+    const e = estados[a.chave];
+    if (!e || e.estado === 'normal') { continue; }
+
+    // Uma ocorrencia, um registro. Quem entra no historico depende de onde
+    // esta o problema:
+    //
+    //   limite/falha numa parte  -> registra a PARTE (o pai so herdou)
+    //   ativo inteiro mudo       -> registra o ATIVO (as partes mudas sao
+    //                               consequencia, nao N ocorrencias)
+    //
+    // Sem a segunda regra, uma queda de rede gera 1 + N linhas por ativo:
+    // o pai e cada parte, todos dizendo "sem telemetria" no mesmo segundo.
+    const tem_partes = lista.some(function (x) {
+        return x.nivel > 0 && x.chave.split('/')[0] === a.chave;
+    });
+    if (a.eh_pai && tem_partes && e.estado !== 'sem_dados') { continue; }
+    if (a.nivel > 0 && e.estado === 'sem_dados') {
+        const pai = estados[a.chave.split('/')[0]];
+        if (pai && pai.estado === 'sem_dados') { continue; }
+    }
+
+    const chave_evt = a.chave + '::' + e.estado;
+    chaves_ativas.add(chave_evt);
+    const ja = hist.find(function (h) { return h.chave === chave_evt && !h.fim_ms; });
+    if (!ja) {
+        hist.unshift({
+            chave: chave_evt,
+            ativo: a.eh_pai ? a.rotulo : (a.chave.split('/')[0] || a.rotulo),
+            parte: a.eh_pai ? '' : a.rotulo,
+            estado: e.estado,
+            motivos: e.motivos.slice(),
+            inicio_ms: agora,
+            fim_ms: null
+        });
+    }
+}
+// Fecha eventos que ja normalizaram.
+for (const h of hist) {
+    if (!h.fim_ms && !chaves_ativas.has(h.chave)) {
+        h.fim_ms = agora;
+    }
+}
+if (hist.length > MAX_HIST_ALARMES) { hist = hist.slice(0, MAX_HIST_ALARMES); }
+flow.set('historico_alarmes', hist);
 
 // ---- Passo 3: monta as linhas e a lista de alarmes -------------------
 const linhas = [];
@@ -762,18 +987,46 @@ if (!linhas_det.length) { linhas_det = linhas; }
 const m1 = { payload: linhas_det.map(limpar) };
 
 // ---- Saida 2: faixa de resumo da visao geral -------------------------
+// A logo vem embutida como data URI (ver nodered/marca.py): assim a marca
+// acompanha o flows.json, sem depender de httpStatic no destino.
+const LOGO = '__LOGO_LOCKUP__';
 const n_pai = lista.filter(function (x) { return x.nivel === 0; }).length;
+const cnt = { normal: 0, atencao: 0, critico: 0, sem_dados: 0 };
+for (const a of lista) {
+    if (a.nivel === 0) { cnt[estados[a.chave].estado] = (cnt[estados[a.chave].estado] || 0) + 1; }
+}
+
+function kpi(cor, simb, rot, val, sub) {
+    return '<div style="display:inline-block;min-width:130px;margin:6px 10px 6px 0;' +
+           'background:#151518;border:1px solid #3f3f46;border-radius:10px;padding:10px 14px;' +
+           'box-shadow:0 2px 6px rgba(0,0,0,0.2)">' +
+           '<div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:.4px">' + rot + '</div>' +
+           '<div style="font-size:24px;font-weight:600;color:' + cor + ';line-height:1.2">' + simb + ' ' + val + '</div>' +
+           (sub ? '<div style="font-size:11px;color:#52525b;margin-top:2px">' + sub + '</div>' : '') +
+           '</div>';
+}
+
 let html;
 if (!lista.length) {
-    html = '<span style="color:#898781">Aguardando o primeiro ativo publicar...</span>';
-} else if (!alarmes.length) {
-    html = '<span style="color:' + COR.normal + '">' + SIMB.normal +
-           ' Todos os ' + n_pai + ' ativos em condicao normal</span>';
+    html = '<span style="color:#71717a;font-size:14px">Aguardando o primeiro ativo publicar...</span>';
 } else {
-    html = alarmes.map(function (al) {
-        return '<span style="color:' + COR[al.estado] + '">' + SIMB[al.estado] +
-               ' <b>' + al.id + '</b> — ' + al.motivos.join(' | ') + '</span>';
-    }).join('<br>');
+    html = '<img src="' + LOGO + '" alt="insightX" ' +
+           'style="height:44px;vertical-align:middle;margin:0 20px 6px 0;' +
+           'padding-right:20px;border-right:1px solid #3f3f46">' +
+           kpi(COR.normal, SIMB.normal, 'Normais', cnt.normal, 'ativos OK') +
+           kpi(COR.atencao, SIMB.atencao, 'Atenção', cnt.atencao, 'revisar') +
+           kpi(COR.critico, SIMB.critico, 'Críticos', cnt.critico, 'ação urgente') +
+           kpi(COR.sem_dados, SIMB.sem_dados, 'Sem dados', cnt.sem_dados, 'offline/mudo') +
+           '<div style="margin-top:10px"></div>';
+    if (!alarmes.length) {
+        html += '<span style="color:' + COR.normal + '">' + SIMB.normal +
+                ' Todos os ' + n_pai + ' ativos monitorados estão em condição normal</span>';
+    } else {
+        html += alarmes.map(function (al) {
+            return '<span style="color:' + COR[al.estado] + '">' + SIMB[al.estado] +
+                   ' <b>' + al.id + '</b> — ' + al.motivos.join(' | ') + '</span>';
+        }).join('<br>');
+    }
 }
 const m2 = { payload: html };
 
@@ -783,22 +1036,27 @@ if (!alvo) { return [m1, m2, null, m4_cards(), null]; }
 
 const lims_alvo = limites_de(alvo);
 
-function tile(nome, campo, casas, un) {
+function tile(nome, campo, casas, un, hist) {
     const v = alvo[campo];
     const lim = lims_alvo[campo];
     if (v === undefined) {
         return { nome: nome, texto: '--', un: '', pct: 0,
-                 cor: COR.sem_dados, simb: SIMB.sem_dados, rotulo: 'sem sensor' };
+                 cor: COR.sem_dados, simb: SIMB.sem_dados, rotulo: 'sem sensor',
+                 tend: { simb: '—', pct: 0, cor: '#71717a' }, spark: [] };
     }
     if (v === null) {
         return { nome: nome, texto: 'FALHA', un: '', pct: 0,
-                 cor: COR.atencao, simb: SIMB.atencao, rotulo: 'sem leitura' };
+                 cor: COR.atencao, simb: SIMB.atencao, rotulo: 'sem leitura',
+                 tend: { simb: '—', pct: 0, cor: '#71717a' }, spark: [] };
     }
-    const nivel = (alvo.niveis && alvo.niveis[campo]) || avaliar(v, lim);
+    const nivel = (alvo.niveis && alvo.niveis[campo])
+                || avaliar(v, lim, alvo.chave + '::' + campo);
     // A barra e um medidor contra o limite critico: cheia = no limite.
     const pct = Math.max(0, Math.min(100, (v / lim.critico) * 100));
+    const t = tendencia(hist);
     return { nome: nome, texto: v.toFixed(casas), un: un, pct: pct,
-             cor: COR[nivel], simb: SIMB[nivel], rotulo: ROTULO[nivel] };
+             cor: COR[nivel], simb: SIMB[nivel], rotulo: ROTULO[nivel],
+             tend: t, spark: hist || [] };
 }
 
 // Tensao e barramento CC nao tem limite configurado -- sao leitura de
@@ -815,9 +1073,12 @@ function tile_simples(nome, campo, casas, un) {
 }
 
 const m3 = { payload: [
-    tile('Temperatura',  'temperatura_c', 1, '°C'),
-    tile('Vibracao RMS', 'vib_rms_g',     3, 'g'),
-    tile('Corrente',     'corrente_a',    2, 'A'),
+    tile('Temperatura',  'temperatura_c', 1, '°C',
+         ((registro[alvo.fonte_esp32] || {}).hist || {}).temp || []),
+    tile('Vibracao RMS', 'vib_rms_g',     3, 'g',
+         ((registro[alvo.fonte_esp32] || {}).hist || {}).vib || []),
+    tile('Corrente',     'corrente_a',    2, 'A',
+         ((registro[alvo.fonte_inversor] || {}).hist || {}).corr || []),
     tile_simples('Tensao',    'tensao_v', 1, 'V'),
     tile_simples('Barramento CC', 'dc_bus_v', 1, 'V'),
     tile_simples('Frequencia', 'frequencia_hz', 1, 'Hz')
@@ -848,7 +1109,8 @@ function m4_cards() {
             // No ativo pai, o nivel ja veio consolidado das partes (cada
             // uma com o limite da SUA placa); so no equipamento folha e
             // que avaliamos aqui.
-            const n = (a.niveis && a.niveis[campo]) || avaliar(v, lim);
+            const n = (a.niveis && a.niveis[campo])
+                    || avaliar(v, lim, a.chave + '::' + campo);
             return { nome: nome, texto: v.toFixed(casas), un: un,
                      pct: Math.max(0, Math.min(100, (v / lim.critico) * 100)),
                      cor: COR[n], vazio: false };
@@ -902,19 +1164,19 @@ const nome_exib = (alvo.nivel > 0)
 
 const marcha = marcha_txt(alvo);
 const m5 = { payload:
-    '<span style="font-size:20px;font-weight:600;color:#ffffff">' + nome_exib + '</span>' +
-    '<span style="margin-left:12px;color:' + COR[e_alvo] + '">' +
+    '<span style="font-size:22px;font-weight:600;color:#f4f4f5;letter-spacing:-0.2px">' + nome_exib + '</span>' +
+    '<span style="margin-left:14px;padding:2px 10px;border-radius:12px;border:1px solid ' + COR[e_alvo] + ';color:' + COR[e_alvo] + ';font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px">' +
     SIMB[e_alvo] + ' ' + ROTULO[e_alvo] + '</span>' +
     (marcha !== '--'
-        ? '<span style="margin-left:12px;color:#c3c2b7">' + marcha + '</span>'
+        ? '<span style="margin-left:14px;color:#a1a1aa;font-size:14px">' + marcha + '</span>'
         : '') +
     (alvo.falha_codigo
-        ? '<div style="font-size:13px;color:' + COR.critico + ';margin-top:3px">' +
+        ? '<div style="font-size:13px;color:' + COR.critico + ';margin-top:6px;font-weight:500">' +
           '■ F' + String(alvo.falha_codigo).padStart(3, '0') +
           (alvo.falha_texto ? ' — ' + alvo.falha_texto : '') + '</div>'
         : '') +
     (fontes.length
-        ? '<div style="font-size:12px;color:#898781;margin-top:2px">' +
+        ? '<div style="font-size:12px;color:#71717a;margin-top:4px">' +
           fontes.join(' · ') + '</div>'
         : '') };
 
@@ -1003,7 +1265,41 @@ function montar_placa() {
     return { payload: { fichas: fichas } };
 }
 
-return [m1, m2, m3, m4_cards(), m5, montar_placa()];
+// ---- Saida 7: KPIs da tela de alarmes --------------------------------
+// O widget le msg.payload; sem essa chave ele recebe undefined e fica nos
+// zeros iniciais -- que era o motivo de os contadores nunca saírem de 0.
+const m7 = { payload: {
+    total: hist.length,
+    ativos: n_pai,
+    abertos: hist.filter(function (h) { return !h.fim_ms; }).length,
+    critico: hist.filter(function (h) { return h.estado === 'critico'; }).length,
+    atencao: hist.filter(function (h) { return h.estado === 'atencao'; }).length,
+    sem_dados: hist.filter(function (h) { return h.estado === 'sem_dados'; }).length
+} };
+
+// ---- Saida 8: historico de alarmes ----------------------------------
+const m8 = { payload: hist.map(function (h) {
+    const duracao = h.fim_ms
+        ? Math.round((h.fim_ms - h.inicio_ms) / 1000) + 's'
+        : Math.round((agora - h.inicio_ms) / 1000) + 's (aberto)';
+    return {
+        ativo: h.ativo,
+        parte: h.parte,
+        estado: SIMB[h.estado] + ' ' + ROTULO[h.estado],
+        cor: COR[h.estado],
+        motivos: h.motivos.join(' | '),
+        inicio: new Date(h.inicio_ms).toLocaleTimeString(),
+        duracao: duracao
+    };
+}) };
+
+// ---- Saida 9: tabela da PLANTA INTEIRA (pagina Ativos) --------------
+// Nao pode compartilhar a saida 1: aquela e filtrada no ativo aberto na
+// tela de Detalhe. Aqui o recorte e a planta toda, independente do que
+// esteja selecionado noutra tela.
+const m9 = { payload: linhas.map(limpar) };
+
+return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9];
 """)
 
 # =====================================================================
@@ -1076,58 +1372,60 @@ export default {
 <style scoped>
 /* align-content/items em start: sem isso o grid estica os cards para
    preencher a altura do grupo, e cada card vira uma coluna vazia enorme. */
-.parede { display: grid; gap: 12px; align-content: start; align-items: start;
-          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
-.vazio  { color: #898781; padding: 8px; }
+.parede { display: grid; gap: 16px; align-content: start; align-items: start;
+          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.vazio  { color: #71717a; padding: 12px; font-size: 14px; }
 
 .card {
-    background: #1a1a19;
-    border: 1px solid #383835;
-    border-left: 4px solid #898781;   /* faixa de estado */
-    border-radius: 4px;
-    padding: 12px 14px;
+    background: #151518;
+    border: 1px solid #3f3f46;
+    border-left: 5px solid #71717a;   /* faixa de estado */
+    border-radius: 12px;
+    padding: 16px 18px;
     cursor: pointer;
-    transition: box-shadow .15s ease, transform .15s ease;
+    transition: border-color .2s ease, background .2s ease, transform .2s ease, box-shadow .2s ease;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
 }
 .card:hover, .card:focus-visible {
-    /* No escuro a sombra some; quem marca o hover e a borda clareando. */
-    border-color: #5a5a55;
-    background: #212120;
-    transform: translateY(-1px);
+    border-color: #52525b;
+    background: #1e1e22;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
     outline: none;
 }
 
 .topo { display: flex; justify-content: space-between; align-items: flex-start;
-        gap: 8px; margin-bottom: 10px; }
-.tag  { font-size: 16px; font-weight: 600; color: #ffffff; }
-.desc { font-size: 12px; color: #c3c2b7; margin-top: 1px; }
-.chip { font-size: 11px; white-space: nowrap; border: 1px solid;
-        border-radius: 10px; padding: 1px 8px; }
+        gap: 10px; margin-bottom: 14px; }
+.tag  { font-size: 17px; font-weight: 600; color: #f4f4f5; letter-spacing: -0.2px; }
+.desc { font-size: 12px; color: #a1a1aa; margin-top: 2px; line-height: 1.3; }
+.chip { font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid;
+        border-radius: 12px; padding: 2px 10px; text-transform: uppercase;
+        letter-spacing: .4px; }
 
-.medidas { display: flex; gap: 10px; }
+.medidas { display: flex; gap: 14px; }
 .medida  { flex: 1; min-width: 0; }
-.mrot { font-size: 10px; color: #898781; text-transform: uppercase;
-        letter-spacing: .3px; }
+.mrot { font-size: 10px; color: #71717a; text-transform: uppercase;
+        letter-spacing: .5px; margin-bottom: 3px; }
 /* Figuras proporcionais: tabular deixa o numero solto nesse tamanho */
-.mval { font-size: 20px; color: #ffffff; line-height: 1.2;
+.mval { font-size: 22px; color: #f4f4f5; line-height: 1.2;
         font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-.mval.vazio { font-size: 14px; color: #898781; }
-.mun  { font-size: 11px; color: #c3c2b7; margin-left: 2px; }
-.trilho   { height: 3px; background: #2c2c2a; border-radius: 2px; margin-top: 4px; }
-.preenche { height: 100%; border-radius: 2px; transition: width .3s ease; }
+.mval.vazio { font-size: 15px; color: #71717a; }
+.mun  { font-size: 12px; color: #a1a1aa; margin-left: 3px; }
+.trilho   { height: 4px; background: #27272a; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.preenche { height: 100%; border-radius: 2px; transition: width .4s ease, background .3s ease; }
 
-.rodape { display: flex; justify-content: space-between; margin-top: 10px;
-          font-size: 11px; color: #898781; }
+.rodape { display: flex; justify-content: space-between; margin-top: 14px;
+          font-size: 11px; color: #71717a; }
 /* Marcha e contexto, nao saude: fica discreta e nunca usa a cor de status,
    senao "rodando" leria como "OK" e "parado" como alarme. */
-.marcha        { margin-left: 6px; }
-.marcha.on     { color: #c3c2b7; }
-.marcha.off    { color: #898781; }
+.marcha        { margin-left: 6px; font-weight: 500; }
+.marcha.on     { color: #a1a1aa; }
+.marcha.off    { color: #52525b; }
 </style>
 """
 
 no(id="cards_ativos", type="ui-template", z="flow_monitor", group=G_CARDS,
-   name="cards dos ativos", order=1, width="12", height="8",
+   name="cards dos ativos", order=1, width="12", height="9",
    head="", format=CARDS, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=340, wires=[["abrir_ativo"]])
@@ -1242,43 +1540,43 @@ export default {
 </script>
 
 <style scoped>
-.bloco  { border-top: 1px solid #2c2c2a; padding-top: 14px; margin-top: 14px; }
+.bloco  { border-top: 1px solid #27272a; padding-top: 16px; margin-top: 16px; }
 .bloco.primeiro { border-top: none; padding-top: 0; margin-top: 0; }
-.parte  { font-size: 15px; font-weight: 600; color: #ffffff; margin-bottom: 2px; }
-.local  { font-size: 12px; color: #898781; margin-bottom: 10px; }
+.parte  { font-size: 16px; font-weight: 600; color: #f4f4f5; margin-bottom: 2px; }
+.local  { font-size: 12px; color: #71717a; margin-bottom: 12px; }
 
 .painel { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
 .col    { flex: 1 1 260px; min-width: 240px; }
 .foto-col { flex: 0 1 300px; }
 .titulo { font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
-          color: #898781; margin-bottom: 8px; }
-.conta  { background: #2c2c2a; color: #c3c2b7; border-radius: 8px;
-          padding: 0 6px; margin-left: 4px; }
+          color: #71717a; margin-bottom: 10px; }
+.conta  { background: #27272a; color: #a1a1aa; border-radius: 8px;
+          padding: 0 7px; margin-left: 6px; }
 
-.foto   { max-width: 100%; border: 1px solid #383835; border-radius: 4px;
-          display: block; }
-.foto:hover { border-color: #5a5a55; }
-.semfoto { color: #898781; font-size: 13px; border: 1px dashed #383835;
-           border-radius: 4px; padding: 16px; text-align: center; }
-.nada   { color: #898781; padding: 4px; }
-.dica   { display: block; font-size: 11px; color: #5a5a55; margin-top: 4px; }
+.foto   { max-width: 100%; border: 1px solid #3f3f46; border-radius: 8px;
+          display: block; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+.foto:hover { border-color: #52525b; }
+.semfoto { color: #71717a; font-size: 13px; border: 1px dashed #3f3f46;
+           border-radius: 8px; padding: 18px; text-align: center; }
+.nada   { color: #71717a; padding: 8px; }
+.dica   { display: block; font-size: 11px; color: #52525b; margin-top: 4px; }
 
 table { border-collapse: collapse; width: 100%; }
-.ficha th { text-align: left; font-weight: 400; color: #898781;
-            font-size: 12px; padding: 3px 12px 3px 0; white-space: nowrap;
+.ficha th { text-align: left; font-weight: 400; color: #71717a;
+            font-size: 12px; padding: 4px 12px 4px 0; white-space: nowrap;
             vertical-align: top; }
 /* tabular-nums aqui SIM: sao colunas que alinham verticalmente */
-.ficha td { color: #ffffff; font-size: 13px; padding: 3px 0;
+.ficha td { color: #f4f4f5; font-size: 13px; padding: 4px 0;
             font-variant-numeric: tabular-nums; }
 
-.sobras td { padding: 4px 0; border-bottom: 1px solid #2c2c2a;
+.sobras td { padding: 5px 0; border-bottom: 1px solid #27272a;
              font-size: 13px; vertical-align: top; }
 .sobras tr:last-child td { border-bottom: none; }
-.it  { color: #c3c2b7; }
-.obs { font-size: 11px; color: #5a5a55; }
-.cod { color: #ffffff; font-family: ui-monospace, "Cascadia Code", monospace;
+.it  { color: #a1a1aa; }
+.obs { font-size: 11px; color: #52525b; }
+.cod { color: #f4f4f5; font-family: ui-monospace, "Cascadia Code", monospace;
        padding-left: 12px !important; white-space: nowrap; }
-.qt  { color: #898781; text-align: right; padding-left: 10px !important;
+.qt  { color: #71717a; text-align: right; padding-left: 10px !important;
        white-space: nowrap; }
 </style>
 """
@@ -1473,67 +1771,68 @@ export default {
 </script>
 
 <style scoped>
-.tela  { color: #c3c2b7; font-size: 14px; }
-h2     { color: #ffffff; font-size: 20px; margin: 0 0 4px; font-weight: 600; }
-.ajuda { color: #898781; font-size: 13px; margin: 0 0 18px; max-width: 70ch; }
+.tela  { color: #a1a1aa; font-size: 14px; }
+h2     { color: #f4f4f5; font-size: 22px; margin: 0 0 4px; font-weight: 600; }
+.ajuda { color: #71717a; font-size: 13px; margin: 0 0 20px; max-width: 70ch; line-height: 1.4; }
 
-.secao  { margin-bottom: 22px; }
+.secao  { margin-bottom: 24px; }
 .titulo { font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
-          color: #898781; margin-bottom: 8px; }
-.conta  { background: #2c2c2a; color: #ffffff; border-radius: 8px;
+          color: #71717a; margin-bottom: 10px; }
+.conta  { background: #27272a; color: #f4f4f5; border-radius: 8px;
           padding: 0 7px; margin-left: 6px; }
-.vazio  { color: #5a5a55; font-size: 13px; border: 1px dashed #383835;
-          border-radius: 4px; padding: 14px; }
+.vazio  { color: #52525b; font-size: 13px; border: 1px dashed #3f3f46;
+          border-radius: 8px; padding: 16px; }
 
 table  { border-collapse: collapse; width: 100%; }
-.lista td { padding: 9px 10px; border-bottom: 1px solid #2c2c2a;
+.lista td { padding: 10px 12px; border-bottom: 1px solid #27272a;
             vertical-align: middle; }
-.lista tr { cursor: pointer; }
-.lista tr:hover td { background: #212120; }
+.lista tr { cursor: pointer; transition: background .15s ease; }
+.lista tr:hover td { background: #1e1e22; }
 .lista tr.sel td    { background: #1d2a3a; }
 .compacta tr { cursor: default; }
 .compacta tr:hover td { background: transparent; }
 
-.id   { color: #ffffff; font-family: ui-monospace, "Cascadia Code", monospace; }
+.id   { color: #f4f4f5; font-family: ui-monospace, "Cascadia Code", monospace; }
 .tipo { font-size: 10px; text-transform: uppercase; letter-spacing: .3px;
         border: 1px solid; border-radius: 8px; padding: 1px 6px; margin-left: 8px; }
 .tipo.esp32    { color: #3987e5; border-color: #3987e5; }
-.tipo.inversor { color: #c98500; border-color: #c98500; }
-.tipo.desconhecido { color: #898781; border-color: #383835; }
+.tipo.inversor { color: #f59e0b; border-color: #f59e0b; }
+.tipo.desconhecido { color: #71717a; border-color: #3f3f46; }
 
-.resumo { color: #c3c2b7; font-variant-numeric: tabular-nums; }
-.visto  { color: #898781; font-size: 12px; text-align: right; }
-.visto.mudo { color: #d03b3b; }
-.acao   { color: #898781; text-align: right; width: 90px; }
+.resumo { color: #a1a1aa; font-variant-numeric: tabular-nums; }
+.visto  { color: #71717a; font-size: 12px; text-align: right; }
+.visto.mudo { color: #ef4444; }
+.acao   { color: #71717a; text-align: right; width: 90px; }
 
-.form   { border: 1px solid #383835; border-radius: 4px; padding: 16px; }
-.linha  { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
-label   { width: 130px; color: #898781; font-size: 13px; flex: none; }
+.form   { background: #151518; border: 1px solid #3f3f46; border-radius: 10px; padding: 18px; }
+.linha  { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+label   { width: 130px; color: #71717a; font-size: 13px; flex: none; }
 input, select {
-    background: #0d0d0d; color: #ffffff; border: 1px solid #383835;
-    border-radius: 4px; padding: 7px 10px; font-size: 14px;
+    background: #0b0b0c; color: #f4f4f5; border: 1px solid #3f3f46;
+    border-radius: 6px; padding: 8px 12px; font-size: 14px;
     flex: 1; max-width: 420px; font-family: inherit;
 }
 input:focus, select:focus { outline: none; border-color: #3987e5; }
-.nota { color: #898781; font-size: 12px; margin: 4px 0 12px; max-width: 70ch; }
+.nota { color: #71717a; font-size: 12px; margin: 4px 0 14px; max-width: 70ch; line-height: 1.4; }
 
-.botoes { display: flex; gap: 10px; margin-top: 14px; }
-button  { border: none; border-radius: 4px; padding: 9px 18px; font-size: 14px;
-          cursor: pointer; font-family: inherit; }
+.botoes { display: flex; gap: 10px; margin-top: 16px; }
+button  { border: none; border-radius: 6px; padding: 10px 20px; font-size: 14px;
+          cursor: pointer; font-family: inherit; transition: filter .15s ease; }
+button:hover { filter: brightness(1.1); }
 .ok       { background: #3987e5; color: #ffffff; }
-.ok:disabled { background: #2c2c2a; color: #5a5a55; cursor: not-allowed; }
-.cancelar { background: transparent; color: #898781; border: 1px solid #383835; }
-.mini     { background: transparent; color: #898781; border: 1px solid #383835;
-            font-size: 11px; padding: 3px 9px; }
-.mini:hover { color: #d03b3b; border-color: #d03b3b; }
-.aviso    { color: #0ca30c; font-size: 13px; margin-top: 12px; }
+.ok:disabled { background: #27272a; color: #52525b; cursor: not-allowed; filter: none; }
+.cancelar { background: transparent; color: #a1a1aa; border: 1px solid #3f3f46; }
+.mini     { background: transparent; color: #a1a1aa; border: 1px solid #3f3f46;
+            font-size: 11px; padding: 4px 10px; border-radius: 6px; }
+.mini:hover { color: #ef4444; border-color: #ef4444; filter: none; }
+.aviso    { color: #22c55e; font-size: 13px; margin-top: 12px; }
 
-.pai td   { padding-top: 14px; color: #ffffff; }
-.local    { color: #898781; font-size: 12px; margin-left: 10px; font-weight: 400; }
-.parte-nome { color: #c3c2b7; padding-left: 14px !important; }
-.devs code  { color: #ffffff; font-family: ui-monospace, monospace;
+.pai td   { padding-top: 16px; color: #f4f4f5; }
+.local    { color: #71717a; font-size: 12px; margin-left: 10px; font-weight: 400; }
+.parte-nome { color: #a1a1aa; padding-left: 14px !important; }
+.devs code  { color: #f4f4f5; font-family: ui-monospace, monospace;
               margin-right: 10px; }
-.tagi { color: #c98500; font-size: 11px; border: 1px solid #c98500;
+.tagi { color: #f59e0b; font-size: 11px; border: 1px solid #f59e0b;
         border-radius: 8px; padding: 0 6px; margin-left: 4px; }
 </style>
 """
@@ -1616,6 +1915,200 @@ no(id="gravar_cadastro", type="file", z="flow_monitor", name="ativos.json",
    createDir=True, overwriteFile="true", encoding="utf8",
    x=1080, y=800, wires=[[]])
 
+ROADMAP_IA = r"""
+<template>
+    <div class="rm">
+        <div class="tag">Em desenvolvimento</div>
+        <h2>Detecção de anomalia e diagnóstico</h2>
+        <p class="lead">
+            O painel hoje compara cada grandeza com um limite. O próximo passo
+            é aprender o que é normal <em>para cada ativo</em> e apontar desvio
+            antes de qualquer limite ser cruzado.
+        </p>
+
+        <div class="escada">
+            <div v-for="d in degraus" :key="d.n" class="degrau" :class="d.estado">
+                <div class="num">{{ d.n }}</div>
+                <div class="txt">
+                    <div class="tit">
+                        {{ d.titulo }}
+                        <span class="pill" :class="d.estado">{{ d.rotulo }}</span>
+                    </div>
+                    <div class="ent">{{ d.entrega }}</div>
+                    <div class="pre">Precisa de: {{ d.precisa }}</div>
+                </div>
+            </div>
+        </div>
+
+        <p class="nota">
+            O degrau 4 — o que se costuma imaginar ao ouvir “IA preditiva” —
+            exige histórico de máquinas que falharam <em>com registro</em>, que
+            quase nenhuma planta tem no início. Por isso a ordem é 2 e 3
+            primeiro: funcionam sem histórico de falha, e vão acumulando o dado
+            que o degrau 4 precisa.
+        </p>
+    </div>
+</template>
+
+<script>
+export default {
+    data () {
+        return { degraus: [
+            { n: 1, titulo: 'Monitorar', estado: 'ok', rotulo: 'operando',
+              entrega: 'Valor medido contra limite, por ativo, com a corrente nominal da placa.',
+              precisa: 'só o sensor — é o que está no ar agora' },
+            { n: 2, titulo: 'Detecção de anomalia', estado: 'prox', rotulo: 'próximo',
+              entrega: '"Fora do normal desta máquina", sem depender de limite fixo.',
+              precisa: '2 a 4 semanas de operação normal para formar a linha de base' },
+            { n: 3, titulo: 'Diagnóstico', estado: 'fut', rotulo: 'médio prazo',
+              entrega: '"É rolamento, desbalanceamento ou barra de rotor" — não só "está ruim".',
+              precisa: 'análise espectral (FFT) e o código do rolamento no cadastro' },
+            { n: 4, titulo: 'Prognóstico (RUL)', estado: 'fut', rotulo: 'longo prazo',
+              entrega: 'Estimativa de vida útil remanescente: "falha provável em ~X dias".',
+              precisa: 'histórico de falhas reais registradas (run-to-failure)' }
+        ] }
+    }
+}
+</script>
+
+<style scoped>
+.rm   { color: #a1a1aa; max-width: 90ch; }
+.tag  { display: inline-block; font-size: 11px; text-transform: uppercase;
+        letter-spacing: .5px; color: #f59e0b; border: 1px solid #f59e0b;
+        border-radius: 10px; padding: 2px 10px; margin-bottom: 12px; }
+h2    { color: #f4f4f5; font-size: 22px; margin: 0 0 8px; font-weight: 600; }
+.lead { font-size: 14px; line-height: 1.6; margin: 0 0 26px; }
+em    { color: #f4f4f5; font-style: normal; }
+
+.escada { display: flex; flex-direction: column; gap: 2px; }
+.degrau { display: flex; gap: 16px; padding: 14px 16px; border-left: 3px solid #27272a;
+          background: #151518; border-radius: 0 8px 8px 0; }
+.degrau.ok   { border-left-color: #22c55e; }
+.degrau.prox { border-left-color: #3b82f6; }
+.degrau.fut  { border-left-color: #3f3f46; }
+
+.num  { font-size: 22px; font-weight: 600; color: #52525b; width: 26px;
+        flex: none; text-align: center; font-variant-numeric: tabular-nums; }
+.tit  { color: #f4f4f5; font-size: 15px; font-weight: 600; margin-bottom: 3px; }
+.ent  { font-size: 13px; color: #a1a1aa; margin-bottom: 3px; }
+.pre  { font-size: 12px; color: #71717a; }
+
+.pill { font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
+        border-radius: 8px; padding: 1px 8px; margin-left: 10px;
+        font-weight: 400; vertical-align: 2px; }
+.pill.ok   { color: #22c55e; border: 1px solid #22c55e; }
+.pill.prox { color: #3b82f6; border: 1px solid #3b82f6; }
+.pill.fut  { color: #71717a; border: 1px solid #3f3f46; }
+
+.nota { font-size: 13px; line-height: 1.6; color: #71717a; margin-top: 26px;
+        border-top: 1px solid #27272a; padding-top: 16px; }
+</style>
+"""
+
+ROADMAP_REL = r"""
+<template>
+    <div class="rm">
+        <div class="tag">Em desenvolvimento</div>
+        <h2>Relatórios e histórico</h2>
+        <p class="lead">
+            O painel mostra o <em>agora</em>. Relatório de tendência, comparação
+            entre períodos e exportação exigem gravar cada medição — e MQTT
+            transporta, não armazena.
+        </p>
+
+        <div class="camadas">
+            <div v-for="c in camadas" :key="c.nome" class="camada" :class="c.estado">
+                <div class="cab">
+                    <span class="nome">{{ c.nome }}</span>
+                    <span class="pill" :class="c.estado">{{ c.rotulo }}</span>
+                </div>
+                <div class="desc">{{ c.desc }}</div>
+            </div>
+        </div>
+
+        <p class="nota">
+            A decisão de projeto é usar <b>PostgreSQL + TimescaleDB</b>: um único
+            banco serve o Grafana, a camada de IA e o Power BI — que tem conector
+            nativo de PostgreSQL, e nenhum de MQTT. A alternativa comum
+            (InfluxDB) exigiria uma ponte só para o Power BI.
+        </p>
+    </div>
+</template>
+
+<script>
+export default {
+    data () {
+        return { camadas: [
+            { nome: 'Ao vivo', estado: 'ok', rotulo: 'operando',
+              desc: 'Este painel: valor instantâneo, estado e alarme. Funciona sem internet.' },
+            { nome: 'Histórico (PostgreSQL + TimescaleDB)', estado: 'prox', rotulo: 'próximo',
+              desc: 'Grava cada medição na borda. É o que destrava tudo abaixo.' },
+            { nome: 'Gráficos de engenharia (Grafana)', estado: 'fut', rotulo: 'depois do banco',
+              desc: 'Tendência longa, zoom, comparação entre ativos e entre períodos.' },
+            { nome: 'Relatório corporativo (Power BI)', estado: 'fut', rotulo: 'depois do banco',
+              desc: 'KPIs e relatórios lendo a mesma base, pelo conector PostgreSQL.' }
+        ] }
+    }
+}
+</script>
+
+<style scoped>
+.rm   { color: #a1a1aa; max-width: 90ch; }
+.tag  { display: inline-block; font-size: 11px; text-transform: uppercase;
+        letter-spacing: .5px; color: #f59e0b; border: 1px solid #f59e0b;
+        border-radius: 10px; padding: 2px 10px; margin-bottom: 12px; }
+h2    { color: #f4f4f5; font-size: 22px; margin: 0 0 8px; font-weight: 600; }
+.lead { font-size: 14px; line-height: 1.6; margin: 0 0 26px; }
+em, b { color: #f4f4f5; font-style: normal; font-weight: 600; }
+
+.camadas { display: flex; flex-direction: column; gap: 2px; }
+.camada  { padding: 14px 16px; border-left: 3px solid #27272a;
+           background: #151518; border-radius: 0 8px 8px 0; }
+.camada.ok   { border-left-color: #22c55e; }
+.camada.prox { border-left-color: #3b82f6; }
+.camada.fut  { border-left-color: #3f3f46; }
+.cab  { display: flex; align-items: center; gap: 10px; margin-bottom: 3px; }
+.nome { color: #f4f4f5; font-size: 15px; font-weight: 600; }
+.desc { font-size: 13px; color: #a1a1aa; }
+
+.pill { font-size: 10px; text-transform: uppercase; letter-spacing: .4px;
+        border-radius: 8px; padding: 1px 8px; }
+.pill.ok   { color: #22c55e; border: 1px solid #22c55e; }
+.pill.prox { color: #3b82f6; border: 1px solid #3b82f6; }
+.pill.fut  { color: #71717a; border: 1px solid #3f3f46; }
+
+.nota { font-size: 13px; line-height: 1.6; color: #71717a; margin-top: 26px;
+        border-top: 1px solid #27272a; padding-top: 16px; }
+</style>
+"""
+
+# As paginas de IA e Relatorios ainda nao tem funcionalidade. Em vez de
+# item de menu que abre tela vazia -- pior que nao existir, sobretudo em
+# demonstracao -- elas mostram o roadmap: o que entrega, o que falta e por
+# que a ordem e essa. Honesto e util.
+no(id="pg_ia_conteudo", type="ui-template", z="flow_monitor", group=G_IA,
+   name="roadmap de IA", order=1, width="12", height="12",
+   head="", format=ROADMAP_IA, storeOutMessages=False, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=880, wires=[[]])
+
+no(id="pg_rel_conteudo", type="ui-template", z="flow_monitor", group=G_REL,
+   name="roadmap de relatorios", order=1, width="12", height="12",
+   head="", format=ROADMAP_REL, storeOutMessages=False, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=940, wires=[[]])
+
+# width/height em 0 = automatico, quem dimensiona e o grupo. Fixar 12x16
+# aqui colapsava o contêiner de rolagem interno da tabela para 38px: as
+# linhas existiam no DOM e ficavam cortadas, dando cara de tela vazia.
+no(id="tabela_planta", type="ui-table", z="flow_monitor", group=G_ATIVOS_TAB,
+   name="todos os ativos", label="", order=1, width="0", height="0",
+   maxrows=0, passthru=False, autocols=True, columns=[],
+   mobileBreakpoint="", mobileBreakpointType="none",
+   showSearch=True, deselect=True,
+   action="replace", selectionType="none", className="",
+   x=640, y=300, wires=[[]])
+
 no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
    name="tabela de ativos", label="", order=1, width="0", height="0",
    maxrows=0, passthru=False, autocols=True, columns=[],
@@ -1627,7 +2120,7 @@ no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
    x=620, y=340, wires=[[]])
 
 no(id="txt_resumo", type="ui-text", z="flow_monitor", group=G_RESUMO,
-   order=1, width="12", height="3", name="resumo", label="",
+   order=1, width="12", height="4", name="resumo", label="",
    format="{{msg.payload}}", layout="row-left", style=False, font="",
    fontSize=16, color="#717171", wrapText=True, className="",
    x=620, y=380, wires=[])
@@ -1643,15 +2136,23 @@ no(id="txt_resumo", type="ui-text", z="flow_monitor", group=G_RESUMO,
 STAT_TILES = r"""
 <template>
     <div class="tiles">
-        <div v-for="t in tiles" :key="t.nome" class="tile">
+        <div v-for="t in tiles" :key="t.nome" class="tile"
+             :class="{ vazio: t.texto === '--' || t.texto === 'FALHA' }">
             <div class="rot">{{ t.nome }}</div>
-            <div class="val" :class="{ vazio: t.texto === '--' || t.texto === 'FALHA' }">
+            <div class="val">
                 {{ t.texto }}<span v-if="t.un" class="un">{{ t.un }}</span>
+                <span class="tend" :style="{ color: t.tend.cor }">{{ t.tend.simb }}</span>
             </div>
             <div class="trilho">
                 <div class="preenche" :style="{ width: t.pct + '%', background: t.cor }"></div>
             </div>
             <div class="estado" :style="{ color: t.cor }">{{ t.simb }} {{ t.rotulo }}</div>
+            <svg v-if="t.spark && t.spark.length" class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+                <polyline fill="none" stroke="#52525b" stroke-width="2"
+                          :points="sparkPoints(t.spark)" />
+                <polyline fill="none" :stroke="t.cor" stroke-width="2.5"
+                          :points="sparkPoints(t.spark)" />
+            </svg>
         </div>
     </div>
 </template>
@@ -1659,6 +2160,19 @@ STAT_TILES = r"""
 <script>
 export default {
     data () { return { tiles: [] } },
+    methods: {
+        sparkPoints (arr) {
+            if (!arr || arr.length < 2) { return ''; }
+            const min = Math.min(...arr), max = Math.max(...arr);
+            const rng = (max === min) ? 1 : (max - min);
+            const step = 100 / (arr.length - 1);
+            return arr.map((v, i) => {
+                const x = i * step;
+                const y = 30 - ((v - min) / rng) * 28 - 1;
+                return x.toFixed(1) + ',' + y.toFixed(1);
+            }).join(' ');
+        }
+    },
     watch: {
         msg: {
             immediate: true,
@@ -1669,25 +2183,171 @@ export default {
 </script>
 
 <style scoped>
-.tiles { display: flex; gap: 12px 10px; flex-wrap: wrap; }
-.tile  { flex: 1 1 30%; min-width: 100px; }
-.rot   { font-size: 12px; color: #c3c2b7; margin-bottom: 2px; }
-/* Figuras proporcionais no numero grande: tabular deixa solto nesse tamanho */
-.val   { font-size: 30px; line-height: 1.1; color: #ffffff;
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+.tile  { background: #151518; border: 1px solid #3f3f46; border-radius: 10px;
+         padding: 14px; transition: background .2s ease; }
+.tile:hover { background: #1e1e22; }
+.tile.vazio { opacity: .85; }
+.rot   { font-size: 11px; color: #71717a; text-transform: uppercase;
+         letter-spacing: .5px; margin-bottom: 4px; }
+.val   { font-size: 28px; line-height: 1.15; color: #f4f4f5;
          font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-.val.vazio { color: #898781; font-size: 22px; }
-.un    { font-size: 13px; color: #c3c2b7; margin-left: 4px; }
-.trilho   { height: 4px; background: #2c2c2a; border-radius: 2px; margin: 6px 0 4px; }
-.preenche { height: 100%; border-radius: 2px; transition: width .3s ease; }
-.estado   { font-size: 12px; }
+.un    { font-size: 13px; color: #a1a1aa; margin-left: 4px; }
+.tend  { font-size: 14px; margin-left: 6px; }
+.trilho   { height: 4px; background: #27272a; border-radius: 2px; margin: 8px 0 5px; overflow: hidden; }
+.preenche { height: 100%; border-radius: 2px; transition: width .4s ease, background .3s ease; }
+.estado   { font-size: 11px; font-weight: 600; text-transform: uppercase;
+            letter-spacing: .4px; }
+.spark { width: 100%; height: 30px; margin-top: 8px; display: block; }
 </style>
 """
 
 no(id="stat_tiles", type="ui-template", z="flow_monitor", group=G_TILES,
-   name="stat tiles do ativo", order=1, width="6", height="4",
+   name="stat tiles do ativo", order=1, width="6", height="5",
    head="", format=STAT_TILES, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=420, wires=[[]])
+
+
+ALARMES_KPI = r"""
+<template>
+    <div class="kpi-bar">
+        <div class="kpi total">
+            <div class="rot">Eventos</div>
+            <div class="val">{{ kpi.total }}</div>
+        </div>
+        <div class="kpi abertos">
+            <div class="rot">Abertos</div>
+            <div class="val">{{ kpi.abertos }}</div>
+        </div>
+        <div class="kpi crit">
+            <div class="rot">Críticos</div>
+            <div class="val">{{ kpi.critico }}</div>
+        </div>
+        <div class="kpi atn">
+            <div class="rot">Atenção</div>
+            <div class="val">{{ kpi.atencao }}</div>
+        </div>
+        <div class="kpi off">
+            <div class="rot">Sem dados</div>
+            <div class="val">{{ kpi.sem_dados }}</div>
+        </div>
+    </div>
+</template>
+
+<script>
+export default {
+    data () { return { kpi: { total:0, abertos:0, critico:0, atencao:0, sem_dados:0 } } },
+    watch: {
+        msg: {
+            immediate: true,
+            handler (m) { if (m && m.payload) { this.kpi = m.payload } }
+        }
+    }
+}
+</script>
+
+<style scoped>
+.kpi-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
+.kpi { background: #151518; border: 1px solid #3f3f46; border-radius: 10px; padding: 12px 14px; text-align: center; }
+.kpi .rot { font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
+.kpi .val { font-size: 26px; font-weight: 600; color: #f4f4f5; }
+.kpi.crit .val { color: #ef4444; }
+.kpi.atn .val { color: #f59e0b; }
+.kpi.off .val { color: #71717a; }
+.kpi.abertos .val { color: #ef4444; }
+</style>
+"""
+
+no(id="alarmes_kpi", type="ui-template", z="flow_monitor", group=G_ALARMES_KPI,
+   name="KPI de alarmes", order=1, width="12", height="2",
+   head="", format=ALARMES_KPI, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=540, wires=[[]])
+
+
+ALARMES_LISTA = r"""
+<template>
+    <div class="tela">
+        <div v-if="!eventos.length" class="vazio">
+            Nenhum alarme registrado ainda. Quando um ativo entrar em atenção,
+            crítico ou ficar sem dados, o evento aparece aqui.
+        </div>
+        <div v-else class="lista">
+            <div v-for="(e, i) in eventos" :key="i" class="evt" :class="e.estadoCls">
+                <div class="cab">
+                    <span class="badge" :style="{ background: e.cor, color: '#fff' }">{{ e.estado }}</span>
+                    <span class="hora">{{ e.inicio }}</span>
+                    <span class="dur">{{ e.duracao }}</span>
+                </div>
+                <div class="ativo">
+                    {{ e.ativo }}<span v-if="e.parte"> › {{ e.parte }}</span>
+                </div>
+                <div class="motivo">{{ e.motivos }}</div>
+            </div>
+        </div>
+        <button v-if="eventos.length" class="limpar" @click="limpar">Limpar histórico</button>
+    </div>
+</template>
+
+<script>
+export default {
+    data () { return { eventos: [] } },
+    methods: {
+        limpar () { this.send({ payload: 'limpar' }) }
+    },
+    watch: {
+        msg: {
+            immediate: true,
+            handler (m) {
+                if (m && Array.isArray(m.payload)) {
+                    this.eventos = m.payload.map(e => Object.assign({}, e, {
+                        estadoCls: e.cor === '#ef4444' ? 'crit' :
+                                   e.cor === '#f59e0b' ? 'atn' : 'off'
+                    }));
+                }
+            }
+        }
+    }
+}
+</script>
+
+<style scoped>
+.tela { color: #a1a1aa; font-size: 14px; }
+.vazio { color: #71717a; border: 1px dashed #3f3f46; border-radius: 10px; padding: 20px; text-align: center; }
+.lista { display: flex; flex-direction: column; gap: 10px; }
+.evt { background: #151518; border: 1px solid #3f3f46; border-left: 4px solid #71717a;
+       border-radius: 10px; padding: 12px 14px; transition: background .2s ease; }
+.evt:hover { background: #1e1e22; }
+.evt.crit { border-left-color: #ef4444; }
+.evt.atn  { border-left-color: #f59e0b; }
+.evt.off  { border-left-color: #71717a; }
+.cab { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px;
+         border-radius: 8px; padding: 2px 8px; }
+.hora { font-size: 12px; color: #71717a; }
+.dur  { font-size: 12px; color: #52525b; margin-left: auto; }
+.ativo { font-size: 15px; color: #f4f4f5; font-weight: 500; margin-bottom: 3px; }
+.ativo span { color: #a1a1aa; font-weight: 400; }
+.motivo { font-size: 13px; color: #a1a1aa; line-height: 1.35; }
+.limpar { margin-top: 14px; background: transparent; color: #a1a1aa; border: 1px solid #3f3f46;
+          border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px; }
+.limpar:hover { color: #ef4444; border-color: #ef4444; }
+</style>
+"""
+
+no(id="alarmes_lista", type="ui-template", z="flow_monitor", group=G_ALARMES_LISTA,
+   name="lista de alarmes", order=1, width="12", height="14",
+   head="", format=ALARMES_LISTA, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=580, wires=[["limpar_alarmes"]])
+
+no(id="limpar_alarmes", type="function", z="flow_monitor", name="limpar alarmes",
+   outputs=0, timeout=0, noerr=0, initialize="", finalize="", libs=[], x=860, y=580, wires=[],
+   func=r"""
+// Botao "limpar historico" na tela de alarmes: zera a fila em memoria.
+flow.set('historico_alarmes', []);
+""")
 
 
 def grafico(nid, grupo_id, rotulo, eixo_y, ymin, ymax, largura=6):
@@ -1707,6 +2367,10 @@ def grafico(nid, grupo_id, rotulo, eixo_y, ymin, ymax, largura=6):
        width=str(largura), height="6", className="", interpolation="linear",
        x=820, y=100, wires=[[]])
 
+
+grafico("tend_temp", G_TEND_T, "Temperatura",  "°C", "", "", largura=12)
+grafico("tend_vib",  G_TEND_V, "Vibracao RMS", "g",  "0", "", largura=12)
+grafico("tend_corr", G_TEND_C, "Corrente",     "A",  "0", "", largura=12)
 
 grafico("chart_temp", G_TEMP,  "Temperatura",  "°C", "", "")
 grafico("chart_vib",  G_VIB,   "Vibracao RMS", "g",  "0", "")
@@ -1761,6 +2425,12 @@ no(id="mqtt_cmd", type="mqtt out", z="flow_monitor", name="comando -> ESP32",
 # =====================================================================
 if __name__ == "__main__":
     destino = sys.argv[1] if len(sys.argv) > 1 else "flows.json"
+
+    # Injeta a logo no codigo do no de funcao. Fica so aqui: o corpo da
+    # funcao acima usa um marcador, para o gerador seguir legivel.
+    for _n in flows:
+        if _n.get("id") == "montar_painel":
+            _n["func"] = _n["func"].replace("__LOGO_LOCKUP__", LOGO_LOCKUP)
     with open(destino, "w", encoding="utf-8", newline="\n") as f:
         json.dump(flows, f, indent=4, ensure_ascii=False)
         f.write("\n")

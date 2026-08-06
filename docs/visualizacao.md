@@ -47,7 +47,9 @@ flowchart LR
 
 ### Os três níveis de visualização
 
-1. **Ao vivo** — dashboard do Node-RED (já existe): gauges e valor instantâneo.
+1. **Ao vivo** — dashboard do Node-RED (já existe): cards de status, KPIs na
+   Visão Geral, detalhe com tendência/sparkline e uma página de **Alarmes**
+   com histórico em memória.
 2. **Histórico / engenharia** — **Grafana** lendo o banco: gráficos com
    variação temporal, zoom, comparação entre ativos, alertas.
 3. **Corporativo** — **Power BI** lendo o mesmo banco: relatórios e KPIs.
