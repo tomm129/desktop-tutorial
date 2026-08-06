@@ -1,0 +1,155 @@
+{
+  "Caldeira 01": {
+    "local": "Casa de Caldeiras — Setor A",
+    "partes": {
+      "Bomba de alimentacao": {
+        "placa": {
+          "fabricante": "WEG", "modelo": "W22 IR3 Premium",
+          "numero_serie": "WE2104-88213", "ano": 2021,
+          "potencia_cv": 15, "potencia_kw": 11.0,
+          "tensao_v": "380", "corrente_nominal_a": 21.5,
+          "rpm": 3520, "frequencia_hz": 60, "polos": 2,
+          "fator_servico": 1.15, "rendimento_pct": 91.7,
+          "fator_potencia": 0.87, "carcaca": "132S/M",
+          "grau_protecao": "IP55", "classe_isolamento": "F",
+          "peso_kg": 78, "foto": "plaqueta.png"
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6208-ZZ", "qtd": 2, "obs": "lado do acoplamento" },
+          { "item": "Rolamento traseiro", "codigo": "6206-ZZ", "qtd": 2 },
+          { "item": "Selo mecanico", "codigo": "JC-35mm", "qtd": 1 },
+          { "item": "Acoplamento elastico", "codigo": "GR-38", "qtd": 1 }
+        ]
+      },
+      "Ventilador de tiragem": {
+        "placa": {
+          "fabricante": "WEG", "modelo": "W22 IR2",
+          "numero_serie": "WE2003-41772", "ano": 2020,
+          "potencia_cv": 20, "potencia_kw": 15.0,
+          "tensao_v": "380", "corrente_nominal_a": 28.4,
+          "rpm": 1770, "frequencia_hz": 60, "polos": 4,
+          "fator_servico": 1.15, "rendimento_pct": 92.4,
+          "carcaca": "160M", "grau_protecao": "IP55",
+          "classe_isolamento": "F", "peso_kg": 118
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6309-ZZ", "qtd": 2 },
+          { "item": "Rolamento traseiro", "codigo": "6308-ZZ", "qtd": 2 },
+          { "item": "Correia", "codigo": "B-75", "qtd": 4, "obs": "jogo completo" }
+        ]
+      }
+    }
+  },
+
+  "ETE — Tanque de Aeracao": {
+    "local": "Estacao de Tratamento — modulo 2",
+    "partes": {
+      "Soprador 1": {
+        "placa": {
+          "fabricante": "WEG", "modelo": "W22 IR3 Premium",
+          "numero_serie": "WE2206-13094", "ano": 2022,
+          "potencia_cv": 25, "potencia_kw": 18.5,
+          "tensao_v": "380", "corrente_nominal_a": 34.0,
+          "rpm": 3540, "frequencia_hz": 60, "polos": 2,
+          "fator_servico": 1.15, "rendimento_pct": 92.4,
+          "carcaca": "160M", "grau_protecao": "IP55",
+          "classe_isolamento": "F", "peso_kg": 132
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6309-C3", "qtd": 2 },
+          { "item": "Rolamento traseiro", "codigo": "6308-C3", "qtd": 2 },
+          { "item": "Filtro de ar de admissao", "codigo": "FA-150", "qtd": 4 },
+          { "item": "Correia", "codigo": "SPB-2240", "qtd": 3 }
+        ]
+      },
+      "Soprador 2": {
+        "placa": {
+          "fabricante": "WEG", "modelo": "W22 IR3 Premium",
+          "numero_serie": "WE2206-13095", "ano": 2022,
+          "potencia_cv": 25, "potencia_kw": 18.5,
+          "tensao_v": "380", "corrente_nominal_a": 34.0,
+          "rpm": 3540, "frequencia_hz": 60, "polos": 2,
+          "fator_servico": 1.15, "carcaca": "160M",
+          "grau_protecao": "IP55", "classe_isolamento": "F"
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6309-C3", "qtd": 2 },
+          { "item": "Rolamento traseiro", "codigo": "6308-C3", "qtd": 2 },
+          { "item": "Filtro de ar de admissao", "codigo": "FA-150", "qtd": 4 }
+        ]
+      }
+    }
+  },
+
+  "Torre de Resfriamento": {
+    "local": "Cobertura — Utilidades",
+    "partes": {
+      "Ventilador": {
+        "placa": {
+          "fabricante": "WEG", "modelo": "W22 IR3 — uso severo",
+          "numero_serie": "WE1911-77340", "ano": 2019,
+          "potencia_cv": 30, "potencia_kw": 22.0,
+          "tensao_v": "380", "corrente_nominal_a": 40.5,
+          "rpm": 1175, "frequencia_hz": 60, "polos": 6,
+          "fator_servico": 1.15, "carcaca": "200L",
+          "grau_protecao": "IP66", "classe_isolamento": "F",
+          "peso_kg": 210
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6312-C3", "qtd": 2 },
+          { "item": "Rolamento traseiro", "codigo": "6311-C3", "qtd": 2 },
+          { "item": "Redutor — kit de vedacao", "codigo": "KV-320", "qtd": 1 },
+          { "item": "Pa do ventilador", "codigo": "PV-2400-FRP", "qtd": 2, "obs": "fibra de vidro" }
+        ]
+      },
+      "Bomba de recirculacao": {
+        "placa": {
+          "fabricante": "WEG", "modelo": "W22 IR3 Premium",
+          "numero_serie": "WE2105-52118", "ano": 2021,
+          "potencia_cv": 12.5, "potencia_kw": 9.2,
+          "tensao_v": "380", "corrente_nominal_a": 17.8,
+          "rpm": 1760, "frequencia_hz": 60, "polos": 4,
+          "carcaca": "132M", "grau_protecao": "IP55",
+          "classe_isolamento": "F"
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6208-C3", "qtd": 2 },
+          { "item": "Selo mecanico", "codigo": "JC-45mm", "qtd": 2 }
+        ]
+      }
+    }
+  },
+
+  "Transporte 1": {
+    "local": "Galpao 2 — lateral norte",
+    "partes": {
+      "Motor 1": {
+        "placa": {
+          "fabricante": "WEG", "modelo": "W22 IR3 Premium",
+          "numero_serie": "WE2208-90441", "ano": 2022,
+          "potencia_cv": 10, "potencia_kw": 7.5,
+          "tensao_v": "220/380", "corrente_nominal_a": 8.2,
+          "rpm": 1760, "frequencia_hz": 60, "polos": 4,
+          "fator_servico": 1.15, "rendimento_pct": 91.7,
+          "carcaca": "132S/M", "grau_protecao": "IP55",
+          "classe_isolamento": "F", "peso_kg": 62
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6208-ZZ", "qtd": 1 },
+          { "item": "Rolamento traseiro", "codigo": "6206-ZZ", "qtd": 1 },
+          { "item": "Correia", "codigo": "A-52", "qtd": 2 }
+        ]
+      },
+      "Motor 2": {
+        "placa": {
+          "fabricante": "WEG", "potencia_cv": 5,
+          "corrente_nominal_a": 13.4, "rpm": 1730,
+          "carcaca": "112M", "grau_protecao": "IP55"
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6206-ZZ", "qtd": 1 }
+        ]
+      }
+    }
+  }
+}

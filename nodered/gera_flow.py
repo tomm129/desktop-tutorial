@@ -101,7 +101,7 @@ def grupo(gid, nome, largura, ordem, altura=1, pagina=PAGINA, titulo=True):
 
 
 # --- Tela 1: visao geral (a parede de cards) --------------------------
-grupo(G_RESUMO, "Resumo",  12, 1, altura=1, titulo=False)
+grupo(G_RESUMO, "Resumo",  12, 1, altura=3, titulo=False)
 grupo(G_CARDS,  "Ativos",  12, 2, altura=8, titulo=False)
 
 # --- Tela 2: detalhe de um ativo --------------------------------------
@@ -501,11 +501,29 @@ function consolidar_pai(tag, cfg, partes) {
     // de deixar a tela vazia e obrigar mais um clique.
     const unica = (partes.length === 1) ? partes[0] : {};
 
+    // Nivel de cada grandeza avaliado com o limite DA PARTE que o produziu.
+    // Sem isso o card do pai pinta a barra usando o limite generico, e um
+    // ativo com partes saudaveis aparece vermelho -- foi o que aconteceu
+    // com uma caldeira cuja bomba tem In de 21,5 A: 12 A e folgado para
+    // ela, mas estourava o limite fixo de 11 A do codigo.
+    const niveis = {};
+    for (const campo of ['temperatura_c', 'vib_rms_g', 'corrente_a']) {
+        let pior_n = null;
+        for (const pt of partes) {
+            const v = pt[campo];
+            if (v === null || v === undefined) { continue; }
+            const n = avaliar(v, limites_de(pt)[campo]);
+            if (pior_n === null || PIOR[n] > PIOR[pior_n]) { pior_n = n; }
+        }
+        if (pior_n) { niveis[campo] = pior_n; }
+    }
+
     return {
         chave: tag,
         rotulo: tag,
         nivel: 0,
         eh_pai: true,
+        niveis: niveis,
         placa: (cadastro[tag] || {}).placa || unica.placa,
         sobressalentes: (cadastro[tag] || {}).sobressalentes || unica.sobressalentes,
         local: (cadastro[tag] || {}).local,
@@ -638,11 +656,20 @@ for (const a of lista) {
     });
     if (!filhos.length) { continue; }
 
-    let pior = estados[a.chave].estado;
+    // SUBSTITUI, nao combina com o estado que o pai calculou sozinho.
+    //
+    // O pai foi avaliado com os limites genericos (a placa e das partes),
+    // entao a avaliacao propria dele e sempre menos informada que a das
+    // partes -- e pode acusar critico onde toda parte esta folgada. Uma
+    // caldeira cuja bomba tem In de 21,5 A operando a 12 A e o caso: as
+    // partes normais, o pai vermelho, e nenhum alarme explicando por que.
+    let pior = 'normal';
     for (const f of filhos) {
         const e = estados[f.chave].estado;
         if (PIOR[e] > PIOR[pior]) { pior = e; }
     }
+    // Exceto quando o proprio ativo esta mudo: isso e dele, nao das partes.
+    if (estados[a.chave].estado === 'sem_dados') { pior = 'sem_dados'; }
     estados[a.chave].estado = pior;
 }
 
@@ -734,7 +761,7 @@ function tile(nome, campo, casas, un) {
         return { nome: nome, texto: 'FALHA', un: '', pct: 0,
                  cor: COR.atencao, simb: SIMB.atencao, rotulo: 'sem leitura' };
     }
-    const nivel = avaliar(v, lim);
+    const nivel = (alvo.niveis && alvo.niveis[campo]) || avaliar(v, lim);
     // A barra e um medidor contra o limite critico: cheia = no limite.
     const pct = Math.max(0, Math.min(100, (v / lim.critico) * 100));
     return { nome: nome, texto: v.toFixed(casas), un: un, pct: pct,
@@ -785,9 +812,13 @@ function m4_cards() {
                 return { nome: nome, texto: 'FALHA', un: '', pct: 0,
                          cor: COR.atencao, vazio: true };
             }
+            // No ativo pai, o nivel ja veio consolidado das partes (cada
+            // uma com o limite da SUA placa); so no equipamento folha e
+            // que avaliamos aqui.
+            const n = (a.niveis && a.niveis[campo]) || avaliar(v, lim);
             return { nome: nome, texto: v.toFixed(casas), un: un,
                      pct: Math.max(0, Math.min(100, (v / lim.critico) * 100)),
-                     cor: COR[avaliar(v, lim)], vazio: false };
+                     cor: COR[n], vazio: false };
         }
 
         const partes_txt = partes ? (partes + (partes > 1 ? ' partes' : ' parte'))
@@ -1236,7 +1267,7 @@ no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
    x=620, y=340, wires=[[]])
 
 no(id="txt_resumo", type="ui-text", z="flow_monitor", group=G_RESUMO,
-   order=1, width="12", height="1", name="resumo", label="",
+   order=1, width="12", height="3", name="resumo", label="",
    format="{{msg.payload}}", layout="row-left", style=False, font="",
    fontSize=16, color="#717171", wrapText=True, className="",
    x=620, y=380, wires=[])
