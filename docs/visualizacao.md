@@ -67,81 +67,76 @@ bancos diferentes.
 
 ## Modelo de dados
 
-Duas tabelas: o **cadastro de ativos** (associa hardware ↔ TAG ↔ descrição) e a
-**série temporal** de medições.
+O esquema completo está em [`sql/01-esquema.sql`](../sql/01-esquema.sql) e é
+aplicado pelo `setup_orangepi.sh`. Três tabelas:
 
-```sql
--- Cadastro de ativos: associa o hardware à TAG do inversor e à descrição.
-CREATE TABLE ativos (
-  device_id     TEXT PRIMARY KEY,   -- id estável do ESP32 (ex.: esp-a1b2c3)
-  tag_inversor  TEXT NOT NULL,      -- ex.: U1M1
-  descricao     TEXT,               -- ex.: Motor Transporte Linear 1
-  area          TEXT,               -- ex.: Transporte
-  ativo         BOOLEAN DEFAULT TRUE
-);
+| Tabela | O que guarda |
+|---|---|
+| `ativos` | cadastro — device_id, ativo, parte, TAG do inversor, corrente nominal |
+| `medicoes` | série temporal **agregada por minuto**, com média, mínimo e máximo |
+| `eventos` | transições de estado, com início, fim e motivo |
 
--- Série temporal das medições.
-CREATE TABLE medicoes (
-  ts            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  device_id     TEXT NOT NULL,
-  temperatura_c DOUBLE PRECISION,
-  vibracao_rms  DOUBLE PRECISION,
-  corrente_a    DOUBLE PRECISION
-);
-SELECT create_hypertable('medicoes', 'ts');       -- TimescaleDB
-CREATE INDEX ON medicoes (device_id, ts DESC);
+### Por que agregada, e não crua
 
--- View pronta para o Grafana e o Power BI (já traz a TAG e a descrição).
-CREATE VIEW vw_medicoes AS
-SELECT m.ts, a.tag_inversor, a.descricao, a.area,
-       m.temperatura_c, m.vibracao_rms, m.corrente_a
-FROM medicoes m
-JOIN ativos a USING (device_id);
-```
+O campo publica a cada 2 s. Com 8 dispositivos são **345 mil linhas por
+dia**, 126 milhões por ano — gravadas no eMMC de um Orange Pi, que tem
+ciclos de escrita contados. E ninguém consulta resolução de 2 segundos em
+cima de meses: consulta tendência.
 
-### Por que a TAG fica no cadastro, e não no ESP32
+Uma linha por dispositivo por minuto corta o volume por 30 sem perder nada
+da tendência.
 
-O ESP32 carrega apenas um **`device_id` estável** (identidade do hardware). A
-associação com a **TAG do inversor** ("U1M1") e a descrição ("Motor Transporte
-Linear 1") vive na tabela `ativos`. Assim:
+**Mas guardamos mínimo e máximo junto da média, e isso não é detalhe.** A
+média de um minuto **esconde o pico de vibração** — que é exatamente o que
+se está procurando. Média diz como estava; máximo diz o que aconteceu.
 
-- trocar um ESP32 queimado = atualizar **uma linha** no cadastro; o histórico
-  continua ligado ao ativo;
-- a TAG certa aparece no Grafana e no Power BI sem regravar firmware;
-- renomear/realocar o equipamento não mexe no campo.
+O campo `amostras` permite reponderar as médias ao reagregar depois: média
+de médias só é correta quando todas têm o mesmo *n*.
 
-Consulta típica de um ativo (a base de qualquer gráfico):
+### Por que eventos em tabela separada
 
-```sql
-SELECT ts, temperatura_c, vibracao_rms, corrente_a
-FROM vw_medicoes
-WHERE tag_inversor = 'U1M1'
-  AND ts > now() - interval '24 hours'
-ORDER BY ts;
-```
+Um evento não é uma amostra: tem início, fim e duração, e responde a outra
+pergunta (*"quantas paradas neste mês?"*) do que a série (*"qual a
+tendência?"*). Numa tabela só, achar algumas dezenas de eventos exigiria
+varrer milhões de linhas de medição.
+
+### Ativo e parte gravados junto da medição
+
+A `medicoes` guarda `device_id` (a identidade do hardware) **e também** o
+ativo e a parte a que ele pertencia naquele momento.
+
+Parece redundante com a tabela `ativos`, mas não é: se amanhã o sensor for
+remanejado para outro motor, a história antiga continua contando a verdade
+do que era então. A `vw_medicoes` faz o join com o cadastro **atual** para
+quem quiser a visão de agora — as duas leituras ficam disponíveis.
+
+### Retenção e agregado contínuo
+
+- Compressão depois de 7 dias, descarte depois de 180.
+- `medicoes_hora` é um *continuous aggregate*: o TimescaleDB o mantém
+  atualizado sozinho, e uma consulta de um ano lê milhares de linhas em vez
+  de milhões. É o que o Grafana e o Power BI devem consultar para janelas
+  longas.
+
+Note que ele faz `max(vibracao_max_g)` — o **máximo do máximo**, não o
+máximo da média. Reagregar preservando o pico é o motivo de ter guardado
+mínimo e máximo.
 
 ## Como o Node-RED grava no banco
 
-Instale `node-red-contrib-postgresql`. Depois do parse da telemetria, um nó de
-função monta a linha e um nó PostgreSQL faz o `INSERT`:
+Já está no fluxo. Um acumulador na ingestão junta as leituras por
+dispositivo; a cada 60 s a função **montar insercao** fecha a janela, monta
+um `INSERT` em lote (uma ida ao banco por janela, não uma por dispositivo)
+e grava. Os eventos são inseridos ao abrir e fechados por `UPDATE` quando
+normalizam.
 
-```javascript
-// função "monta insert"
-const p = msg.payload || {};
-msg.query = `INSERT INTO medicoes (device_id, temperatura_c, vibracao_rms, corrente_a)
-             VALUES ($1, $2, $3, $4)`;
-msg.params = [
-  p.device_id,
-  p.temperatura_c ?? null,
-  p.vibracao?.rms_g ?? null,
-  p.corrente_a ?? null
-];
-return msg;
-```
+Para mudar a janela, edite o intervalo do nó **gravar (60s)**.
 
-> Corrente e telemetria chegam em tópicos MQTT diferentes. Para gravar numa só
-> linha, junte-as antes (guardando a última corrente por ativo em contexto de
-> fluxo) **ou** grave em colunas separadas — as duas abordagens funcionam.
+> ⚠️ **Não testado contra um banco real.** O SQL gerado foi conferido —
+> contagem de colunas, alinhamento dos `$n`, tipos dos parâmetros — mas
+> nenhuma linha chegou a um PostgreSQL de verdade. A primeira execução no
+> Orange Pi é que confirma. Se algo falhar, o log do Node-RED mostra o erro
+> do Postgres na íntegra.
 
 ## Como o Power BI conecta
 

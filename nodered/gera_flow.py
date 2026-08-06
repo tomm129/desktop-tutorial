@@ -260,6 +260,43 @@ if (a.vib_rms_g !== null) {
 ativos[id] = a;
 flow.set('ativos', ativos);
 
+
+// Acumula para a gravacao no banco. Uma linha por dispositivo por janela,
+// com media, minimo e maximo -- o minimo/maximo importa porque a media de
+// um minuto ESCONDE o pico de vibracao, que e o que se esta procurando.
+function acumular(id, campo, v) {
+    if (typeof v !== 'number' || !isFinite(v)) { return; }
+    const acc = flow.get('acumulador') || {};
+    if (!acc[id]) {
+        acc[id] = { n: 0, ate: Date.now(),
+                    temp: { n: 0, soma: 0, min: 0, max: 0 },
+                    vib:  { n: 0, soma: 0, min: 0, max: 0 },
+                    corr: { n: 0, soma: 0, min: 0, max: 0 },
+                    tensao: { n: 0, soma: 0 }, dcbus: { n: 0, soma: 0 },
+                    freq: { n: 0, soma: 0 } };
+    }
+    const c = acc[id][campo];
+    if (!c) { return; }
+    if (!c.n) { c.min = v; c.max = v; }
+    else { if (v < c.min) { c.min = v; } if (v > c.max) { c.max = v; } }
+    c.n += 1; c.soma += v;
+    acc[id].ate = Date.now();
+    flow.set('acumulador', acc);
+}
+
+function marcar_amostra(id, extra) {
+    const acc = flow.get('acumulador') || {};
+    if (acc[id]) {
+        acc[id].n += 1;
+        if (extra) { Object.assign(acc[id], extra); }
+        flow.set('acumulador', acc);
+    }
+}
+
+acumular(id, 'temp', a.temperatura_c);
+acumular(id, 'vib',  a.vib_rms_g);
+marcar_amostra(id);
+
 const temp = (a.temperatura_c === null) ? null : { topic: id, payload: a.temperatura_c };
 const vib  = (a.vib_rms_g === null)     ? null : { topic: id, payload: a.vib_rms_g };
 return [temp, vib];
@@ -335,6 +372,45 @@ if (typeof a.corrente_a === 'number') {
 a.visto_em = Date.now();
 ativos[id] = a;
 flow.set('ativos', ativos);
+
+
+// Acumula para a gravacao no banco. Uma linha por dispositivo por janela,
+// com media, minimo e maximo -- o minimo/maximo importa porque a media de
+// um minuto ESCONDE o pico de vibracao, que e o que se esta procurando.
+function acumular(id, campo, v) {
+    if (typeof v !== 'number' || !isFinite(v)) { return; }
+    const acc = flow.get('acumulador') || {};
+    if (!acc[id]) {
+        acc[id] = { n: 0, ate: Date.now(),
+                    temp: { n: 0, soma: 0, min: 0, max: 0 },
+                    vib:  { n: 0, soma: 0, min: 0, max: 0 },
+                    corr: { n: 0, soma: 0, min: 0, max: 0 },
+                    tensao: { n: 0, soma: 0 }, dcbus: { n: 0, soma: 0 },
+                    freq: { n: 0, soma: 0 } };
+    }
+    const c = acc[id][campo];
+    if (!c) { return; }
+    if (!c.n) { c.min = v; c.max = v; }
+    else { if (v < c.min) { c.min = v; } if (v > c.max) { c.max = v; } }
+    c.n += 1; c.soma += v;
+    acc[id].ate = Date.now();
+    flow.set('acumulador', acc);
+}
+
+function marcar_amostra(id, extra) {
+    const acc = flow.get('acumulador') || {};
+    if (acc[id]) {
+        acc[id].n += 1;
+        if (extra) { Object.assign(acc[id], extra); }
+        flow.set('acumulador', acc);
+    }
+}
+
+acumular(id, 'corr',   a.corrente_a);
+acumular(id, 'tensao', a.tensao_v);
+acumular(id, 'dcbus',  a.dc_bus_v);
+acumular(id, 'freq',   a.frequencia_hz);
+marcar_amostra(id, { rodando: a.rodando });
 
 return (typeof a.corrente_a === 'number')
     ? { topic: id, payload: Math.round(a.corrente_a * 100) / 100 }
@@ -893,6 +969,17 @@ for (const a of lista) {
 
 // Guarda os niveis deste ciclo: e a memoria de que a histerese depende.
 flow.set('niveis_anteriores', niveis_novos);
+
+// Estado por DEVICE (e nao por ativo), para a gravacao no banco anotar a
+// condicao junto da medicao daquele dispositivo.
+const est_dev = {};
+for (const a of lista) {
+    const e = (estados[a.chave] || {}).estado;
+    if (!e) { continue; }
+    if (a.fonte_esp32)    { est_dev[a.fonte_esp32] = e; }
+    if (a.fonte_inversor) { est_dev[a.fonte_inversor] = e; }
+}
+flow.set('estados_por_device', est_dev);
 
 // ---- Historico de alarmes --------------------------------------------
 // Mantem os ultimos eventos em memoria de fluxo. Um evento e identificado
@@ -2480,6 +2567,157 @@ no(id="linha_tempo", type="ui-template", z="flow_monitor", group=G_LINHA,
    head="", format=LINHA_TEMPO, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=1000, wires=[[]])
+
+
+# =====================================================================
+#  Persistencia: agrega e grava no PostgreSQL/TimescaleDB
+# =====================================================================
+no(id="tick_gravar", type="inject", z="flow_monitor",
+   name="gravar (60s)", props=[{"p": "payload"}], repeat="60",
+   crontab="", once=False, onceDelay="", topic="", payload="",
+   payloadType="date", x=140, y=1080, wires=[["montar_insercao"]])
+
+no(id="montar_insercao", type="function", z="flow_monitor",
+   name="montar insercao", outputs=2, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=380, y=1080,
+   wires=[["gravar_medicoes"], ["gravar_eventos"]],
+   func=r"""
+// Fecha a janela de agregacao e emite as linhas para o banco.
+//
+// O acumulador e alimentado pela ingestao (ver "registrar telemetria" e
+// "registrar corrente"). Aqui so consolidamos e zeramos.
+
+const acc = flow.get('acumulador') || {};
+flow.set('acumulador', {});          // zera JA: o campo continua chegando
+
+const cadastro = flow.get('cadastro') || {};
+
+// Onde cada device_id estava alocado NESTE momento. Guardado junto da
+// medicao para a historia antiga continuar verdadeira se o sensor for
+// remanejado depois.
+const onde = {};
+for (const tag of Object.keys(cadastro)) {
+    const partes = (cadastro[tag] || {}).partes || {};
+    for (const nome of Object.keys(partes)) {
+        const pt = partes[nome] || {};
+        if (pt.esp32)    { onde[pt.esp32]    = { ativo: tag, parte: nome }; }
+        if (pt.inversor) { onde[pt.inversor] = { ativo: tag, parte: nome }; }
+    }
+}
+
+const estados = flow.get('estados_por_device') || {};
+const linhas = [];
+
+for (const id of Object.keys(acc)) {
+    const a = acc[id];
+    if (!a.n) { continue; }                    // janela sem leitura nenhuma
+
+    function med(x) { return x.n ? x.soma / x.n : null; }
+    const loc = onde[id] || {};
+
+    linhas.push([
+        new Date(a.ate).toISOString(),
+        id,
+        loc.ativo || null,
+        loc.parte || null,
+        a.n,
+        med(a.temp), a.temp.n ? a.temp.min : null, a.temp.n ? a.temp.max : null,
+        med(a.vib),  a.vib.n  ? a.vib.min  : null, a.vib.n  ? a.vib.max  : null,
+        med(a.corr), a.corr.n ? a.corr.min : null, a.corr.n ? a.corr.max : null,
+        med(a.tensao), med(a.dcbus), med(a.freq),
+        (a.rodando === undefined) ? null : a.rodando,
+        estados[id] || null
+    ]);
+}
+
+if (!linhas.length) { return [null, null]; }
+
+// INSERT em lote com um unico comando: uma ida ao banco por janela, e
+// nao uma por dispositivo.
+// Derivado do proprio dado, e nao um numero escrito a mao: a contagem
+// errada (18 para 19 colunas) desalinha os $n a partir da segunda linha e
+// so aparece quando ha mais de um dispositivo -- ou seja, nunca no teste
+// simples, sempre em producao.
+const cols = linhas[0].length;
+const valores = linhas.map(function (_, i) {
+    const base = i * cols;
+    const ph = [];
+    for (let k = 1; k <= cols; k++) { ph.push('$' + (base + k)); }
+    return '(' + ph.join(',') + ')';
+}).join(',');
+
+const m_med = {
+    query: 'INSERT INTO medicoes (ts, device_id, ativo, parte, amostras,' +
+           ' temperatura_c, temperatura_min_c, temperatura_max_c,' +
+           ' vibracao_rms_g, vibracao_min_g, vibracao_max_g,' +
+           ' corrente_a, corrente_min_a, corrente_max_a,' +
+           ' tensao_v, dc_bus_v, frequencia_hz, rodando, estado)' +
+           ' VALUES ' + valores,
+    params: [].concat.apply([], linhas)
+};
+
+// ---- Eventos: grava os que abriram e fecha os que terminaram ---------
+const hist = flow.get('historico_alarmes') || [];
+const gravados = flow.get('eventos_gravados') || {};
+const cmds = [];
+
+for (const h of hist) {
+    const ja = gravados[h.chave + '@' + h.inicio_ms];
+    if (!ja) {
+        cmds.push({
+            query: 'INSERT INTO eventos (inicio, fim, device_id, ativo, parte,' +
+                   ' estado, motivo) VALUES ($1,$2,$3,$4,$5,$6,$7)',
+            params: [new Date(h.inicio_ms).toISOString(),
+                     h.fim_ms ? new Date(h.fim_ms).toISOString() : null,
+                     null, h.ativo, h.parte, h.estado, h.motivos.join(' | ')]
+        });
+        gravados[h.chave + '@' + h.inicio_ms] = h.fim_ms ? 'fechado' : 'aberto';
+    } else if (ja === 'aberto' && h.fim_ms) {
+        // Fecha pelo par (inicio, ativo, parte): sem id proprio no lado do
+        // fluxo, e o que identifica a linha sem ambiguidade.
+        cmds.push({
+            query: 'UPDATE eventos SET fim = $1 WHERE inicio = $2' +
+                   ' AND ativo IS NOT DISTINCT FROM $3' +
+                   ' AND parte IS NOT DISTINCT FROM $4 AND fim IS NULL',
+            params: [new Date(h.fim_ms).toISOString(),
+                     new Date(h.inicio_ms).toISOString(), h.ativo, h.parte]
+        });
+        gravados[h.chave + '@' + h.inicio_ms] = 'fechado';
+    }
+}
+// Nao deixa o mapa crescer sem limite junto com o historico.
+const chaves = Object.keys(gravados);
+if (chaves.length > 400) {
+    const novo = {};
+    chaves.slice(-200).forEach(function (k) { novo[k] = gravados[k]; });
+    flow.set('eventos_gravados', novo);
+} else {
+    flow.set('eventos_gravados', gravados);
+}
+
+// Varias mensagens numa saida = o proprio array, sem envolver de novo.
+// Com [cmds] o Node-RED recebe um array DENTRO do array de saidas e
+// recusa: "Function tried to send a message of type Array".
+return [m_med, cmds.length ? cmds : null];
+""")
+
+no(id="gravar_medicoes", type="postgresql", z="flow_monitor",
+   name="medicoes", postgreSQLConfig="pg_insightx", split=False,
+   rowsPerMsg=1, outputs=1, x=640, y=1060, wires=[[]])
+
+no(id="gravar_eventos", type="postgresql", z="flow_monitor",
+   name="eventos", postgreSQLConfig="pg_insightx", split=False,
+   rowsPerMsg=1, outputs=1, x=640, y=1120, wires=[[]])
+
+no(id="pg_insightx", type="postgreSQLConfig", name="InsightX",
+   host="localhost", hostFieldType="str", port=5432, portFieldType="num",
+   database="insightx", databaseFieldType="str",
+   ssl="false", sslFieldType="bool",
+   applicationName="node-red-insightx", applicationNameType="str",
+   max=10, maxFieldType="num", idle=1000, idleFieldType="num",
+   connectionTimeout=10000, connectionTimeoutFieldType="num",
+   user="insightx", userFieldType="str",
+   password="", passwordFieldType="str")
 
 no(id="tabela_planta", type="ui-table", z="flow_monitor", group=G_ATIVOS_TAB,
    name="todos os ativos", label="", order=1, width="0", height="0",

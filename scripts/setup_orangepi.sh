@@ -6,6 +6,7 @@
 #    1. Mosquitto  — broker MQTT COM autenticacao e escutando na rede
 #    2. Node-RED   — runtime + dashboard + o flows.json deste repositorio
 #    3. PowerFlex  — sidecar pycomm3 em /opt/iot, como servico systemd
+#    4. Historico   — PostgreSQL + TimescaleDB (opcional: --sem-banco pula)
 #
 #  Uso (no proprio Orange Pi, como usuario normal, NAO como root):
 #      cd <repo>/scripts
@@ -14,10 +15,16 @@
 #  Idempotente: pode rodar de novo sem duplicar nada. Faz backup de
 #  qualquer arquivo que for substituir.
 #
-#  NAO instala PostgreSQL/TimescaleDB/Grafana — essa e a camada de
-#  historico, ver docs/visualizacao.md. Este script para no "ao vivo".
+#  NAO instala Grafana: ele le o mesmo banco e pode rodar noutra maquina.
+#  Ver docs/visualizacao.md.
 # =====================================================================
 set -euo pipefail
+
+# --sem-banco: instala so o "ao vivo", sem PostgreSQL/TimescaleDB.
+SEM_BANCO=0
+for arg in "$@"; do
+    [[ "$arg" == "--sem-banco" ]] && SEM_BANCO=1
+done
 
 # --- Descobre o repositorio a partir da localizacao deste script ------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -360,12 +367,87 @@ EOF
 }
 
 # =====================================================================
+# =====================================================================
+#  4. PostgreSQL + TimescaleDB
+# =====================================================================
+instalar_banco() {
+    azul "4/4  PostgreSQL + TimescaleDB (historico)"
+
+    if [[ "${SEM_BANCO:-}" == "1" ]]; then
+        aviso "pulado por --sem-banco"
+        return
+    fi
+
+    sudo apt-get install -y -qq postgresql postgresql-contrib gnupg
+    ok "PostgreSQL instalado"
+
+    # O TimescaleDB nao vem no repositorio padrao do Debian/Ubuntu.
+    if ! sudo -u postgres psql -tAc          "SELECT 1 FROM pg_available_extensions WHERE name='timescaledb'"          | grep -q 1; then
+        local codinome; codinome="$(lsb_release -cs)"
+        echo "deb https://packagecloud.io/timescale/timescaledb/ubuntu/ ${codinome} main"             | sudo tee /etc/apt/sources.list.d/timescaledb.list >/dev/null
+        curl -sL https://packagecloud.io/timescale/timescaledb/gpgkey             | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/timescaledb.gpg
+        sudo apt-get update -qq
+        # A versao do pacote acompanha a do PostgreSQL instalado.
+        local pgver; pgver="$(psql --version | grep -oE '[0-9]+' | head -1)"
+        sudo apt-get install -y -qq "timescaledb-2-postgresql-${pgver}" || {
+            aviso "TimescaleDB nao instalou para o PG ${pgver}."
+            aviso "O esquema ainda funciona SEM ele, com uma tabela comum:"
+            aviso "  comente as linhas de create_hypertable/compression em sql/01-esquema.sql"
+            SEM_TIMESCALE=1
+        }
+    fi
+
+    if [[ "${SEM_TIMESCALE:-}" != "1" ]]; then
+        sudo timescaledb-tune --quiet --yes || aviso "timescaledb-tune falhou; segue com o padrao"
+        sudo systemctl restart postgresql
+        ok "TimescaleDB habilitado"
+    fi
+
+    # Usuario e banco. A senha reaproveita a do MQTT so para nao pedir
+    # outra ao usuario; troque depois se o banco for exposto na rede.
+    #
+    # Dobra aspas simples antes de interpolar no SQL: uma aspa solta na
+    # senha encerraria a string e o resto viraria comando.
+    local senha_sql
+    senha_sql=$(printf '%s' "$MQTT_PASS" | sed "s/'/''/g")
+
+    if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='insightx'" | grep -q 1; then
+        sudo -u postgres psql -c "CREATE ROLE insightx LOGIN PASSWORD '${senha_sql}'"
+        ok "usuario 'insightx' criado"
+    else
+        aviso "usuario 'insightx' ja existia — senha mantida"
+    fi
+
+    if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='insightx'" | grep -q 1; then
+        sudo -u postgres createdb -O insightx insightx
+        ok "banco 'insightx' criado"
+    else
+        aviso "banco 'insightx' ja existia"
+    fi
+
+    if sudo -u postgres psql -d insightx -f "${REPO_DIR}/sql/01-esquema.sql" >/dev/null; then
+        ok "esquema aplicado"
+    else
+        erro "falha ao aplicar sql/01-esquema.sql"
+    fi
+
+    sudo -u postgres psql -d insightx -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO insightx; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO insightx;" >/dev/null
+    ok "permissoes concedidas"
+
+    # No do Node-RED que fala com o banco.
+    ( cd "$NODERED_DIR" && npm install --no-fund --no-audit node-red-contrib-postgresql )
+    ok "node-red-contrib-postgresql instalado"
+
+    aviso "a senha do banco precisa ser preenchida no no 'InsightX' do editor"
+}
+
 main() {
     verificar_ambiente
     pedir_credenciais
     instalar_mosquitto
     instalar_nodered
     instalar_powerflex
+    instalar_banco
     resumo
 }
 
