@@ -185,6 +185,62 @@ instalar_nodered() {
     cp "${REPO_DIR}/nodered/flows.json" "${NODERED_DIR}/flows.json"
     ok "flows.json importado de ${REPO_DIR}/nodered/"
 
+    # O fluxo procura o cadastro em $IOT_DADOS/ativos.json (padrao
+    # /opt/iot/dados). Um LINK, e nao copia, para a pasta do repo faz o
+    # painel enxergar as edicoes na hora -- sem repetir a copia a cada
+    # motor cadastrado.
+    sudo mkdir -p "${DESTINO_IOT}"
+    sudo chown "$(id -u):$(id -g)" "${DESTINO_IOT}"
+    if [[ ! -e "${DESTINO_IOT}/dados" ]]; then
+        ln -s "${REPO_DIR}/dados" "${DESTINO_IOT}/dados"
+        ok "cadastro ligado: ${DESTINO_IOT}/dados -> ${REPO_DIR}/dados"
+    else
+        aviso "${DESTINO_IOT}/dados ja existe — mantido"
+    fi
+
+    if [[ ! -f "${REPO_DIR}/dados/ativos.json" ]]; then
+        cp "${REPO_DIR}/dados/ativos.example.json" "${REPO_DIR}/dados/ativos.json"
+        aviso "criado dados/ativos.json a partir do exemplo — preencha com os seus motores"
+    fi
+
+    # Serve dados/fotos/ em /fotos para o painel de dados de placa. Sem
+    # isso a foto da plaqueta nao carrega -- o navegador pede /fotos/x.jpg
+    # e o Node-RED responde 404, sem erro visivel no log do fluxo.
+    local settings="${NODERED_DIR}/settings.js"
+    # Procura a CHAVE de configuracao, nao a palavra: o settings.js padrao
+    # cita "httpStatic" nos comentarios, e um grep solto acha o comentario e
+    # conclui que ja esta configurado.
+    if [[ -f "$settings" ]] && ! grep -qE '^[[:space:]]*httpStatic[[:space:]]*:' "$settings"; then
+        backup "$settings"
+        # Insere logo apos "module.exports = {" para nao depender do resto
+        # do arquivo, que muda entre versoes do Node-RED.
+        python3 - "$settings" "${REPO_DIR}/dados/fotos" <<'PY'
+import sys, io
+caminho, fotos = sys.argv[1], sys.argv[2]
+s = io.open(caminho, encoding="utf-8").read()
+marca = "module.exports = {"
+import re
+ja = re.search(r"^\s*httpStatic\s*:", s, re.M)
+if marca in s and not ja:
+    bloco = (marca + "
+"
+             "    httpStatic: [
+"
+             "        { path: '%s', root: '/fotos/' }
+"
+             "    ],
+" % fotos)
+    s = s.replace(marca, bloco, 1)
+    io.open(caminho, "w", encoding="utf-8").write(s)
+    print("httpStatic configurado")
+else:
+    print("httpStatic ja presente ou marcador nao encontrado")
+PY
+        ok "fotos de plaqueta servidas em /fotos"
+    else
+        aviso "httpStatic ja configurado (ou settings.js ausente) — confira na mao"
+    fi
+
     sudo systemctl enable --now nodered
     sleep 2
     systemctl is-active --quiet nodered \

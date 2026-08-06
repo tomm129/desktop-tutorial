@@ -1,0 +1,75 @@
+{
+  "_leiame": [
+    "Cadastro de ativos: dados de placa e sobressalentes.",
+    "",
+    "Copie para 'ativos.json' (esse nao e versionado) e preencha com os seus",
+    "equipamentos. O Node-RED le este arquivo a cada 60s, entao editar aqui",
+    "reflete no painel sem precisar de deploy.",
+    "",
+    "As chaves de topo e de 'partes' tem de ser IGUAIS as do cadastro ATIVOS",
+    "na funcao 'montar painel' -- e por elas que os dois se encontram.",
+    "",
+    "Tudo e opcional: o painel mostra o que existir e omite o resto.",
+    "",
+    "O campo que MUDA COMPORTAMENTO e 'corrente_nominal_a' (a In da placa):",
+    "quando presente, os limites de alarme de corrente passam a ser 90% e",
+    "110% dela, em vez dos valores fixos do codigo. E o jeito certo -- 12 A",
+    "e normal num motor de 15 A e sobrecarga num de 10 A.",
+    "",
+    "As fotos ficam em dados/fotos/ e sao referenciadas so pelo nome do",
+    "arquivo. Fotografe a plaqueta de frente, com luz, sem flash direto (o",
+    "reflexo no metal apaga justamente os numeros gravados)."
+  ],
+
+  "Transporte 1": {
+    "local": "Galpao 2 — lateral norte",
+    "partes": {
+      "Motor 1": {
+        "placa": {
+          "fabricante": "WEG",
+          "modelo": "W22 IR3 Premium",
+          "numero_serie": "1234567890",
+          "ano": 2021,
+          "potencia_cv": 10,
+          "potencia_kw": 7.5,
+          "tensao_v": "220/380",
+          "corrente_nominal_a": 25.6,
+          "rpm": 1760,
+          "frequencia_hz": 60,
+          "polos": 4,
+          "fator_servico": 1.15,
+          "rendimento_pct": 91.7,
+          "fator_potencia": 0.85,
+          "carcaca": "132S/M",
+          "grau_protecao": "IP55",
+          "classe_isolamento": "F",
+          "peso_kg": 62,
+          "foto": "transporte1-motor1.jpg"
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6208-ZZ", "qtd": 1,
+            "obs": "lado do acoplamento" },
+          { "item": "Rolamento traseiro", "codigo": "6206-ZZ", "qtd": 1 },
+          { "item": "Retentor dianteiro", "codigo": "40x62x8", "qtd": 1 },
+          { "item": "Correia", "codigo": "A-52", "qtd": 2 }
+        ]
+      },
+
+      "Motor 2": {
+        "placa": {
+          "fabricante": "WEG",
+          "potencia_cv": 5,
+          "tensao_v": "220/380",
+          "corrente_nominal_a": 13.4,
+          "rpm": 1730,
+          "carcaca": "112M",
+          "grau_protecao": "IP55"
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6206-ZZ", "qtd": 1 },
+          { "item": "Rolamento traseiro", "codigo": "6205-ZZ", "qtd": 1 }
+        ]
+      }
+    }
+  }
+}

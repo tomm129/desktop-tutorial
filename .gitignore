@@ -22,3 +22,8 @@ __pycache__/
 *.pyc
 .venv/
 integracoes/**/config.env
+
+# Cadastro real de ativos e fotos das plaquetas (conteudo do usuario)
+dados/ativos.json
+dados/fotos/*
+!dados/fotos/.gitkeep

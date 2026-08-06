@@ -88,6 +88,8 @@ de resumo diz se está tudo normal ou lista o que não está.
 - **Partes deste ativo** — tabela só com as partes dele, não da planta
   inteira. É também a *table view* que garante acesso a todo valor sem
   depender de cor
+- **Dados de placa e sobressalentes** — ficha do motor, foto da plaqueta e
+  lista de peças de reposição (ver abaixo)
 - Gráficos de temperatura, vibração RMS e corrente, uma série por
   dispositivo
 - **Publicar agora** — força leitura imediata. Num ativo principal, dispara
@@ -184,6 +186,85 @@ fica mudo.
 > [`docs/visualizacao.md`](../docs/visualizacao.md): o ESP32 carrega só um
 > `device_id` estável. Trocar um ESP32 queimado é editar uma linha deste
 > cadastro — sem regravar firmware e sem perder o histórico do ativo.
+
+## Dados de placa e sobressalentes
+
+Ficam em **`dados/ativos.json`** (copie de `ativos.example.json`), fora do
+fluxo: é conteúdo de engenharia, muda por motivos diferentes da lógica, e
+pode ser editado **sem deploy** — o painel relê o arquivo a cada 60 s.
+
+As chaves têm de bater com as do cadastro `ATIVOS` na função **montar
+painel** — é por elas que os dois se encontram.
+
+```json
+{
+  "Transporte 1": {
+    "local": "Galpao 2 — lateral norte",
+    "partes": {
+      "Motor 1": {
+        "placa": {
+          "fabricante": "WEG", "modelo": "W22 IR3 Premium",
+          "potencia_cv": 10, "corrente_nominal_a": 25.6,
+          "rpm": 1760, "carcaca": "132S/M", "grau_protecao": "IP55",
+          "foto": "transporte1-motor1.jpg"
+        },
+        "sobressalentes": [
+          { "item": "Rolamento dianteiro", "codigo": "6208-ZZ", "qtd": 1,
+            "obs": "lado do acoplamento" },
+          { "item": "Rolamento traseiro", "codigo": "6206-ZZ", "qtd": 1 }
+        ]
+      }
+    }
+  }
+}
+```
+
+Todo campo é opcional — o painel mostra o que existir e omite o resto.
+
+### O campo que muda comportamento: `corrente_nominal_a`
+
+Com a **In da placa** preenchida, os limites de alarme de corrente daquele
+ativo passam a ser **90% e 110% dela**, em vez dos valores fixos do código.
+
+Isso importa porque corrente é a única grandeza aqui cujo limite não pode
+ser universal: **12 A é operação normal num motor de 15 A e sobrecarga num
+de 10 A**. É a regra que o [`docs/arquitetura.md`](../docs/arquitetura.md)
+sempre recomendou e que, sem o dado de placa, ficava chutada.
+
+O painel mostra o limite em vigor na própria ficha
+(`Limite de alarme: 7.4 / 9.0 A (90% / 110% da In)`), para quem olha saber
+se o alarme daquele ativo é calibrado ou genérico.
+
+### Fotos das plaquetas
+
+Ficam em `dados/fotos/` e são citadas só pelo nome do arquivo. O Node-RED
+as serve em `/fotos/` via `httpStatic` — o `setup_orangepi.sh` configura
+isso; se instalar na mão, acrescente ao `settings.js`:
+
+```javascript
+httpStatic: [
+    { path: '/opt/iot/dados/fotos', root: '/fotos/' }
+],
+```
+
+> Fotografe de frente, com luz, **sem flash direto** — o reflexo no metal
+> apaga justamente os números gravados, que é o que você foi fotografar.
+
+### Onde o fluxo procura o cadastro
+
+Em `$IOT_DADOS/ativos.json`, com `IOT_DADOS` valendo `/opt/iot/dados` por
+padrão. Caminho absoluto de propósito: o nó `file in` resolve caminho
+relativo contra o diretório do **processo**, então um caminho relativo
+dependeria de onde o serviço foi iniciado — e falharia calado, sem sintoma
+no painel além de "sem dados de placa".
+
+### Por que rolamento é o item que mais importa
+
+Além de ser o sobressalente clássico, o **código do rolamento é o que o
+degrau 3 do roadmap vai precisar**: o diagnóstico espectral de vibração
+calcula as frequências de falha (BPFO, BPFI, BSF, FTF) a partir da
+geometria do rolamento. Cadastrar isso agora é acumular o dado antes de
+precisar dele.
 
 ## Editar o fluxo
 

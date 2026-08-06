@@ -40,6 +40,7 @@ PAGINA, PAGINA_DET = "pg_visao", "pg_detalhe"
 
 G_RESUMO, G_CARDS = "grp_resumo", "grp_cards"
 G_CAB, G_TILES, G_PARTES, G_CMD = "grp_cab", "grp_tiles", "grp_partes", "grp_cmd"
+G_PLACA = "grp_placa"
 G_TEMP, G_VIB, G_CORR = "grp_temp", "grp_vib", "grp_corr"
 
 flows = []
@@ -110,9 +111,11 @@ grupo(G_CAB,    "",                       12, 1, altura=2, pagina=PAGINA_DET, ti
 grupo(G_TILES,  "Leituras agora",          6, 2, altura=4, pagina=PAGINA_DET)
 grupo(G_CMD,    "Comandos",                6, 3, altura=2, pagina=PAGINA_DET)
 grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=4, pagina=PAGINA_DET)
-grupo(G_TEMP,   "Temperatura (°C)",        6, 5, altura=7, pagina=PAGINA_DET)
-grupo(G_VIB,    "Vibracao RMS (g)",        6, 6, altura=7, pagina=PAGINA_DET)
-grupo(G_CORR,   "Corrente (A)",           12, 7, altura=7, pagina=PAGINA_DET)
+grupo(G_PLACA,  "Dados de placa e sobressalentes", 12, 5, altura=13,
+      pagina=PAGINA_DET)
+grupo(G_TEMP,   "Temperatura (°C)",        6, 6, altura=7, pagina=PAGINA_DET)
+grupo(G_VIB,    "Vibracao RMS (g)",        6, 7, altura=7, pagina=PAGINA_DET)
+grupo(G_CORR,   "Corrente (A)",           12, 8, altura=7, pagina=PAGINA_DET)
 
 # =====================================================================
 #  Ingestao: tres topicos alimentam UM registro em flow context
@@ -243,6 +246,62 @@ return null;
 """)
 
 # =====================================================================
+#  Cadastro em disco: dados de placa e sobressalentes
+# =====================================================================
+# Fica em arquivo, e nao dentro do fluxo, por tres motivos: e conteudo de
+# engenharia (nao logica), muda por motivos diferentes do resto, e assim
+# pode ser editado sem deploy -- e, mais adiante, migrado para a tabela
+# "ativos" do banco (docs/visualizacao.md) sem mexer no painel.
+no(id="tick_cadastro", type="inject", z="flow_monitor",
+   name="reler cadastro (60s)", props=[{"p": "payload"}], repeat="60",
+   crontab="", once=True, onceDelay="0.5", topic="", payload="",
+   payloadType="date", x=140, y=720, wires=[["caminho_cadastro"]])
+
+no(id="caminho_cadastro", type="function", z="flow_monitor",
+   name="caminho do cadastro", outputs=1, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=350, y=720,
+   wires=[["ler_cadastro"]],
+   func=r"""
+// Caminho ABSOLUTO, resolvido em tempo de execucao.
+//
+// O no "file in" resolve caminho relativo contra o diretorio do PROCESSO,
+// nao o do Node-RED -- ou seja, dependeria de onde o servico foi iniciado,
+// e quebraria calado (arquivo nao encontrado = sem dados de placa, sem
+// nenhum sintoma obvio no painel).
+//
+// Define IOT_DADOS no ambiente para apontar outro lugar; o padrao segue o
+// mesmo /opt/iot onde o sidecar do PowerFlex e instalado.
+const base = env.get('IOT_DADOS') || '/opt/iot/dados';
+msg.filename = base + '/ativos.json';
+return msg;
+""")
+
+# Com filenameType="msg", o campo filename guarda o NOME da propriedade
+# que carrega o caminho -- nao o caminho, e nunca vazio.
+no(id="ler_cadastro", type="file in", z="flow_monitor", name="ativos.json",
+   filename="filename", filenameType="msg", format="utf8",
+   chunk=False, sendError=False, encoding="utf8", allProps=False,
+   x=560, y=720, wires=[["guardar_cadastro"]])
+
+no(id="guardar_cadastro", type="function", z="flow_monitor",
+   name="guardar cadastro", outputs=0, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=760, y=720, wires=[],
+   func=r"""
+// Arquivo ausente ou ilegivel nao pode derrubar o painel: sem cadastro o
+// sistema segue funcionando, so sem dados de placa. Por isso sendError
+// esta desligado no no de leitura e o parse e protegido aqui.
+if (!msg.payload) { return null; }
+try {
+    const cad = JSON.parse(msg.payload);
+    delete cad._leiame;
+    flow.set('cadastro', cad);
+} catch (e) {
+    node.warn('dados/ativos.json invalido, ignorado: ' + e.message);
+}
+return null;
+""")
+
+# =====================================================================
 #  Renderizador: um so lugar decide estado, cor e texto
 # =====================================================================
 no(id="tick", type="inject", z="flow_monitor", name="a cada 2s",
@@ -251,10 +310,10 @@ no(id="tick", type="inject", z="flow_monitor", name="a cada 2s",
    x=140, y=380, wires=[["montar_painel"]])
 
 no(id="montar_painel", type="function", z="flow_monitor",
-   name="montar painel", outputs=5, timeout=0, noerr=0,
+   name="montar painel", outputs=6, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=350, y=380,
    wires=[["tabela_ativos"], ["txt_resumo"], ["stat_tiles"],
-          ["cards_ativos"], ["cab_detalhe"]],
+          ["cards_ativos"], ["cab_detalhe"], ["painel_placa"]],
    func=r"""
 // Unico ponto que decide estado, cor e texto -- se os limites mudarem,
 // mudam aqui e valem para a tabela, os alarmes e os medidores.
@@ -325,6 +384,22 @@ function avaliar(valor, lim) {
     return 'normal';
 }
 
+// Limites do ativo: os de LIM valem para todos, MENOS a corrente quando a
+// placa informa a corrente nominal (In).
+//
+// Corrente e a unica grandeza aqui cujo limite nao pode ser universal: 12 A
+// e operacao normal num motor de 15 A e sobrecarga num de 10 A. Com a In da
+// placa, 90%/110% dela viram os limites daquele ativo -- que e a regra que
+// docs/arquitetura.md sempre recomendou e que ate agora estava chutada.
+function limites_de(a) {
+    const inom = (((a.placa || {}).corrente_nominal_a) || 0);
+    if (!inom) { return LIM; }
+    const l = Object.assign({}, LIM);
+    l.corrente_a = { atencao: inom * 0.9, critico: inom * 1.1,
+                     nome: 'Corrente', un: 'A', derivado: inom };
+    return l;
+}
+
 function ha_quanto(ms) {
     if (!ms) { return '--'; }
     const s = Math.floor((Date.now() - ms) / 1000);
@@ -357,10 +432,22 @@ function marcha_txt(a) {
 const registro = flow.get('ativos') || {};
 
 // Junta os device_id de UMA parte (o ESP32 e o inversor dela).
-function juntar_parte(chave, rotulo, cfg, nivel) {
+// Cadastro de engenharia lido de dados/ativos.json.
+const cadastro = flow.get('cadastro') || {};
+
+function ficha(tag, nome_parte) {
+    const at = cadastro[tag] || {};
+    if (!nome_parte) { return at; }
+    return ((at.partes || {})[nome_parte]) || {};
+}
+
+function juntar_parte(chave, rotulo, cfg, nivel, tag, nome_parte) {
     const esp = registro[cfg.esp32] || {};
     const inv = registro[cfg.inversor] || {};
+    const f = ficha(tag, nome_parte);
     return {
+        placa: f.placa,
+        sobressalentes: f.sobressalentes,
         chave: chave,
         rotulo: rotulo,
         nivel: nivel,
@@ -410,11 +497,18 @@ function consolidar_pai(tag, cfg, partes) {
     const algum_rodando = partes.some(function (p) { return p.rodando === true; });
     const sabe_rodando = partes.some(function (p) { return p.rodando !== undefined; });
 
+    // Com uma parte so, o ativo E o equipamento: mostra a placa dela em vez
+    // de deixar a tela vazia e obrigar mais um clique.
+    const unica = (partes.length === 1) ? partes[0] : {};
+
     return {
         chave: tag,
         rotulo: tag,
         nivel: 0,
         eh_pai: true,
+        placa: (cadastro[tag] || {}).placa || unica.placa,
+        sobressalentes: (cadastro[tag] || {}).sobressalentes || unica.sobressalentes,
+        local: (cadastro[tag] || {}).local,
         temperatura_c: pior('temperatura_c'),
         vib_rms_g: pior('vib_rms_g'),
         corrente_a: pior('corrente_a'),
@@ -443,7 +537,8 @@ function consolidar() {
         return Object.keys(registro).sort().map(function (id) {
             // Na descoberta automatica a chave JA e o device_id.
             esp32_por_chave[id] = [id];
-            return Object.assign({ chave: id, rotulo: id, nivel: 0 }, registro[id]);
+            return Object.assign({ chave: id, rotulo: id, nivel: 0 },
+                                registro[id], ficha(id, null));
         });
     }
 
@@ -454,7 +549,7 @@ function consolidar() {
         // Ativo sem 'partes': trata como equipamento unico (um nivel so).
         if (!cfg.partes) {
             if (cfg.esp32) { esp32_por_chave[tag] = [cfg.esp32]; }
-            saida.push(juntar_parte(tag, tag, cfg, 0));
+            saida.push(juntar_parte(tag, tag, cfg, 0, tag, null));
             continue;
         }
 
@@ -464,7 +559,7 @@ function consolidar() {
             if (cfg.partes[nome].esp32) {
                 esp32_por_chave[chave] = [cfg.partes[nome].esp32];
             }
-            return juntar_parte(chave, nome, cfg.partes[nome], 1);
+            return juntar_parte(chave, nome, cfg.partes[nome], 1, tag, nome);
         });
         // O ativo principal comanda todas as suas partes de uma vez.
         esp32_por_chave[tag] = nomes
@@ -482,14 +577,9 @@ flow.set('esp32_por_chave', esp32_por_chave);
 const agora = Date.now();
 
 
-const linhas = [];
-const alarmes = [];
+// ---- Passo 1: apura o estado de CADA item ----------------------------
 const estados = {};
-let pai_atual = '';
-let pai_chave = '';
-
 for (const a of lista) {
-    const id = a.rotulo;
     const mudo = (agora - (a.visto_em || 0)) > SEM_DADOS_MS;
     const offline = a.conexao === 'offline';
 
@@ -509,8 +599,9 @@ for (const a of lista) {
                          (a.falha_texto ? ' — ' + a.falha_texto : ''));
         }
 
-        for (const campo of Object.keys(LIM)) {
-            const lim = LIM[campo];
+        const lims = limites_de(a);
+        for (const campo of Object.keys(lims)) {
+            const lim = lims[campo];
             const v = a[campo];
             if (v === undefined) { continue; }   // ativo nao tem esse sensor
             if (v === null) {
@@ -525,13 +616,49 @@ for (const a of lista) {
             if (PIOR[nivel] > PIOR[estado]) { estado = nivel; }
             if (nivel !== 'normal') {
                 motivos.push(lim.nome + ' ' + ROTULO[nivel].toLowerCase() +
-                             ': ' + v + lim.un);
+                             ': ' + v.toFixed(2) + lim.un);
             }
         }
     }
 
+    estados[a.chave] = { estado: estado, motivos: motivos, item: a };
+}
+
+// ---- Passo 2: o ativo pai herda o PIOR estado das suas partes --------
+//
+// Nao basta recalcular o estado do pai a partir dos valores consolidados:
+// cada parte pode ter limite proprio (a corrente nominal vem da placa
+// DELA), entao o pai avaliado com o limite generico discordaria da parte
+// avaliada com o limite calibrado -- o card ficaria verde com a parte em
+// atencao. O pai reflete as partes; nao as reavalia.
+for (const a of lista) {
+    if (!a.eh_pai) { continue; }
+    const filhos = lista.filter(function (x) {
+        return x.nivel > 0 && x.chave.split('/')[0] === a.chave;
+    });
+    if (!filhos.length) { continue; }
+
+    let pior = estados[a.chave].estado;
+    for (const f of filhos) {
+        const e = estados[f.chave].estado;
+        if (PIOR[e] > PIOR[pior]) { pior = e; }
+    }
+    estados[a.chave].estado = pior;
+}
+
+// ---- Passo 3: monta as linhas e a lista de alarmes -------------------
+const linhas = [];
+const alarmes = [];
+let pai_atual = '';
+let pai_chave = '';
+
+for (const a of lista) {
+    const id = a.rotulo;
+    const estado = estados[a.chave].estado;
+    const motivos = estados[a.chave].motivos;
+
     // Sub-ativo entra recuado, para a hierarquia se ler de relance.
-    const nome = (a.nivel > 0) ? ('    └ ' + id) : id;
+    const nome = (a.nivel > 0) ? ('\u00a0\u00a0\u00a0\u00a0\u2514 ' + id) : id;
 
     linhas.push({
         Ativo: nome,
@@ -549,15 +676,11 @@ for (const a of lista) {
         _pai: (a.nivel > 0) ? pai_chave : a.chave
     });
 
-    // Guarda o estado apurado: o card do pai e o cabecalho do detalhe
-    // reaproveitam, em vez de recalcular com regra possivelmente diferente.
-    estados[a.chave] = { estado: estado, motivos: motivos, item: a };
-
     // O ativo principal so vira alarme proprio quando ele mesmo esta mudo.
     // Se o problema esta numa parte, quem alarma e a parte -- senao a mesma
     // ocorrencia apareceria duas vezes, com o pai repetindo o pior filho.
     const so_consolidado = a.eh_pai && estado !== 'sem_dados';
-    if (estado !== 'normal' && !so_consolidado) {
+    if (estado !== 'normal' && !so_consolidado && motivos.length) {
         alarmes.push({ id: a.nivel > 0 ? (pai_atual + ' / ' + id) : id,
                        estado: estado, motivos: motivos });
     }
@@ -598,9 +721,11 @@ const m2 = { payload: html };
 const alvo = lista.find(function (x) { return x.chave === sel; }) || lista[0];
 if (!alvo) { return [m1, m2, null, m4_cards(), null]; }
 
+const lims_alvo = limites_de(alvo);
+
 function tile(nome, campo, casas, un) {
     const v = alvo[campo];
-    const lim = LIM[campo];
+    const lim = lims_alvo[campo];
     if (v === undefined) {
         return { nome: nome, texto: '--', un: '', pct: 0,
                  cor: COR.sem_dados, simb: SIMB.sem_dados, rotulo: 'sem sensor' };
@@ -648,9 +773,10 @@ function m4_cards() {
             return x.nivel > 0 && x.chave.split('/')[0] === a.chave;
         }).length;
 
+        const lims_card = limites_de(a);
         function medida(nome, campo, casas, un) {
             const v = a[campo];
-            const lim = LIM[campo];
+            const lim = lims_card[campo];
             if (v === undefined) {
                 return { nome: nome, texto: '--', un: '', pct: 0,
                          cor: COR.sem_dados, vazio: true };
@@ -728,7 +854,92 @@ const m5 = { payload:
           fontes.join(' · ') + '</div>'
         : '') };
 
-return [m1, m2, m3, m4_cards(), m5];
+// ---- Saida 6: dados de placa e sobressalentes ------------------------
+//
+// Um ativo com varias partes nao tem plaqueta propria -- quem tem sao os
+// motores dentro dele. Abrir a linha e ver "sem dados de placa" seria
+// tecnicamente correto e praticamente inutil, entao o pai mostra as fichas
+// das PARTES, uma secao por motor.
+function ficha_de(a, titulo) {
+    const pl = a.placa;
+    const sob = a.sobressalentes || [];
+    if (!pl && !sob.length) { return null; }
+
+    const p = pl || {};
+    const defs = [
+        ['Fabricante',        p.fabricante],
+        ['Modelo',            p.modelo],
+        ['Numero de serie',   p.numero_serie],
+        ['Ano',               p.ano],
+        ['Potencia',          p.potencia_cv, ' cv'],
+        ['',                  p.potencia_kw, ' kW'],
+        ['Tensao',            p.tensao_v, ' V'],
+        ['Corrente nominal',  p.corrente_nominal_a, ' A'],
+        ['Rotacao',           p.rpm, ' rpm'],
+        ['Frequencia',        p.frequencia_hz, ' Hz'],
+        ['Polos',             p.polos],
+        ['Fator de servico',  p.fator_servico],
+        ['Rendimento',        p.rendimento_pct, ' %'],
+        ['Fator de potencia', p.fator_potencia],
+        ['Carcaca',           p.carcaca],
+        ['Grau de protecao',  p.grau_protecao],
+        ['Isolamento',        p.classe_isolamento],
+        ['Peso',              p.peso_kg, ' kg']
+    ];
+
+    // So entram os campos preenchidos: linha com "--" nao informa nada e
+    // ainda empurra para baixo o que interessa.
+    const campos = [];
+    for (const d of defs) {
+        const val = d[1];
+        if (val === undefined || val === null || val === '') { continue; }
+        campos.push({ rot: d[0] || '', val: String(val) + (d[2] || '') });
+    }
+
+    // Deixa explicito quando o limite de corrente veio da placa: quem olha
+    // precisa saber se o alarme e calibrado ou generico.
+    if (p.corrente_nominal_a) {
+        campos.push({ rot: 'Limite de alarme',
+                      val: (p.corrente_nominal_a * 0.9).toFixed(1) + ' / ' +
+                           (p.corrente_nominal_a * 1.1).toFixed(1) +
+                           ' A  (90% / 110% da In)' });
+    }
+
+    return {
+        titulo: titulo,
+        // Servido estaticamente pelo Node-RED; ver httpStatic no settings.js.
+        foto: p.foto ? ('/fotos/' + p.foto) : '',
+        campos: campos,
+        sobras: sob
+    };
+}
+
+function montar_placa() {
+    const fichas = [];
+
+    const propria = ficha_de(alvo, '');
+    if (propria) { fichas.push(propria); }
+
+    // Sem ficha propria, desce para as partes.
+    if (!propria && alvo.eh_pai) {
+        const filhos = lista.filter(function (x) {
+            return x.nivel > 0 && x.chave.split('/')[0] === alvo.chave;
+        });
+        for (const f of filhos) {
+            const fi = ficha_de(f, f.rotulo);
+            if (fi) { fichas.push(fi); }
+        }
+    }
+
+    if (alvo.local) {
+        // O local pertence ao ativo, nao a parte: entra uma vez so.
+        if (fichas.length) { fichas[0].local = alvo.local; }
+    }
+
+    return { payload: { fichas: fichas } };
+}
+
+return [m1, m2, m3, m4_cards(), m5, montar_placa()];
 """)
 
 # =====================================================================
@@ -892,6 +1103,127 @@ no(id="cab_detalhe", type="ui-text", z="flow_monitor", group=G_CAB,
    format="{{msg.payload}}", layout="row-left", style=False, font="",
    fontSize=16, color="#717171", wrapText=True, className="",
    x=640, y=460, wires=[])
+
+
+PLACA = r"""
+<template>
+    <div v-if="!fichas.length" class="nada">
+        Sem dados de placa para este ativo.
+        <span class="dica">Cadastre em <code>dados/ativos.json</code>.</span>
+    </div>
+
+    <div v-else>
+        <div v-for="(f, i) in fichas" :key="i" class="bloco"
+             :class="{ primeiro: i === 0 }">
+            <div v-if="f.titulo" class="parte">{{ f.titulo }}</div>
+            <div v-if="f.local" class="local">{{ f.local }}</div>
+
+            <div class="painel">
+                <div class="col foto-col">
+                    <div class="titulo">Plaqueta</div>
+                    <a v-if="f.foto" :href="f.foto" target="_blank" rel="noopener">
+                        <img :src="f.foto" class="foto"
+                             :alt="'Plaqueta de ' + (f.titulo || 'motor')">
+                    </a>
+                    <div v-else class="semfoto">
+                        sem foto
+                        <span class="dica">coloque em dados/fotos/ e cite no cadastro</span>
+                    </div>
+                </div>
+
+                <div class="col">
+                    <div class="titulo">Dados de placa</div>
+                    <table class="ficha">
+                        <tr v-for="(c, j) in f.campos" :key="j">
+                            <th>{{ c.rot }}</th>
+                            <td>{{ c.val }}</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div class="col">
+                    <div class="titulo">
+                        Sobressalentes
+                        <span v-if="f.sobras.length" class="conta">{{ f.sobras.length }}</span>
+                    </div>
+                    <table v-if="f.sobras.length" class="sobras">
+                        <tr v-for="(x, j) in f.sobras" :key="j">
+                            <td class="it">
+                                {{ x.item }}
+                                <div v-if="x.obs" class="obs">{{ x.obs }}</div>
+                            </td>
+                            <td class="cod">{{ x.codigo }}</td>
+                            <td class="qt">{{ x.qtd }}x</td>
+                        </tr>
+                    </table>
+                    <div v-else class="semfoto">nenhum item cadastrado</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<script>
+export default {
+    data () { return { fichas: [] } },
+    watch: {
+        msg: {
+            immediate: true,
+            handler (m) {
+                this.fichas = ((m && m.payload) || {}).fichas || [];
+            }
+        }
+    }
+}
+</script>
+
+<style scoped>
+.bloco  { border-top: 1px solid #2c2c2a; padding-top: 14px; margin-top: 14px; }
+.bloco.primeiro { border-top: none; padding-top: 0; margin-top: 0; }
+.parte  { font-size: 15px; font-weight: 600; color: #ffffff; margin-bottom: 2px; }
+.local  { font-size: 12px; color: #898781; margin-bottom: 10px; }
+
+.painel { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.col    { flex: 1 1 260px; min-width: 240px; }
+.foto-col { flex: 0 1 300px; }
+.titulo { font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
+          color: #898781; margin-bottom: 8px; }
+.conta  { background: #2c2c2a; color: #c3c2b7; border-radius: 8px;
+          padding: 0 6px; margin-left: 4px; }
+
+.foto   { max-width: 100%; border: 1px solid #383835; border-radius: 4px;
+          display: block; }
+.foto:hover { border-color: #5a5a55; }
+.semfoto { color: #898781; font-size: 13px; border: 1px dashed #383835;
+           border-radius: 4px; padding: 16px; text-align: center; }
+.nada   { color: #898781; padding: 4px; }
+.dica   { display: block; font-size: 11px; color: #5a5a55; margin-top: 4px; }
+
+table { border-collapse: collapse; width: 100%; }
+.ficha th { text-align: left; font-weight: 400; color: #898781;
+            font-size: 12px; padding: 3px 12px 3px 0; white-space: nowrap;
+            vertical-align: top; }
+/* tabular-nums aqui SIM: sao colunas que alinham verticalmente */
+.ficha td { color: #ffffff; font-size: 13px; padding: 3px 0;
+            font-variant-numeric: tabular-nums; }
+
+.sobras td { padding: 4px 0; border-bottom: 1px solid #2c2c2a;
+             font-size: 13px; vertical-align: top; }
+.sobras tr:last-child td { border-bottom: none; }
+.it  { color: #c3c2b7; }
+.obs { font-size: 11px; color: #5a5a55; }
+.cod { color: #ffffff; font-family: ui-monospace, "Cascadia Code", monospace;
+       padding-left: 12px !important; white-space: nowrap; }
+.qt  { color: #898781; text-align: right; padding-left: 10px !important;
+       white-space: nowrap; }
+</style>
+"""
+
+no(id="painel_placa", type="ui-template", z="flow_monitor", group=G_PLACA,
+   name="dados de placa", order=1, width="12", height="13",
+   head="", format=PLACA, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=500, wires=[[]])
 
 no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
    name="tabela de ativos", label="", order=1, width="0", height="0",
