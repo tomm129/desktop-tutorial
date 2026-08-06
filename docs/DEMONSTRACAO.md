@@ -70,6 +70,16 @@ Nenhum sistema baseado só em limites de vibração e temperatura pegaria
 isso. É a fusão das três fontes (sensor + drive) fazendo diferença numa
 tela.
 
+### O terceiro argumento: instalar não exige mexer em arquivo
+
+A tela de **Cadastro** (imagem 7) mostra os dispositivos que estão
+publicando e ainda não pertencem a nenhum ativo, com as leituras ao vivo —
+o que confirma qual caixa é qual antes de atribuir. Escolhe o ativo, dá
+nome à parte, e o card entra na visão geral em segundos.
+
+Vale demonstrar ao vivo: ligue um "novo" dispositivo durante a
+apresentação (basta subir outro simulador) e ele aparece sozinho na tela.
+
 ### O segundo argumento: o limite é do motor, não do sistema
 
 Abrindo a Torre, a ficha do ventilador mostra
@@ -92,6 +102,7 @@ Em [`img/demo/`](img/demo/), na ordem em que eu apresentaria:
 | 4 | `4-torre-falha-inversor.jpg` | **Detalhe da torre — crítico por falha do drive, grandezas todas verdes** |
 | 5 | `5-transporte-normal.jpg` | Detalhe de um ativo saudável — a referência |
 | 6 | `6-placa-sobressalentes.jpg` | Ficha de placa e sobressalentes, com o limite derivado da In |
+| 7 | `7-cadastro.jpg` | Tela de cadastro — dispositivo novo sendo atribuído a um ativo |
 
 ### O que cada tela de detalhe contém
 
