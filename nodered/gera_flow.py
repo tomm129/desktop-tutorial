@@ -2286,49 +2286,49 @@ no(id="pg_rel_conteudo", type="ui-template", z="flow_monitor", group=G_REL,
 LINHA_TEMPO = r"""
 <template>
     <div class="lt">
-        <div class="cab">
-            <span class="tit">{{ janela }}</span>
-            <span class="leg">
-                <span class="pt" style="background:#f59e0b"></span> atencao
-                <span class="pt" style="background:#ef4444"></span> critico
-                <span class="pt" style="background:#71717a"></span> sem dados
+        <div class="lt-cab">
+            <span class="lt-tit">{{ janela }}</span>
+            <span class="lt-leg">
+                <span class="lt-pt" style="background:#f59e0b"></span> atencao
+                <span class="lt-pt" style="background:#ef4444"></span> critico
+                <span class="lt-pt" style="background:#71717a"></span> sem dados
             </span>
         </div>
 
-        <div class="faixa" ref="faixa" @mouseleave="dica = null"
+        <div class="lt-faixa" ref="faixa" @mouseleave="dica = null"
              :style="{ height: (18 + faixas * 14) + 'px' }">
             <!-- grade de horas -->
-            <div v-for="m in marcas" :key="'m'+m.pct" class="marca"
+            <div v-for="m in marcas" :key="'m'+m.pct" class="lt-marca"
                  :style="{ left: m.pct + '%' }">
-                <span class="rot">{{ m.rot }}</span>
+                <span class="lt-rot">{{ m.rot }}</span>
             </div>
 
             <!-- trilho -->
-            <div v-for="k in faixas" :key="'t'+k" class="trilho"
+            <div v-for="k in faixas" :key="'t'+k" class="lt-trilho"
                  :style="{ top: (2 + (k-1) * 14) + 'px' }"></div>
 
             <!-- eventos: barra quando tem duracao, tick quando e instantaneo -->
             <div v-for="(e, i) in eventos" :key="i"
-                 class="evt" :class="{ aberto: e.aberto }"
+                 class="lt-evt" :class="{ 'lt-aberto': e.aberto }"
                  :style="{ left: e.ini + '%', width: e.larg + '%',
                            top: (2 + e.faixa * 14) + 'px', background: e.cor }"
                  @mouseenter="mostrar(e, $event)">
             </div>
 
-            <div v-if="!eventos.length" class="vazio">
+            <div v-if="!eventos.length" class="lt-vazio">
                 Nenhum evento nas ultimas 24 horas
             </div>
         </div>
 
         <!-- tooltip -->
-        <div v-if="dica" class="dica" :style="{ left: dica.x + 'px' }">
-            <div class="d-l1">
+        <div v-if="dica" class="lt-dica" :style="{ left: dica.x + 'px' }">
+            <div class="lt-d-l1">
                 <span :style="{ color: dica.cor }">{{ dica.simb }}</span>
                 <b>{{ dica.ativo }}</b>
-                <span v-if="dica.parte" class="d-parte">› {{ dica.parte }}</span>
-                <span class="d-tempo">{{ dica.quando }} · {{ dica.duracao }}</span>
+                <span v-if="dica.parte" class="lt-d-parte">› {{ dica.parte }}</span>
+                <span class="lt-d-tempo">{{ dica.quando }} · {{ dica.duracao }}</span>
             </div>
-            <div class="d-mot">{{ dica.motivos }}</div>
+            <div class="lt-d-mot">{{ dica.motivos }}</div>
         </div>
     </div>
 </template>
@@ -2362,44 +2362,44 @@ export default {
 
 <style scoped>
 .lt   { position: relative; }
-.cab  { display: flex; justify-content: space-between; align-items: baseline;
+.lt-cab  { display: flex; justify-content: space-between; align-items: baseline;
         margin-bottom: 6px; }
-.tit  { font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+.lt-tit  { font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
         color: #71717a; }
-.leg  { font-size: 11px; color: #71717a; }
-.pt   { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+.lt-leg  { font-size: 11px; color: #71717a; }
+.lt-pt   { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
         margin: 0 4px 0 12px; vertical-align: 0; }
 
-.faixa   { position: relative; min-height: 32px; }
-.trilho  { position: absolute; left: 0; right: 0; height: 10px;
+.lt-faixa   { position: relative; min-height: 32px; }
+.lt-trilho  { position: absolute; left: 0; right: 0; height: 10px;
            background: #1c1c1f; border: 1px solid #27272a; border-radius: 3px; }
 
-.marca   { position: absolute; top: 0; bottom: 16px; width: 1px;
+.lt-marca   { position: absolute; top: 0; bottom: 16px; width: 1px;
            background: #27272a; }
-.rot     { position: absolute; bottom: -14px; left: 3px; font-size: 10px;
+.lt-rot     { position: absolute; bottom: -14px; left: 3px; font-size: 10px;
            color: #52525b; white-space: nowrap; }
 
 /* Evento com duracao vira barra; instantaneo tem largura minima e vira
    tick. Assim "piscou uma vez" e "esta ha 3 horas" nao parecem iguais. */
-.evt     { position: absolute; height: 12px; border-radius: 2px;
+.lt-evt     { position: absolute; height: 12px; border-radius: 2px;
            min-width: 3px; cursor: pointer; opacity: .85;
            transition: opacity .15s, transform .15s; }
-.evt:hover { opacity: 1; transform: scaleY(1.35); }
+.lt-evt:hover { opacity: 1; transform: scaleY(1.35); }
 /* Evento ainda aberto ganha contorno claro: e o que exige acao agora. */
-.evt.aberto { box-shadow: 0 0 0 1px #f4f4f5; }
+.lt-evt.lt-aberto { box-shadow: 0 0 0 1px #f4f4f5; }
 
-.vazio { position: absolute; top: 12px; left: 12px; font-size: 12px;
+.lt-vazio { position: absolute; top: 12px; left: 12px; font-size: 12px;
          color: #52525b; }
 
-.dica  { position: absolute; top: -2px; z-index: 20; min-width: 300px;
+.lt-dica  { position: absolute; top: -2px; z-index: 20; min-width: 300px;
          max-width: 460px; background: #1e1e22; border: 1px solid #3f3f46;
          border-radius: 8px; padding: 7px 12px;
          box-shadow: 0 6px 18px rgba(0,0,0,.55); pointer-events: none; }
-.d-l1    { font-size: 12px; color: #f4f4f5; white-space: nowrap; }
-.d-l1 b  { font-weight: 600; margin-left: 4px; }
-.d-parte { color: #a1a1aa; margin-left: 4px; }
-.d-tempo { color: #71717a; font-size: 11px; margin-left: 10px; }
-.d-mot   { color: #a1a1aa; font-size: 12px; margin-top: 3px; line-height: 1.35; }
+.lt-d-l1    { font-size: 12px; color: #f4f4f5; white-space: nowrap; }
+.lt-d-l1 b  { font-weight: 600; margin-left: 4px; }
+.lt-d-parte { color: #a1a1aa; margin-left: 4px; }
+.lt-d-tempo { color: #71717a; font-size: 11px; margin-left: 10px; }
+.lt-d-mot   { color: #a1a1aa; font-size: 12px; margin-top: 3px; line-height: 1.35; }
 </style>
 """
 
