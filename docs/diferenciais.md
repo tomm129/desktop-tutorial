@@ -32,7 +32,7 @@ confiança em tudo que veio antes.
 | Vibração — velocidade | **mm/s, zonas ISO 20816** | não publicado | sim | sim |
 | Fator de crista | **sim** | não publicado | sim | não publicado |
 | FFT / espectro | ✗ roadmap | 12288 linhas | 4096 linhas/eixo | sim |
-| **Corrente elétrica** | **real, do inversor** | campo magnético (proxy) | ✗ | sensor separado |
+| **Corrente elétrica** | **real, do inversor** (onde houver) | campo magnético (proxy) | ✗ | sensor separado |
 | MCSA (espectro da corrente) | ✗ — ver §2.1 | ✗ | ✗ | ✗ |
 | Tensão / barramento CC | **sim** | ✗ | ✗ | ✗ |
 | Código de falha do drive | **sim** | ✗ | ✗ | ✗ |
@@ -195,7 +195,7 @@ Ser honesto aqui é o que dá credibilidade ao resto.
 
 | Lacuna | Situação | Caminho |
 |---|---|---|
-| **Instalação** | eles: adesivo, 3 min, sem cabo. Nós: precisa de alimentação | posicionar para ativo **com inversor** (onde já há painel e energia) — que é exatamente onde nosso diferencial de corrente existe |
+| **Instalação** | eles: adesivo, 3 min, sem cabo. Nós: precisa de alimentação | o ativo com inversor é onde a instalação é mais fácil e onde o diferencial elétrico aparece — mas o produto cobre qualquer ativo rotativo, com ou sem drive |
 | **Banda de vibração** | nosso mm/s cobre ~10–100 Hz; a norma pede 10–1000 Hz; eles vão a 32–64 kHz | limite do ADXL345 por I²C. Resolve com acelerômetro SPI + ESP32-S3 e FFT no edge |
 | **Sem FFT/espectro** | eles diagnosticam BPFO/BPFI/BSF/FTF; nós ainda não | degrau 3 do roadmap; depende do item acima |
 | **Sem certificação Ex** | eles têm variantes para área classificada | mercado que não atacamos agora |
@@ -241,9 +241,10 @@ plástica resolve os dois problemas de uma vez.
 > **dado dentro da planta**, num banco padrão, sem mensalidade e sem
 > internet.
 >
-> Em troca, exigimos alimentação elétrica e ainda não fazemos análise
-> espectral. Por isso miramos o ativo que tem inversor: é onde já há energia
-> e é onde nosso diferencial existe.
+> Em troca, exigimos alimentação elétrica no ponto de medição e ainda não
+> fazemos análise espectral. O ativo com inversor é o nosso caso mais forte
+> — ali há energia e ali o diferencial elétrico existe —, mas vibração e
+> temperatura já entregam valor em qualquer ativo rotativo, com ou sem drive.
 
 ---
 

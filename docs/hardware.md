@@ -131,6 +131,9 @@ o mesmo resultado sem construir cadeia analógica nenhuma.
 
 ### Medição de corrente — Inversor PowerFlex 525 (EtherNet/IP)
 
+> **Seção opcional.** Só se aplica a ativo que tem inversor na rede. Sem
+> ele o sistema funciona igual, monitorando vibração e temperatura.
+
 A corrente é lida **diretamente do inversor de frequência** — não há sensor
 de corrente externo. O drive **Allen-Bradley PowerFlex 525** já mede e
 disponibiliza corrente, frequência, tensão e status de falha, tudo

@@ -1,7 +1,8 @@
 # Sistema de Monitoramento de Corrente, Temperatura e Vibração
 
 Sistema de monitoramento industrial distribuído para acompanhamento de
-**corrente elétrica**, **temperatura** e **vibração** de equipamentos.
+**temperatura** e **vibração** de equipamentos rotativos — e de **corrente
+elétrica**, lida do inversor onde houver um na rede.
 
 O projeto combina dois lados:
 
@@ -62,7 +63,9 @@ O projeto combina dois lados:
 - **Temperatura (campo):** sensor infravermelho **sem contato MLX90614**
   (I²C), no mesmo barramento do ADXL345. Firmware também suporta DS18B20 e
   DHT22 por configuração.
-- **Corrente (painel):** lida direto do inversor **PowerFlex 525** por
-  **EtherNet/IP** (Orange Pi na rede Ethernet dos drives).
+- **Corrente (painel) — opcional:** onde o ativo tem inversor na rede, a
+  corrente é lida direto dele — **PowerFlex 525** por EtherNet/IP ou
+  **Danfoss VLT** por Modbus. Sem inversor, o ativo é monitorado por
+  vibração e temperatura como qualquer outro.
 
 Veja [`docs/hardware.md`](docs/hardware.md) para ligações e parâmetros.

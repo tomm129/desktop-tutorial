@@ -24,8 +24,13 @@ nenhum dos dois entrega de forma nativa.
 ## O diferencial: fusão multissensor (corrente + vibração + temperatura)
 
 A maioria das soluções de condição olha **vibração + temperatura**. Este
-projeto adiciona uma terceira fonte de altíssimo valor: **a corrente do
-inversor PowerFlex 525 (via EtherNet/IP)**.
+projeto adiciona uma terceira fonte de altíssimo valor **onde ela existe**:
+a corrente do inversor — PowerFlex 525 por EtherNet/IP ou Danfoss VLT por
+Modbus.
+
+> O inversor é **bônus, não pré-requisito**. Vibração e temperatura já
+> entregam valor em qualquer ativo rotativo; onde há drive na rede, soma-se
+> a camada elétrica. No cadastro, o inversor é campo opcional.
 
 Isso habilita **MCSA — Motor Current Signature Analysis**, que revela falhas
 que a vibração externa nem sempre distingue:
@@ -64,7 +69,7 @@ acumulamos dado para o degrau 4.
 [ Campo ]                         [ Painel / Borda ]              [ Nuvem ]
 ESP32 (MLX90614 + ADXL345)  --->  Orange Pi (Node-RED + Mosquitto)  --->  Armazenamento
    |  features leves no edge         |  fusão, limites, dashboard          + histórico
-PowerFlex 525 (corrente) --EIP-->    |  MQTT como barramento               + treino de modelos
+PowerFlex 525 (corrente, se houver) --EIP-->    |  MQTT como barramento               + treino de modelos
                                      v
                                  Detecção de anomalia / diagnóstico
 ```
@@ -72,7 +77,8 @@ PowerFlex 525 (corrente) --EIP-->    |  MQTT como barramento               + tre
 - **Edge (ESP32):** amostragem dos sensores e cálculo de *features* leves
   (RMS, pico) para não trafegar sinal bruto o tempo todo.
 - **Borda (Orange Pi):** Mosquitto (broker MQTT) + Node-RED fazem a fusão dos
-  três sinais, avaliação de limites, dashboard local e o primeiro nível de
+  sinais disponíveis (vibração e temperatura sempre; corrente quando há
+  inversor), avaliação de limites, dashboard local e o primeiro nível de
   anomalia. Funciona mesmo sem internet.
 - **Nuvem:** histórico de longo prazo, treino de modelos e visão de frota.
   A borda continua operando se a nuvem cair (resiliência).

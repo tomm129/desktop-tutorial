@@ -214,6 +214,10 @@ O ESP32 assina `monitoramento/<device_id>/cmd` e aceita:
 | Vibração (RMS)      | > 0,5 g   | > 1,0 g   | Calibrar em condição normal primeiro|
 | Corrente            | > 90 % In | > 110 % In| In = corrente nominal do motor      |
 
+> A linha de **corrente** só vale para ativo com inversor associado no
+> cadastro. Sem drive, o alarme é só temperatura e vibração — o inversor é
+> opcional em toda a cadeia.
+
 Os limites acima são um ponto de partida e devem ser calibrados com o
 equipamento operando em condição normal (baseline).
 
