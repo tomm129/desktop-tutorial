@@ -222,6 +222,87 @@ console.log('\n=== 7. Grupo ISO derivado da plaqueta ===');
     }
 }
 
+// =====================================================================
+// Separador de dias na linha do tempo.
+//
+// So aparece quando a janela cruza meia-noite, e a janela cresce com a
+// idade do evento mais antigo (teto de 24h). Ou seja: numa instalacao
+// recem-ligada ele NUNCA aparece, e um erro aqui ficaria escondido por
+// dias antes de alguem notar. Por isso o teste forja um evento antigo.
+console.log('\n=== 8. Linha do tempo: viradas de dia ===');
+{
+    const painel = flow.find(n => n.name === 'montar painel'
+                                  && typeof n.func === 'string');
+    if (!painel) {
+        ok(false, 'no "montar painel" encontrado');
+    } else {
+        const rodarPainel = (horasAtras) => {
+            const agora = Date.now();
+            const inicio = agora - horasAtras * 3600000;
+            const store = {
+                historico_alarmes: [{
+                    chave: 'Teste', ativo: 'Teste', parte: null,
+                    estado: 'critico', motivos: ['prova'],
+                    inicio_ms: inicio, fim_ms: inicio + 600000
+                }],
+                // Sem ao menos um ativo a funcao retorna cedo, com 5 saidas
+                // em vez de 10, e o m10 nem chega a existir.
+                ativos: { 'esp-teste': {
+                    id: 'esp-teste', tipo: 'esp32', visto_em: agora,
+                    temperatura_c: 45, vib_rms_g: 0.2, vib_vel_mm_s: 1.1,
+                    vib_crista: 3.5, conexao: 'online',
+                    hist: { temp: [45], vib: [0.2], vel: [1.1], crista: [3.5] }
+                } },
+                cadastro: {}, estados_por_device: {}, lacunas: [],
+                recuperacoes: {}, niveis_anteriores: {}, acumulador: {},
+                eventos_gravados: {}, ativos_existentes: []
+            };
+            const fn = new Function('msg', 'node', 'flow', 'global', 'context',
+                                    'RED', 'env', 'Buffer', painel.func);
+            const saidas = fn({ payload: {}, topic: '' },
+                { warn: () => {}, error: () => {}, status: () => {} },
+                { get: (k) => store[k], set: (k, v) => { store[k] = v; } },
+                { get: () => undefined, set: () => {} },
+                { get: () => undefined, set: () => {} },
+                {}, { get: () => undefined }, Buffer);
+            const m10 = saidas[saidas.length - 1];
+            return m10 && m10.payload ? m10.payload : null;
+        };
+
+        const curto = rodarPainel(0.1);
+        ok(curto && Array.isArray(curto.dias), 'payload traz o array dias');
+        ok(curto && curto.dias.length === 0,
+           'janela de minutos nao desenha virada nenhuma',
+           curto ? `-> ${curto.dias.length}` : '');
+
+        const longo = rodarPainel(23);
+        if (!longo) {
+            ok(false, 'm10 produzido na janela longa');
+        } else {
+            ok(longo.dias.length === 1, 'janela de 24h cruza exatamente 1 meia-noite',
+               `-> ${longo.dias.length}`);
+            if (longo.dias.length) {
+                const d = longo.dias[0];
+                const agora = new Date();
+                ok(d.pct >= 0 && d.pct <= 100, 'pct dentro de 0-100',
+                   `-> ${d.pct.toFixed(1)}`);
+                ok(/^\d{2}\/\d{2}$/.test(d.rot), 'rotulo no formato DD/MM',
+                   `-> ${d.rot}`);
+                // A posicao tem de corresponder a hora atual: quanto mais
+                // tarde do dia, mais para a esquerda fica a meia-noite.
+                const min = agora.getHours() * 60 + agora.getMinutes();
+                const esperado = 100 * (1 - min / 1440);
+                ok(Math.abs(d.pct - esperado) < 6, 'pct bate com a hora do dia',
+                   `-> ${d.pct.toFixed(1)} vs ~${esperado.toFixed(1)}`);
+                const hoje = ('0' + agora.getDate()).slice(-2) + '/' +
+                             ('0' + (agora.getMonth() + 1)).slice(-2);
+                ok(d.rot === hoje, 'rotulo e a data da virada cruzada',
+                   `-> ${d.rot}`);
+            }
+        }
+    }
+}
+
 console.log();
 console.log(falhas === 0 ? 'RESULTADO: todas as verificacoes passaram.'
                          : `RESULTADO: ${falhas} falha(s).`);

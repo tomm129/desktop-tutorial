@@ -1858,6 +1858,20 @@ for (let k = 0; k <= 6; k++) {
                   rot: new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
 }
 
+// Viradas de dia dentro da janela: uma linha tracejada por meia-noite.
+// A janela tipica de 15 minutos nao cruza nenhuma -- o array fica vazio
+// e nada e desenhado. Rotulo montado na mao (DD/MM) para nao depender do
+// locale do servidor.
+const dias = [];
+const primeira_meianoite = new Date(t0);
+primeira_meianoite.setHours(24, 0, 0, 0);   // proxima meia-noite apos t0
+for (let t = primeira_meianoite.getTime(); t < agora; t += 86400000) {
+    const dd = new Date(t);
+    dias.push({ pct: pos(t),
+                rot: ('0' + dd.getDate()).slice(-2) + '/' +
+                     ('0' + (dd.getMonth() + 1)).slice(-2) });
+}
+
 // Faixa de cobertura: divide a janela em fatias e marca as que tiveram
 // dado. Fatia demais vira linha continua; de menos, esconde falha curta.
 const N_PONTOS = 150;
@@ -1892,7 +1906,7 @@ for (let k = 0; k < N_PONTOS; k++) {
                   ok: !dentro_lacuna, rec: recuperado && dentro_lacuna });
 }
 
-const m10 = { payload: { eventos: eventos, marcas: marcas, pontos: pontos,
+const m10 = { payload: { eventos: eventos, marcas: marcas, dias: dias, pontos: pontos,
                          // Teto de 6 faixas: cada uma soma 13px de altura, e
                          // sem limite uma planta com muitos eventos
                          // simultaneos estoura o grupo e cria barra de
@@ -2774,6 +2788,15 @@ LINHA_TEMPO = r"""
                 <span class="lt-rot">{{ m.rot }}</span>
             </div>
 
+            <!-- viradas de dia dentro da janela -->
+            <div v-for="d in dias" :key="'dia'+d.pct" class="lt-dialinha"
+                 :style="{ left: d.pct + '%' }">
+                <!-- Perto da borda direita o rotulo vira para a esquerda da
+                     linha: com o overflow escondido no container, ele seria
+                     cortado. Acontece quando acabou de passar da meia-noite. -->
+                <span class="lt-diarot" :class="{ 'lt-diarot-esq': d.pct > 88 }">{{ d.rot }}</span>
+            </div>
+
             <!-- agora -->
             <div class="lt-agora"></div>
 
@@ -2797,7 +2820,7 @@ LINHA_TEMPO = r"""
 <script>
 export default {
     data () {
-        return { eventos: [], marcas: [], pontos: [], janela: '',
+        return { eventos: [], marcas: [], dias: [], pontos: [], janela: '',
                  faixas: 1, dica: null }
     },
     methods: {
@@ -2815,6 +2838,7 @@ export default {
                 if (!p.pontos && !p.eventos) { return; }
                 this.eventos = p.eventos || [];
                 this.marcas = p.marcas || [];
+                this.dias = p.dias || [];
                 this.pontos = p.pontos || [];
                 this.janela = p.janela || '';
                 this.faixas = p.faixas || 1;
@@ -2903,6 +2927,14 @@ export default {
 /* "agora": a linha tracejada da referencia */
 .lt-agora { position: absolute; right: 0; top: 0; bottom: 18px; width: 0;
             border-left: 1px dashed #52525b; }
+
+/* Virada de dia: mesma linha tracejada do "agora", mas com rotulo no
+   topo -- embaixo ja ha os rotulos da grade de horarios. */
+.lt-dialinha { position: absolute; top: 0; bottom: 18px; width: 0;
+               border-left: 1px dashed #52525b; }
+.lt-diarot   { position: absolute; top: -2px; left: 3px; font-size: 10px;
+               color: #71717a; white-space: nowrap; }
+.lt-diarot-esq { left: auto; right: 3px; }
 
 .lt-vazio { position: absolute; top: 0; left: 4px; font-size: 12px;
             color: #52525b; }
