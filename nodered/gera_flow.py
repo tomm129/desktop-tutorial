@@ -161,8 +161,8 @@ grupo(G_CAB,    "",                       12, 1, altura=3, pagina=PAGINA_DET, ti
 grupo(G_TILES,  "Leituras agora",          6, 2, altura=8, pagina=PAGINA_DET)
 grupo(G_CMD,    "Comandos",                6, 3, altura=2, pagina=PAGINA_DET)
 grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=5, pagina=PAGINA_DET)
-grupo(G_PLACA,  "Dados de placa e sobressalentes", 12, 5, altura=13,
-      pagina=PAGINA_DET)
+# Altura 10 (era 13): sem a coluna de sobressalentes o bloco encolheu.
+grupo(G_PLACA,  "Dados de placa", 12, 5, altura=10, pagina=PAGINA_DET)
 grupo(G_TEMP,   "Temperatura (°C)",        6, 6, altura=8, pagina=PAGINA_DET)
 grupo(G_VIB,    "Vibracao RMS (g)",        6, 7, altura=8, pagina=PAGINA_DET)
 grupo(G_CORR,   "Corrente (A)",           12, 8, altura=8, pagina=PAGINA_DET)
@@ -1720,8 +1720,7 @@ function ficha_de(a, titulo) {
         titulo: titulo,
         // Servido estaticamente pelo Node-RED; ver httpStatic no settings.js.
         foto: p.foto ? ('/fotos/' + p.foto) : '',
-        campos: campos,
-        sobras: sob
+        campos: campos
     };
 }
 
@@ -2162,23 +2161,6 @@ PLACA = r"""
                     </table>
                 </div>
 
-                <div class="col">
-                    <div class="titulo">
-                        Sobressalentes
-                        <span v-if="f.sobras.length" class="conta">{{ f.sobras.length }}</span>
-                    </div>
-                    <table v-if="f.sobras.length" class="sobras">
-                        <tr v-for="(x, j) in f.sobras" :key="j">
-                            <td class="it">
-                                {{ x.item }}
-                                <div v-if="x.obs" class="obs">{{ x.obs }}</div>
-                            </td>
-                            <td class="cod">{{ x.codigo }}</td>
-                            <td class="qt">{{ x.qtd }}x</td>
-                        </tr>
-                    </table>
-                    <div v-else class="semfoto">nenhum item cadastrado</div>
-                </div>
             </div>
         </div>
     </div>
@@ -2204,7 +2186,10 @@ export default {
 .bloco  { border-top: 1px solid #27272a; padding-top: 16px; margin-top: 16px; }
 .bloco.primeiro { border-top: none; padding-top: 0; margin-top: 0; }
 .parte  { font-size: 16px; font-weight: 600; color: #f4f4f5; margin-bottom: 2px; }
-.local  { font-size: 12px; color: #71717a; margin-bottom: 12px; }
+/* 20px, nao 12: o titulo do GRUPO ("Dados de placa") e desenhado pelo
+   Node-RED por cima da area do widget, e com 12px o nome da parte e o local
+   subiam demais e cobriam o rotulo "PLAQUETA" da primeira coluna. */
+.local  { font-size: 12px; color: #71717a; margin-bottom: 20px; }
 
 .painel { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
 .col    { flex: 1 1 260px; min-width: 240px; }

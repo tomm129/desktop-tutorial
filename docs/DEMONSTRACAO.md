@@ -101,7 +101,7 @@ Em [`img/demo/`](img/demo/), na ordem em que eu apresentaria:
 | 3 | `3-ete-vibracao-critica.jpg` | Detalhe da ETE — vibração crítica no Soprador 2, os outros normais |
 | 4 | `4-torre-falha-inversor.jpg` | **Detalhe da torre — crítico por falha do drive, grandezas todas verdes** |
 | 5 | `5-transporte-normal.jpg` | Detalhe de um ativo saudável — a referência |
-| 6 | `6-placa-sobressalentes.jpg` | Ficha de placa e sobressalentes, com o limite derivado da In |
+| 6 | `6-dados-de-placa.jpg` | Ficha de placa completa, com o limite de alarme derivado da corrente nominal |
 | 7 | `7-cadastro.jpg` | Tela de cadastro — dispositivo novo sendo atribuído a um ativo |
 | 8 | `8-menu-lateral.jpg` | Menu de navegação, com as sete telas |
 | 9 | `9-ativos.jpg` | Tabela completa da planta: ativo, partes e todas as grandezas |

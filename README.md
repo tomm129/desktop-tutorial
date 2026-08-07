@@ -47,6 +47,8 @@ O projeto combina dois lados:
 ## Documentação
 
 - [Objetivo e visão do projeto](docs/objetivo.md)
+- [**Material para investidor**](docs/INVESTIDOR.md) — mercado, estágio real,
+  modelos de negócio e riscos, com fonte para cada número
 - [**Diferenciais frente aos concorrentes**](docs/diferenciais.md) — WEG,
   Tractian e SEMEQ com specs verificadas, e onde ganhamos e perdemos
 - [Arquitetura e tópicos MQTT](docs/arquitetura.md)
