@@ -2311,14 +2311,64 @@ CADASTRO = r"""
             <p class="nota" v-if="sel.tipo === 'inversor'">
                 O inversor entra como fonte de corrente da parte. Se essa parte
                 ja tem um ESP32 cadastrado, os dois passam a alimentar o mesmo
-                equipamento.
+                equipamento. O inversor e OPCIONAL: um ativo com so o ESP32
+                funciona igual, sem a camada eletrica.
             </p>
+
+            <!-- ---------------- Dados de placa ----------------
+                 Dois destes campos MUDAM O COMPORTAMENTO do alarme, e por
+                 isso estao aqui e nao escondidos num arquivo: a corrente
+                 nominal define os limites de corrente (90%/110% dela), e a
+                 potencia + carcaca definem o grupo da ISO 20816, ou seja em
+                 que velocidade o ativo entra em atencao. Sem eles o painel
+                 usa limites genericos, que servem mal para qualquer motor
+                 especifico. -->
+            <div class="secao-placa">
+                <div class="subtitulo" @click="abrir_placa = !abrir_placa">
+                    {{ abrir_placa ? '▾' : '▸' }} Dados de placa
+                    <span class="opcional">opcional, mas muda os limites</span>
+                </div>
+
+                <div v-if="abrir_placa" class="grade">
+                    <div class="linha">
+                        <label>Corrente nominal (A)</label>
+                        <input v-model="placa.corrente_nominal_a" type="number"
+                               step="0.1" placeholder="ex.: 21.5">
+                        <span class="pista">define o alarme de corrente</span>
+                    </div>
+                    <div class="linha">
+                        <label>Potencia (cv)</label>
+                        <input v-model="placa.potencia_cv" type="number"
+                               step="0.5" placeholder="ex.: 15">
+                        <span class="pista">define o grupo da ISO 20816</span>
+                    </div>
+                    <div class="linha">
+                        <label>Carcaca (IEC)</label>
+                        <input v-model="placa.carcaca" placeholder="ex.: 132S/M">
+                        <span class="pista">o numero e a altura de eixo, em mm</span>
+                    </div>
+                    <div class="linha">
+                        <label>Fabricante</label>
+                        <input v-model="placa.fabricante" placeholder="ex.: WEG">
+                    </div>
+                    <div class="linha">
+                        <label>Modelo</label>
+                        <input v-model="placa.modelo" placeholder="ex.: W22 IR3 Premium">
+                    </div>
+                    <div class="linha">
+                        <label>Rotacao (rpm)</label>
+                        <input v-model="placa.rpm" type="number" placeholder="ex.: 1760">
+                    </div>
+
+                    <p class="nota" v-if="zona_prevista">{{ zona_prevista }}</p>
+                </div>
+            </div>
 
             <div class="botoes">
                 <button class="ok" :disabled="!valido" @click="salvar">
-                    Cadastrar
+                    {{ editando ? 'Salvar alteracoes' : 'Cadastrar' }}
                 </button>
-                <button class="cancelar" @click="sel = null">Cancelar</button>
+                <button class="cancelar" @click="cancelar">Cancelar</button>
             </div>
 
             <div v-if="aviso" class="aviso">{{ aviso }}</div>
@@ -2347,6 +2397,7 @@ CADASTRO = r"""
                             </span>
                         </td>
                         <td class="acao">
+                            <button class="mini" @click="editar(nome, pn, pt)">editar</button>
                             <button class="mini" @click="remover(nome, pn)">remover</button>
                         </td>
                     </tr>
@@ -2362,6 +2413,7 @@ export default {
         return {
             novos: [], ativos: [], mapa: {},
             sel: null, ativo: '', ativo_novo: '', local: '', parte: '', tag: '',
+            placa: {}, abrir_placa: false, editando: null,
             aviso: ''
         }
     },
@@ -2369,17 +2421,66 @@ export default {
         valido () {
             const a = (this.ativo === '__novo__') ? this.ativo_novo.trim() : this.ativo;
             return !!a && !!this.parte.trim();
+        },
+        // Mostra ANTES de salvar em que faixa o ativo vai cair. Sem isso o
+        // usuario preenche a placa sem saber que mudou o criterio de alarme,
+        // e so descobre quando o card fica amarelo.
+        zona_prevista () {
+            const kw = Number(this.placa.potencia_cv || 0) * 0.7355;
+            const m = String(this.placa.carcaca || '').match(/^\s*(\d{2,3})/);
+            const h = m ? parseInt(m[1], 10) : 0;
+            if (!kw && !h) { return ''; }
+            if (kw > 300 || h >= 315) {
+                return 'Grupo 1 da ISO 20816: atencao em 4,5 mm/s, critico em 7,1.';
+            }
+            if (kw > 15 || h >= 160) {
+                return 'Grupo 2 da ISO 20816: atencao em 2,8 mm/s, critico em 4,5.';
+            }
+            return 'Abaixo do escopo da ISO 20816 (maquina pequena): ' +
+                   'atencao em 1,8 mm/s, critico em 4,5. Limites mais apertados ' +
+                   'que os de um motor grande, e e o correto para este porte.';
         }
     },
     methods: {
+        limpar () {
+            this.parte = ''; this.tag = ''; this.ativo = ''; this.ativo_novo = '';
+            this.local = ''; this.placa = {}; this.abrir_placa = false;
+            this.editando = null;
+        },
+        cancelar () { this.sel = null; this.limpar(); },
         escolher (d) {
             this.sel = d;
             this.aviso = '';
-            this.parte = ''; this.tag = ''; this.ativo = ''; this.ativo_novo = '';
+            this.limpar();
+        },
+        // Reabre o formulario com o que ja esta cadastrado. Antes so havia
+        // "remover": trocar um no queimado ou corrigir um nome exigia apagar
+        // e refazer, perdendo os dados de placa junto.
+        editar (nome, pn, pt) {
+            this.aviso = '';
+            this.limpar();
+            const dev = pt.esp32 || pt.inversor || '';
+            this.sel = { id: dev, tipo: pt.esp32 ? 'esp32' : 'inversor',
+                         resumo: '', visto: '' };
+            this.editando = { ativo: nome, parte: pn };
+            this.ativo = nome;
+            this.parte = pn;
+            this.tag = pt.tag_inversor || '';
+            this.local = (this.mapa[nome] || {}).local || '';
+            this.placa = Object.assign({}, pt.placa || {});
+            this.abrir_placa = !!pt.placa;
         },
         salvar () {
             const alvo = (this.ativo === '__novo__')
                 ? this.ativo_novo.trim() : this.ativo;
+            // So manda os campos preenchidos: gravar string vazia poluiria o
+            // ativos.json com chaves sem valor, e o painel trata ausente e
+            // vazio de formas diferentes.
+            const pl = {};
+            for (const k of Object.keys(this.placa)) {
+                const v = this.placa[k];
+                if (v !== '' && v !== null && v !== undefined) { pl[k] = v; }
+            }
             this.send({ payload: {
                 acao: 'atribuir',
                 dispositivo: this.sel.id,
@@ -2387,10 +2488,15 @@ export default {
                 ativo: alvo,
                 local: this.local.trim(),
                 parte: this.parte.trim(),
-                tag_inversor: this.tag.trim()
+                tag_inversor: this.tag.trim(),
+                placa: pl,
+                // Renomear a parte e mover, nao criar: sem isto sobraria a
+                // parte antiga orfa no cadastro.
+                de: this.editando || null
             } });
             this.aviso = 'Enviado. A lista atualiza em alguns segundos.';
             this.sel = null;
+            this.limpar();
         },
         remover (ativo, parte) {
             this.send({ payload: { acao: 'remover', ativo: ativo, parte: parte } });
@@ -2405,9 +2511,16 @@ export default {
                 this.novos = p.novos || [];
                 this.ativos = p.ativos || [];
                 this.mapa = p.mapa || {};
-                // Se o dispositivo selecionado sumiu da lista, ele foi
-                // cadastrado -- fecha o formulario sozinho.
-                if (this.sel && !this.novos.find(d => d.id === this.sel.id)) {
+                // Se o dispositivo selecionado sumiu da lista de PENDENTES,
+                // ele acabou de ser cadastrado -- fecha o formulario sozinho.
+                //
+                // O "!this.editando" nao e detalhe: ao EDITAR um dispositivo
+                // ja cadastrado, ele por definicao nao esta em 'novos', e sem
+                // essa condicao o formulario se fechava sozinho no proximo
+                // ciclo de atualizacao (3s) -- parecia que o botao editar nao
+                // funcionava.
+                if (this.sel && !this.editando
+                    && !this.novos.find(d => d.id === this.sel.id)) {
                     this.sel = null;
                 }
             }
@@ -2460,6 +2573,18 @@ input, select {
 }
 input:focus, select:focus { outline: none; border-color: #3987e5; }
 .nota { color: #71717a; font-size: 12px; margin: 4px 0 14px; max-width: 70ch; line-height: 1.4; }
+
+/* --- dados de placa dentro do formulario --------------------------- */
+.secao-placa { border-top: 1px solid #27272a; margin: 6px 0 14px; padding-top: 12px; }
+.subtitulo   { font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
+               color: #a1a1aa; cursor: pointer; user-select: none; }
+.subtitulo:hover { color: #f4f4f5; }
+.opcional    { text-transform: none; letter-spacing: 0; color: #71717a;
+               font-size: 11px; margin-left: 8px; }
+.grade       { margin-top: 12px; }
+/* A pista fica DEPOIS do campo e explica o efeito, nao o formato: quem
+   preenche precisa saber que aquele numero muda o alarme. */
+.pista       { font-size: 11px; color: #71717a; }
 
 .botoes { display: flex; gap: 10px; margin-top: 16px; }
 button  { border: none; border-radius: 6px; padding: 10px 20px; font-size: 14px;
@@ -2531,17 +2656,58 @@ if (p.acao === 'remover') {
 } else if (p.acao === 'atribuir') {
     if (!p.ativo || !p.parte) { node.warn('cadastro incompleto, ignorado'); return null; }
 
+    // Edicao que mudou de ativo ou de nome da parte: leva o registro antigo
+    // junto em vez de criar um novo. Sem isto sobraria a parte antiga orfa,
+    // com o mesmo dispositivo aparecendo em dois lugares -- e o painel
+    // somaria o ativo duas vezes na contagem de estados.
+    let anterior = {};
+    if (p.de && p.de.ativo && p.de.parte) {
+        const orig = cad[p.de.ativo];
+        if (orig && orig.partes && orig.partes[p.de.parte]) {
+            anterior = orig.partes[p.de.parte];
+            if (p.de.ativo !== p.ativo || p.de.parte !== p.parte) {
+                delete orig.partes[p.de.parte];
+                if (!Object.keys(orig.partes).length) { delete cad[p.de.ativo]; }
+            }
+        }
+    }
+
     if (!cad[p.ativo]) { cad[p.ativo] = { partes: {} }; }
     if (p.local) { cad[p.ativo].local = p.local; }
     if (!cad[p.ativo].partes) { cad[p.ativo].partes = {}; }
-    if (!cad[p.ativo].partes[p.parte]) { cad[p.ativo].partes[p.parte] = {}; }
+    if (!cad[p.ativo].partes[p.parte]) {
+        // Preserva o que ja existia na parte de origem (inclusive o outro
+        // dispositivo e os sobressalentes, que a tela nao edita).
+        cad[p.ativo].partes[p.parte] = Object.assign({}, anterior);
+    }
 
     const pt = cad[p.ativo].partes[p.parte];
     if (p.tipo === 'inversor') {
         pt.inversor = p.dispositivo;
         if (p.tag_inversor) { pt.tag_inversor = p.tag_inversor; }
-    } else {
+    } else if (p.dispositivo) {
         pt.esp32 = p.dispositivo;
+    }
+
+    // Placa: mescla em vez de substituir. A tela edita um subconjunto dos
+    // campos; os que so existem no arquivo (peso, isolamento, foto,
+    // sobressalentes) tem de sobreviver a uma edicao pela interface.
+    if (p.placa && Object.keys(p.placa).length) {
+        const numericos = ['corrente_nominal_a', 'potencia_cv', 'rpm'];
+        const nova = Object.assign({}, pt.placa || {});
+        for (const k of Object.keys(p.placa)) {
+            const v = p.placa[k];
+            // Os campos numericos chegam como STRING do <input>, e o painel
+            // faz conta com eles (limite de corrente, grupo da ISO). String
+            // ali vira comparacao lexicografica e limite errado, calado.
+            nova[k] = (numericos.indexOf(k) >= 0) ? Number(v) : v;
+        }
+        // Potencia em kW derivada do cv, para a ISO nao depender de qual dos
+        // dois o usuario digitou.
+        if (nova.potencia_cv && !nova.potencia_kw) {
+            nova.potencia_kw = Math.round(nova.potencia_cv * 0.7355 * 10) / 10;
+        }
+        pt.placa = nova;
     }
 } else {
     return null;
