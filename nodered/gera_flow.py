@@ -150,7 +150,12 @@ grupo(G_CARDS,  "Ativos",  12, 3, altura=9, titulo=False)
 # --- Tela 2: detalhe de um ativo --------------------------------------
 # A altura dos grupos de grafico precisa caber o plot MAIS a faixa do eixo X;
 # com altura 1 o grafico vira um risco e o eixo some.
-grupo(G_CAB,    "",                       12, 1, altura=2, pagina=PAGINA_DET, titulo=False)
+# Altura 3, nao 2: quando o inversor esta em falha o cabecalho ganha uma
+# segunda linha com o codigo e o texto ("F008 — Temperatura do dissipador
+# acima do limite"), e com altura 2 ela saia cortada ao meio. Justamente a
+# informacao mais util da tela ficava ilegivel no unico momento em que
+# importa.
+grupo(G_CAB,    "",                       12, 1, altura=3, pagina=PAGINA_DET, titulo=False)
 # 8 tiles em 3 colunas = 3 linhas. Com altura 5 a terceira ficava cortada e
 # o grupo criava barra de rolagem propria.
 grupo(G_TILES,  "Leituras agora",          6, 2, altura=8, pagina=PAGINA_DET)
@@ -2103,8 +2108,12 @@ no(id="voltar_visao", type="function", z="flow_monitor", name="voltar",
 return { payload: { page: 'Visao Geral' } };
 """)
 
+# height 2, nao 1: com o inversor em falha o cabecalho ganha uma segunda
+# linha ("F008 — Temperatura do dissipador acima do limite") e ela saia
+# cortada ao meio. E a altura do WIDGET que manda aqui -- aumentar so a do
+# grupo nao resolve, como se descobriu tentando.
 no(id="cab_detalhe", type="ui-text", z="flow_monitor", group=G_CAB,
-   order=2, width="9", height="1", name="cabecalho do detalhe", label="",
+   order=2, width="9", height="2", name="cabecalho do detalhe", label="",
    format="{{msg.payload}}", layout="row-left", style=False, font="",
    fontSize=16, color="#717171", wrapText=True, className="",
    x=640, y=460, wires=[])
@@ -2126,12 +2135,19 @@ PLACA = r"""
             <div class="painel">
                 <div class="col foto-col">
                     <div class="titulo">Plaqueta</div>
-                    <a v-if="f.foto" :href="f.foto" target="_blank" rel="noopener">
+                    <!-- @error: o cadastro pode citar uma foto que nao esta
+                         em dados/fotos/. Sem esta guarda o navegador desenha
+                         o icone de imagem quebrada, que e pior que assumir a
+                         ausencia -- parece defeito do painel, e nao arquivo
+                         faltando. Ao falhar, cai no mesmo aviso do v-else. -->
+                    <a v-if="f.foto && !quebradas[f.foto]" :href="f.foto"
+                       target="_blank" rel="noopener">
                         <img :src="f.foto" class="foto"
+                             @error="quebradas = Object.assign({}, quebradas, { [f.foto]: true })"
                              :alt="'Plaqueta de ' + (f.titulo || 'motor')">
                     </a>
                     <div v-else class="semfoto">
-                        sem foto
+                        {{ f.foto ? 'foto nao encontrada' : 'sem foto' }}
                         <span class="dica">coloque em dados/fotos/ e cite no cadastro</span>
                     </div>
                 </div>
@@ -2170,7 +2186,9 @@ PLACA = r"""
 
 <script>
 export default {
-    data () { return { fichas: [] } },
+    // 'quebradas' guarda as fotos cujo carregamento falhou, por URL, para
+    // nao tentar de novo a cada re-render e nao piscar o icone quebrado.
+    data () { return { fichas: [], quebradas: {} } },
     watch: {
         msg: {
             immediate: true,

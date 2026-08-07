@@ -103,6 +103,10 @@ Em [`img/demo/`](img/demo/), na ordem em que eu apresentaria:
 | 5 | `5-transporte-normal.jpg` | Detalhe de um ativo saudável — a referência |
 | 6 | `6-placa-sobressalentes.jpg` | Ficha de placa e sobressalentes, com o limite derivado da In |
 | 7 | `7-cadastro.jpg` | Tela de cadastro — dispositivo novo sendo atribuído a um ativo |
+| 8 | `8-menu-lateral.jpg` | Menu de navegação, com as sete telas |
+| 9 | `9-ativos.jpg` | Tabela completa da planta: ativo, partes e todas as grandezas |
+| 10 | `10-tendencias.jpg` | Tendência das três grandezas, uma série por dispositivo |
+| 11 | `11-roadmap-ia.jpg` | A escada de maturidade da preditiva, com o que já opera |
 
 ### O que cada tela de detalhe contém
 
@@ -110,9 +114,16 @@ A mesma estrutura em todos os ativos — o que muda é o que os dados dizem:
 
 1. **Cabeçalho** — nome, estado, marcha (`▶ rodando 60,0 Hz`), código de
    falha se houver, e a procedência (`sensor motor-01 · inversor U31`)
-2. **Leituras agora** — seis valores: temperatura, vibração e corrente com
-   barra contra o limite e estado; tensão, barramento CC e frequência como
-   leitura de referência (sem limite, porque não são critério de alarme)
+2. **Leituras agora** — oito valores. Temperatura, **velocidade em mm/s**,
+   vibração em g e corrente com barra contra o limite e estado; **fator de
+   crista** como leitura de diagnóstico; tensão, barramento CC e frequência
+   como referência (sem limite, porque não são critério de alarme).
+
+   A velocidade traz a **zona da ISO 20816** no lugar do rótulo genérico —
+   `ZONA C` diz por quanto tempo ainda se pode operar assim, o que
+   `ATENÇÃO` não diz. E o grupo da norma é derivado da própria plaqueta: um
+   motor de 7,5 kW é julgado por limites mais apertados que um de 30 kW,
+   sem ninguém configurar nada.
 3. **Partes deste ativo** — uma linha por motor + a linha consolidada, com
    a coluna `Inversor` trazendo a TAG do drive no painel
 4. **Dados de placa e sobressalentes** — ficha, foto da plaqueta e peças
