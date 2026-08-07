@@ -48,7 +48,19 @@
 #define ADXL345_ADDR           0x53    // 0x53 (SDO=GND) ou 0x1D (SDO=VCC)
 
 // Amostragem de vibração
-#define VIB_AMOSTRAS           256     // amostras por janela de cálculo
+//
+// 384 amostras a ~370 Hz dão ~1,04 s de janela. O tamanho é ditado pela
+// VELOCIDADE, não pelo RMS de aceleração: a integração usa um passa-alta de
+// 10 Hz, e medir bem uma componente de 10 Hz exige alguns ciclos dela dentro
+// da janela. Com 256 amostras sobrava pouco mais de meio segundo depois do
+// aquecimento do filtro — pouco para os 10 Hz da base da banda ISO.
+#define VIB_AMOSTRAS           384     // amostras por janela de cálculo
+
+// Amostras iniciais descartadas do cálculo (o filtro passa-alta precisa
+// assentar; enquanto ele assenta a saída é transitório, não sinal). Elas são
+// AMOSTRADAS normalmente — só não entram nas estatísticas.
+#define VIB_AQUECIMENTO        96
+
 // Pausa ENTRE leituras. A taxa real é menor que 1/VIB_INTERVALO_US, porque
 // cada getEvent() gasta ~0,7 ms no barramento I²C a 100 kHz: com 2000 us dá
 // ~370 Hz, não 500 Hz. O firmware mede e publica a taxa real em
@@ -57,7 +69,19 @@
 // aliasing (sinal alto rebate para dentro da banda e vira pico fantasma).
 #define VIB_INTERVALO_US       2000
 
+// Corte do passa-alta usado na integração aceleração -> velocidade, em Hz.
+// 10 Hz é o piso da banda da ISO 20816/10816, que é a norma pela qual a
+// manutenção julga severidade em mm/s. Não baixar sem necessidade: abaixo de
+// 10 Hz a integração amplifica ruído e deriva de offset muito mais que sinal.
+#define VIB_HP_HZ              10.0f
+
 // ---------------------------------------------------------------------
 //  Publicação
 // ---------------------------------------------------------------------
 #define INTERVALO_PUBLICACAO_MS  5000  // envia telemetria a cada 5 s
+
+// Amostras guardadas na RAM quando o MQTT está fora do ar, para serem
+// enviadas quando a conexão voltar. A 5 s por amostra, 240 cobrem 20 min de
+// queda em resolução cheia — e mais que isso por decimação (ver buffer.cpp
+// na descrição em main.cpp). Cada entrada ocupa 32 bytes: 240 = 7,7 KB.
+#define BUFFER_OFFLINE_N       240
