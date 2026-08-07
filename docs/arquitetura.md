@@ -74,6 +74,8 @@ nem a migrar histórico. Ver [`nodered/README.md`](../nodered/README.md).
   "vibracao": {
     "rms_g": 0.182,
     "pico_g": 0.640,
+    "crista": 3.52,
+    "vel_mm_s": 2.14,
     "eixo_x_g": 0.05,
     "eixo_y_g": 0.02,
     "eixo_z_g": 1.01,
@@ -85,6 +87,49 @@ nem a migrar histórico. Ver [`nodered/README.md`](../nodered/README.md).
   }
 }
 ```
+
+| Campo | O que é |
+|---|---|
+| `rms_g` | RMS AC combinado dos 3 eixos, em g |
+| `pico_g` | maior desvio AC absoluto (eixo mais excitado) |
+| `crista` | pico/RMS **por eixo**, reportando o maior. Sadio ≈ 3–4; acima de 5 há conteúdo impulsivo (rolamento batendo) |
+| `vel_mm_s` | velocidade RMS, banda de 10 Hz até ~metade de `fs_hz`. É a unidade da **ISO 20816** — ver a ressalva de banda em [`objetivo.md`](objetivo.md) |
+| `fs_hz` | taxa de amostragem **real medida** na janela, não a nominal |
+
+#### Amostra recuperada do buffer
+
+Quando o MQTT cai, o ESP32 continua medindo e guarda em RAM. Ao reconectar,
+despeja o que guardou com dois campos a mais:
+
+```json
+{
+  "device_id": "motor-01",
+  "ts": 45000,
+  "buffer": true,
+  "atraso_ms": 372500,
+  "decimado": true,
+  "temperatura_c": 52.1,
+  "vibracao": { "rms_g": 0.31, "pico_g": 1.28, "crista": 4.1,
+                "vel_mm_s": 3.05, "fs_hz": 370.9 }
+}
+```
+
+- **`atraso_ms`** — há quanto tempo a amostra foi colhida. O ESP32 não tem
+  relógio de parede (e um reboot zeraria qualquer contagem), então quem
+  reconstrói o instante é o painel: `ts_real = agora − atraso_ms`. Isso
+  dispensa NTP no dispositivo.
+- **`decimado`** — o buffer encheu e descartou uma amostra sim, outra não,
+  para cobrir um período maior com menos resolução. O espaçamento entre
+  amostras deixa de ser regular.
+- O bloco `rede` **não vem** no backfill: RSSI e uptime descrevem o agora, e
+  no agora eles não valem para uma amostra do passado.
+
+**O painel trata o backfill de forma deliberadamente diferente:** grava no
+histórico com o instante correto, mas **não** deixa que ele mexa no estado
+ao vivo. Um valor crítico de duas horas atrás não pode disparar alarme
+agora — o operador correria atrás de um problema que já passou. A linha do
+tempo marca esse trecho como *recuperado*: nem "tudo bem", nem "buraco",
+porque naquele período o dado existe mas o alarme não rodou.
 
 ### Payload do inversor (PowerFlex 525 → Painel)
 
@@ -106,6 +151,31 @@ que lê os parâmetros do grupo `b` por EtherNet/IP:
 
 O `inversor_id` não vai no corpo: ele já está no tópico, e repetir abriria
 espaço para os dois discordarem.
+
+#### O mesmo payload vale para qualquer marca
+
+Este JSON é **contrato**, não formato do PowerFlex. Planta real tem marcas
+misturadas, e um painel que só lê Allen-Bradley cobre metade da fábrica —
+deixando o cliente com os dois sistemas que ele já queria unificar.
+
+| Marca | Sidecar | Protocolo |
+|---|---|---|
+| Allen-Bradley PowerFlex 525 | [`integracoes/powerflex525`](../integracoes/powerflex525/README.md) | EtherNet/IP (CIP) |
+| Danfoss VLT série FC | [`integracoes/danfoss_vlt`](../integracoes/danfoss_vlt/README.md) | Modbus TCP ou RTU |
+
+Cada sidecar traduz o protocolo do fabricante para este mesmo JSON. O painel
+nunca sabe a marca — e adicionar a terceira é escrever um tradutor, não
+mexer no painel.
+
+Duas diferenças que a tradução precisa resolver, e que valem conhecer:
+
+- **Falha.** O PowerFlex entrega *um número*; o Danfoss, uma *palavra de
+  bits* com vários alarmes simultâneos. O sidecar Danfoss reporta o menor
+  bit ativo em `falha.codigo` e junta todos os textos em `falha.texto`,
+  preservando o contrato sem esconder alarme.
+- **Campos extras.** O Danfoss publica `rpm` (velocidade real do eixo), que
+  o PowerFlex não tem. Campos a mais são opcionais por construção: o painel
+  mostra o que existir e omite o resto.
 
 **`rodando` vem da frequência de saída, não do bit de status.** O bit
 `Active` do drive indica que ele recebeu comando de marcha e não está em

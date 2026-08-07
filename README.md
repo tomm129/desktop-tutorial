@@ -47,6 +47,8 @@ O projeto combina dois lados:
 ## Documentação
 
 - [Objetivo e visão do projeto](docs/objetivo.md)
+- [**Diferenciais frente aos concorrentes**](docs/diferenciais.md) — WEG,
+  Tractian e SEMEQ com specs verificadas, e onde ganhamos e perdemos
 - [Arquitetura e tópicos MQTT](docs/arquitetura.md)
 - [Visualização, histórico e Power BI](docs/visualizacao.md)
 - [Hardware e ligações](docs/hardware.md)

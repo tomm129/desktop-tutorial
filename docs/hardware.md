@@ -62,8 +62,10 @@ diferentes, sem conflito): ADXL345 = `0x53`, MLX90614 = `0x5A`.
 
 > Resistor de pull-up de 10 kΩ entre DATA e VCC.
 
-Os pinos são configuráveis em
-[`firmware/esp32-campo/include/config.h`](../firmware/esp32-campo/include/config.h).
+Os pinos são configuráveis em `config.h` — que você cria copiando
+[`config.example.h`](../firmware/esp32-campo/include/config.example.h).
+O link aponta para o exemplo de propósito: o `config.h` guarda credenciais e
+por isso não é versionado, então num clone novo ele ainda não existe.
 
 ### Boas práticas de instalação (vibração)
 - Fixe o ADXL345 **rigidamente** na carcaça do equipamento (base metálica,
