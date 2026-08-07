@@ -151,7 +151,9 @@ grupo(G_CARDS,  "Ativos",  12, 3, altura=9, titulo=False)
 # A altura dos grupos de grafico precisa caber o plot MAIS a faixa do eixo X;
 # com altura 1 o grafico vira um risco e o eixo some.
 grupo(G_CAB,    "",                       12, 1, altura=2, pagina=PAGINA_DET, titulo=False)
-grupo(G_TILES,  "Leituras agora",          6, 2, altura=5, pagina=PAGINA_DET)
+# 8 tiles em 3 colunas = 3 linhas. Com altura 5 a terceira ficava cortada e
+# o grupo criava barra de rolagem propria.
+grupo(G_TILES,  "Leituras agora",          6, 2, altura=8, pagina=PAGINA_DET)
 grupo(G_CMD,    "Comandos",                6, 3, altura=2, pagina=PAGINA_DET)
 grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=5, pagina=PAGINA_DET)
 grupo(G_PLACA,  "Dados de placa e sobressalentes", 12, 5, altura=13,
@@ -1475,14 +1477,24 @@ function tile(nome, campo, casas, un, hist) {
 // Tensao e barramento CC nao tem limite configurado -- sao leitura de
 // referencia, nao criterio de alarme. O tile sem limite so mostra o numero,
 // com a barra apagada, para nao sugerir uma faixa que nao existe.
+// TODO tile PRECISA de 'tend', mesmo neutro. O template le t.tend.cor sem
+// guarda, e um unico tile sem esse campo lanca no render do Vue e apaga o
+// WIDGET INTEIRO -- nao so o tile faltante. Foi o que aconteceu: os tiles
+// de tensao/barramento/frequencia nunca tiveram 'tend', o erro ficou
+// latente, e reordenar a lista o fez disparar. Tela em branco, sem nada no
+// log do Node-RED, so no console do navegador.
+const TEND_NEUTRA = { simb: '—', pct: 0, cor: '#71717a' };
+
 function tile_simples(nome, campo, casas, un) {
     const v = alvo[campo];
     if (v === undefined) {
         return { nome: nome, texto: '--', un: '', pct: 0,
-                 cor: COR.sem_dados, simb: '', rotulo: 'sem leitura' };
+                 cor: COR.sem_dados, simb: '', rotulo: 'sem leitura',
+                 tend: TEND_NEUTRA, spark: [] };
     }
     return { nome: nome, texto: v.toFixed(casas), un: un, pct: 0,
-             cor: COR.sem_dados, simb: '', rotulo: '' };
+             cor: COR.sem_dados, simb: '', rotulo: '',
+             tend: TEND_NEUTRA, spark: [] };
 }
 
 // Velocidade tem tile proprio para o rotulo poder trazer a ZONA da ISO em
@@ -1812,7 +1824,10 @@ const eventos = hist
         // eventos quase encostados nao parecerem um so.
         const folga = JANELA_MS * 0.02;
         let faixa = fim_faixa.findIndex(function (f) { return f + folga <= h.inicio_ms; });
-        if (faixa < 0) { faixa = fim_faixa.length; }
+        // Acima do teto, empilha na ultima faixa em vez de criar mais uma.
+        // Fica mais apertado, mas o evento continua visivel e clicavel --
+        // melhor que ser desenhado fora da area e sumir da tela.
+        if (faixa < 0) { faixa = Math.min(fim_faixa.length, 5); }
         fim_faixa[faixa] = fim;
 
         return {
@@ -1878,7 +1893,12 @@ for (let k = 0; k < N_PONTOS; k++) {
 }
 
 const m10 = { payload: { eventos: eventos, marcas: marcas, pontos: pontos,
-                         faixas: Math.max(1, fim_faixa.length),
+                         // Teto de 6 faixas: cada uma soma 13px de altura, e
+                         // sem limite uma planta com muitos eventos
+                         // simultaneos estoura o grupo e cria barra de
+                         // rolagem. Eventos alem da 6a faixa continuam
+                         // desenhados, empilhados na ultima.
+                         faixas: Math.max(1, Math.min(6, fim_faixa.length)),
                          janela: rotulo_janela(JANELA_MS) } };
 
 return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9, m10];
@@ -2805,7 +2825,17 @@ export default {
 </script>
 
 <style scoped>
-.lt { position: relative; }
+/* overflow hidden: sem isso o grupo cria barra de rolagem propria quando
+   ha muitas faixas de evento, e o Node-RED a desenha com o estilo padrao do
+   navegador -- cinza e branco no meio do fundo escuro. O numero de faixas
+   e limitado no lado do fluxo, entao esconder aqui nao esconde dado. */
+.lt { position: relative; overflow: hidden; }
+
+/* Se alguma barra ainda escapar (zoom, fonte grande), que ao menos combine
+   com o tema em vez de aparecer clara. */
+.lt ::-webkit-scrollbar { width: 6px; height: 6px; }
+.lt ::-webkit-scrollbar-track { background: transparent; }
+.lt ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
 
 /* --- legenda ------------------------------------------------------- */
 .lt-leg { display: flex; align-items: center; gap: 18px; margin-bottom: 10px;
@@ -3138,7 +3168,10 @@ STAT_TILES = r"""
             <div class="rot">{{ t.nome }}</div>
             <div class="val">
                 {{ t.texto }}<span v-if="t.un" class="un">{{ t.un }}</span>
-                <span class="tend" :style="{ color: t.tend.cor }">{{ t.tend.simb }}</span>
+                <!-- v-if em vez de acesso direto: sem a guarda, UM tile sem
+                     'tend' lanca no render e o Vue apaga o widget inteiro,
+                     nao so o tile. Custa um atributo e evita tela branca. -->
+                <span v-if="t.tend" class="tend" :style="{ color: t.tend.cor }">{{ t.tend.simb }}</span>
             </div>
             <div class="trilho">
                 <div class="preenche" :style="{ width: t.pct + '%', background: t.cor }"></div>

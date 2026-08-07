@@ -174,13 +174,23 @@ def publicar_demo(cli, t):
         # TEMPERATURA, e sua vibracao deve continuar saudavel, senao a demo
         # perde a graca de mostrar que as grandezas alarmam de forma
         # independente.
+        # A faixa "normal" tem de caber na zona A/B de TODOS os portes desta
+        # planta, e o teto e o motor pequeno, nao o grande: os motores do
+        # Transporte tem 7,5 kW e carcaca 132, que a ISO 20816-3 nao cobre
+        # (escopo comeca acima de 15 kW). No perfil de maquina pequena a
+        # atencao ja entra em 1,8 mm/s.
+        #
+        # A versao anterior espalhava de 1,3 a 2,8 mm/s e punha os ativos
+        # "normais" da demo em ATENCAO -- e o painel estava certo, porque
+        # 2,8 mm/s num motor de 7,5 kW e atencao mesmo. Quem mentia era o
+        # simulador.
         if cond == "critico_vib":
-            vel = 5.2
-            crista = random.uniform(6.0, 7.4)   # rolamento batendo
+            vel = 5.2                            # zona D no grupo 2 rigido
+            crista = random.uniform(6.0, 7.4)    # rolamento batendo
         else:
-            vel = 1.3 + i * 0.22
+            vel = 0.85 + i * 0.07                # 0,85 a 1,34 mm/s
             crista = random.uniform(3.0, 4.2)
-        vel += abs(random.gauss(0, 0.09))
+        vel += abs(random.gauss(0, 0.06))
 
         cli.publish(f"{BASE}/{dev}/telemetria", json.dumps({
             "device_id": dev,
