@@ -67,6 +67,53 @@ Os pinos são configuráveis em `config.h` — que você cria copiando
 O link aponta para o exemplo de propósito: o `config.h` guarda credenciais e
 por isso não é versionado, então num clone novo ele ainda não existe.
 
+### MRT311 — avaliado e adiado para a fase de produto
+
+O **Winsen MRT311** foi considerado como substituto do MLX90614. Vale
+registrar por que **não** entrou agora, para a análise não se perder.
+
+**Ele não é um termômetro — é o elemento sensor cru.** O MLX90614 traz
+termopilha, amplificador, ADC, DSP e calibração de fábrica num encapsulamento
+só, e entrega °C por I²C. O MRT311 entrega **tensão de termopilha**, e nada
+mais.
+
+| Parâmetro (manual Winsen v3.0) | Valor |
+|---|---|
+| Encapsulamento | TO-46, 4 pinos |
+| Pinagem | 1 = termopilha +, 2 = NTC, 3 = termopilha −, 4 = GND |
+| Responsividade | 160 ± 40 V/W |
+| Ruído | 38 nV/√Hz |
+| NTC integrado | 100 kΩ @ 25 °C, β = 3950 |
+| Campo de visão | **95°** (acima de 50%) |
+| Filtro | 5,5–14 µm, transmitância ≥ 75% |
+| Constante de tempo | ≤ 13 ms |
+
+**O ADC interno do ESP32 não serve.** Estimativa para um motor a 60 °C com
+o sensor a 25 °C: potência incidente ~123 µW, saída ~20 mV, sensibilidade
+~0,66 mV/°C. Resolver 0,5 °C exige ~0,3 mV. O ADC interno tem 12 bits com
+vários LSB de ruído — na prática 3 a 5 mV efetivos, ou seja **±5 a 8 °C**.
+Nenhum filtro em software conserta sinal que não chegou ao conversor.
+
+**O que a adoção exigiria:**
+
+- **ADS1115** (16 bits, PGA 16×, ±256 mV → 7,8 µV/LSB, I²C no mesmo
+  barramento do ADXL345). Dois canais em modo diferencial para a termopilha
+  e um para o divisor do NTC.
+- Implementar NTC → temperatura ambiente (equação β, ou a tabela R-T do
+  manual), Stefan-Boltzmann `V ∝ ε·(T_alvo⁴ − T_sensor⁴)` e correção de
+  emissividade.
+- Aferição contra termômetro de referência — a calibração que hoje vem
+  pronta de fábrica.
+
+**Atenção ao campo de visão de 95°**: a 30 cm o círculo enxergado tem ~65 cm
+de diâmetro, ou seja a leitura vira média ponderada do motor **e de tudo em
+volta**. Obriga montagem próxima, na ordem de 5 a 10 cm.
+
+**Quando faz sentido trocar:** na fase de produto, por **custo em escala** —
+o MRT311 sai por uma fração do MLX90614, e ter a cadeia analógica sob
+controle próprio é vantagem de projeto. Para o protótipo, o MLX90614 entrega
+o mesmo resultado sem construir cadeia analógica nenhuma.
+
 ### Boas práticas de instalação (vibração)
 - Fixe o ADXL345 **rigidamente** na carcaça do equipamento (base metálica,
   parafuso ou adesivo estrutural). Fixação frouxa distorce a leitura.
