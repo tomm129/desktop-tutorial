@@ -71,6 +71,19 @@ CREATE TABLE IF NOT EXISTS medicoes (
     vibracao_min_g     DOUBLE PRECISION,
     vibracao_max_g     DOUBLE PRECISION,
 
+    -- Velocidade em mm/s: e nesta unidade que a ISO 20816/10816 julga
+    -- severidade, e e a linguagem que o pessoal de manutencao ja fala.
+    -- "3,8 mm/s, zona C" comunica; "0,42 g" nao diz nada a ninguem.
+    vibracao_vel_mm_s      DOUBLE PRECISION,
+    vibracao_vel_max_mm_s  DOUBLE PRECISION,
+
+    -- Fator de crista (pico/RMS). Sobe ANTES do RMS quando um rolamento
+    -- comeca a falhar: os impactos elevam o pico sem mexer na energia
+    -- media. Guardar media e maximo porque um pico isolado no minuto e
+    -- exatamente o que a media apaga.
+    vibracao_crista        DOUBLE PRECISION,
+    vibracao_crista_max    DOUBLE PRECISION,
+
     corrente_a         DOUBLE PRECISION,
     corrente_min_a     DOUBLE PRECISION,
     corrente_max_a     DOUBLE PRECISION,
@@ -84,6 +97,20 @@ CREATE TABLE IF NOT EXISTS medicoes (
 );
 
 SELECT create_hypertable('medicoes', 'ts', if_not_exists => TRUE);
+
+-- Colunas acrescentadas depois da primeira versao. O CREATE TABLE acima so
+-- vale para banco novo -- num que ja esta gravando ele nao faz nada, e sem
+-- estes ALTER o INSERT do painel quebraria com "column does not exist".
+ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS vibracao_vel_mm_s     DOUBLE PRECISION;
+ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS vibracao_vel_max_mm_s DOUBLE PRECISION;
+ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS vibracao_crista       DOUBLE PRECISION;
+ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS vibracao_crista_max   DOUBLE PRECISION;
+
+-- Marca a linha que veio do buffer do ESP32 (medida durante uma queda de
+-- comunicacao e enviada depois). Nao e detalhe de auditoria: sem isso,
+-- quem analisa o historico nao distingue "a maquina estava assim" de "isto
+-- chegou atrasado", e a distancia entre amostras muda de sentido.
+ALTER TABLE medicoes ADD COLUMN IF NOT EXISTS recuperada BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS medicoes_device_ts   ON medicoes (device_id, ts DESC);
 CREATE INDEX IF NOT EXISTS medicoes_ativo_ts    ON medicoes (ativo, ts DESC);
@@ -139,6 +166,10 @@ SELECT add_retention_policy('medicoes',  INTERVAL '180 days', if_not_exists => T
 --  Note o MAX do maximo, e nao o maximo da media: reagregar preservando
 --  o pico e o ponto todo de ter guardado min/max.
 -- ---------------------------------------------------------------------
+-- ATENCAO num banco que JA existe: um agregado continuo nao aceita ALTER
+-- para ganhar coluna. Se este banco ja rodava antes da velocidade/crista
+-- existirem, rode sql/02-migracao-velocidade.sql -- ele recria o agregado.
+-- Aqui o IF NOT EXISTS mantem o antigo intacto, sem as colunas novas.
 CREATE MATERIALIZED VIEW IF NOT EXISTS medicoes_hora
 WITH (timescaledb.continuous) AS
 SELECT
@@ -152,6 +183,10 @@ SELECT
     max(temperatura_max_c)           AS temperatura_max_c,
     avg(vibracao_rms_g)              AS vibracao_rms_g,
     max(vibracao_max_g)              AS vibracao_max_g,
+    avg(vibracao_vel_mm_s)           AS vibracao_vel_mm_s,
+    max(vibracao_vel_max_mm_s)       AS vibracao_vel_max_mm_s,
+    avg(vibracao_crista)             AS vibracao_crista,
+    max(vibracao_crista_max)         AS vibracao_crista_max,
     avg(corrente_a)                  AS corrente_a,
     max(corrente_max_a)              AS corrente_max_a,
     avg(tensao_v)                    AS tensao_v,
@@ -171,7 +206,11 @@ SELECT add_continuous_aggregate_policy('medicoes_hora',
 --
 --  Junta a TAG e a descricao atuais. O Power BI aponta para ca.
 -- ---------------------------------------------------------------------
-CREATE OR REPLACE VIEW vw_medicoes AS
+-- DROP antes do CREATE porque CREATE OR REPLACE VIEW so aceita colunas
+-- ACRESCENTADAS NO FIM; as novas entram no meio da lista. Uma view nao
+-- guarda dado, entao recriar nao custa nada.
+DROP VIEW IF EXISTS vw_medicoes;
+CREATE VIEW vw_medicoes AS
 SELECT m.ts,
        m.device_id,
        COALESCE(a.ativo, m.ativo)  AS ativo,
@@ -180,6 +219,9 @@ SELECT m.ts,
        a.local,
        m.temperatura_c, m.temperatura_max_c,
        m.vibracao_rms_g, m.vibracao_max_g,
+       m.vibracao_vel_mm_s, m.vibracao_vel_max_mm_s,
+       m.vibracao_crista, m.vibracao_crista_max,
+       m.recuperada,
        m.corrente_a, m.corrente_max_a,
        a.corrente_nominal_a,
        -- Corrente em % da nominal: e assim que se compara motores de

@@ -48,7 +48,8 @@
           "grau_protecao": "IP55",
           "classe_isolamento": "F",
           "peso_kg": 62,
-          "foto": "transporte1-motor1.jpg"
+          "foto": "transporte1-motor1.jpg",
+          "_iso_grupo": "opcional: 1r 1f 2r 2f ou peq. Se omitido, o painel deriva de potencia_kw/cv e da carcaca (a carcaca IEC ja traz a altura de eixo: 132S/M = 132 mm). So declare aqui se souber que a base e FLEXIVEL -- isso a plaqueta nao diz."
         },
         "sobressalentes": [
           {

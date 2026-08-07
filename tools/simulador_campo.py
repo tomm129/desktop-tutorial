@@ -96,6 +96,28 @@ def cliente(host, porta, usuario, senha):
     return cli
 
 
+def bloco_vibracao(vib_g, vel_mm_s, crista, fs_media=371.4, fs_dp=0.6):
+    """Monta o bloco 'vibracao' no formato que o firmware publica.
+
+    A velocidade NAO e derivada do rms_g por um fator fixo de proposito: no
+    aparelho real ela sai de uma integracao com passa-alta, e depende de EM
+    QUE frequencia a energia esta -- a mesma aceleracao a 30 Hz e a 90 Hz da
+    velocidades bem diferentes. Simular por regra de tres daria ao painel um
+    dado com correlacao perfeita, que nao existe em campo e esconderia
+    exatamente os casos que a velocidade serve para separar.
+    """
+    return {
+        "rms_g": round(vib_g, 3),
+        "pico_g": round(vib_g * crista, 3),
+        "crista": round(crista, 2),
+        "vel_mm_s": round(vel_mm_s, 2),
+        "eixo_x_g": round(random.gauss(0.02, 0.01), 2),
+        "eixo_y_g": round(random.gauss(0.01, 0.01), 2),
+        "eixo_z_g": round(random.gauss(1.00, 0.01), 2),
+        "fs_hz": round(random.gauss(fs_media, fs_dp), 1),
+    }
+
+
 def telemetria(dev, t, cenario, indice):
     """Monta um pacote de telemetria com cara de leitura real."""
     # Cada ativo tem sua propria "personalidade" para as linhas nao ficarem
@@ -103,15 +125,24 @@ def telemetria(dev, t, cenario, indice):
     fase = indice * 1.7
     base_temp = 42.0 + indice * 6.0
     base_vib = 0.12 + indice * 0.04
+    # Comeca na zona A/B da ISO 20816 (limite A/B = 1,4; B/C = 2,8 mm/s),
+    # que e onde uma maquina saudavel deve estar.
+    base_vel = 1.1 + indice * 0.45
 
     temp = base_temp + 3.0 * math.sin(t / 40.0 + fase) + random.gauss(0, 0.4)
     vib = base_vib + 0.03 * math.sin(t / 11.0 + fase) + abs(random.gauss(0, 0.012))
+    vel = base_vel + 0.25 * math.sin(t / 13.0 + fase) + abs(random.gauss(0, 0.06))
+    crista = random.uniform(3.0, 4.2)          # faixa tipica de maquina sadia
 
     if cenario == "alarme" and indice == 0:
-        # Sobe devagar ate cruzar atencao (0,5 g) e depois critico (1,0 g),
-        # para dar para ver a tela mudando de faixa.
+        # Sobe devagar ate cruzar atencao (2,8 mm/s) e depois critico
+        # (4,5 mm/s), para dar para ver a tela mudando de faixa.
         vib += min(1.4, t / 60.0)
+        vel += min(4.2, t / 22.0)
         temp += min(40.0, t / 6.0)
+        # A crista sobe ANTES do RMS: e a assinatura de rolamento incipiente,
+        # e o motivo de a medida existir.
+        crista = min(7.5, crista + t / 30.0)
 
     if cenario == "falha" and indice == 0:
         temp = None           # sensor de temperatura sem resposta
@@ -120,14 +151,7 @@ def telemetria(dev, t, cenario, indice):
         "device_id": dev,
         "ts": int(t * 1000),
         "temperatura_c": None if temp is None else round(temp, 1),
-        "vibracao": {
-            "rms_g": round(vib, 3),
-            "pico_g": round(vib * random.uniform(2.5, 4.0), 3),
-            "eixo_x_g": round(random.gauss(0.02, 0.01), 2),
-            "eixo_y_g": round(random.gauss(0.01, 0.01), 2),
-            "eixo_z_g": round(random.gauss(1.00, 0.01), 2),
-            "fs_hz": round(random.gauss(371.4, 0.6), 1),
-        },
+        "vibracao": bloco_vibracao(vib, vel, crista),
         "rede": {
             "rssi_dbm": int(random.gauss(-61, 3)),
             "uptime_s": int(t),
@@ -145,18 +169,24 @@ def publicar_demo(cli, t):
         dev, inv, _, _, _, cond = cfg
         temp, vib, corr, freq, falha = demo_valores(cfg, t, i)
 
+        # A velocidade acompanha a condicao do ativo. So o 'critico_vib'
+        # entra na zona D (>=4,5 mm/s) -- o 'atencao_temp' tem problema de
+        # TEMPERATURA, e sua vibracao deve continuar saudavel, senao a demo
+        # perde a graca de mostrar que as grandezas alarmam de forma
+        # independente.
+        if cond == "critico_vib":
+            vel = 5.2
+            crista = random.uniform(6.0, 7.4)   # rolamento batendo
+        else:
+            vel = 1.3 + i * 0.22
+            crista = random.uniform(3.0, 4.2)
+        vel += abs(random.gauss(0, 0.09))
+
         cli.publish(f"{BASE}/{dev}/telemetria", json.dumps({
             "device_id": dev,
             "ts": int(t * 1000),
             "temperatura_c": round(temp, 1),
-            "vibracao": {
-                "rms_g": round(vib, 3),
-                "pico_g": round(vib * random.uniform(2.6, 3.8), 3),
-                "eixo_x_g": round(random.gauss(0.02, 0.01), 2),
-                "eixo_y_g": round(random.gauss(0.01, 0.01), 2),
-                "eixo_z_g": round(random.gauss(1.00, 0.01), 2),
-                "fs_hz": round(random.gauss(371.4, 0.5), 1),
-            },
+            "vibracao": bloco_vibracao(vib, vel, crista, 371.4, 0.5),
             "rede": {"rssi_dbm": int(random.gauss(-58, 3)),
                      "uptime_s": int(t)},
         }), qos=0)
@@ -173,6 +203,44 @@ def publicar_demo(cli, t):
             "falha": {"codigo": falha, "texto": FALHAS_DEMO.get(falha)},
             "status_bruto": 3 if freq > 0.1 else 1,
         }), qos=0)
+
+
+def publicar_backfill(cli, devs, minutos, passo_s=5):
+    """Despeja amostras 'recuperadas do buffer' como o ESP32 faz ao reconectar.
+
+    Serve para ver na tela o que acontece depois de uma queda de comunicacao
+    sem ter de derrubar a rede de verdade. Cada pacote leva buffer=true e
+    atraso_ms -- o painel reconstroi o instante real subtraindo o atraso da
+    hora atual, porque o ESP32 nao tem relogio de parede.
+
+    O esperado no painel: as amostras entram no HISTORICO com o horario
+    certo, a linha do tempo pinta o trecho como 'recuperado', e o estado ao
+    vivo NAO muda -- mesmo que os valores recuperados sejam criticos.
+    """
+    total = int(minutos * 60 / passo_s)
+    print(f"backfill: {total} amostras por dispositivo, "
+          f"cobrindo {minutos:.0f} min para tras")
+
+    for dev in devs:
+        for k in range(total):
+            # A mais antiga primeiro, como o firmware drena (ordem
+            # cronologica -- senao a linha do tempo desenha ao contrario).
+            atraso_ms = int((minutos * 60 - k * passo_s) * 1000)
+            # Valores em degradacao durante a queda: e o caso que justifica
+            # o buffer existir -- a maquina piorou enquanto ninguem via.
+            frac = k / max(1, total - 1)
+            vib = 0.20 + 0.9 * frac
+            vel = 1.6 + 4.0 * frac
+            crista = 3.4 + 3.6 * frac
+            cli.publish(f"{BASE}/{dev}/telemetria", json.dumps({
+                "device_id": dev,
+                "ts": k * passo_s * 1000,
+                "buffer": True,
+                "atraso_ms": atraso_ms,
+                "temperatura_c": round(48.0 + 22.0 * frac, 1),
+                "vibracao": bloco_vibracao(vib, vel, crista),
+            }), qos=0)
+        print(f"  {dev}: {total} amostras enviadas")
 
 
 def main():
@@ -192,6 +260,10 @@ def main():
     ap.add_argument("--demo", action="store_true",
                     help="planta de demonstracao (caldeira, ETE, torre, "
                          "transporte) com estados variados")
+    ap.add_argument("--backfill", type=float, default=0, metavar="MIN",
+                    help="antes de comecar, despeja MIN minutos de amostras "
+                         "'recuperadas do buffer' (simula a volta de uma "
+                         "queda de comunicacao)")
     a = ap.parse_args()
 
     if a.demo:
@@ -210,6 +282,12 @@ def main():
 
     for d in devs + inversores:
         cli.publish(f"{BASE}/{d}/status", "online", qos=1, retain=True)
+
+    if a.backfill > 0:
+        publicar_backfill(cli, devs, a.backfill)
+        # Deixa o painel digerir a fila antes de comecar o fluxo ao vivo.
+        time.sleep(1.0)
+        print()
 
     t0 = time.time()
     try:

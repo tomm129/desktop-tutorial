@@ -208,6 +208,19 @@ const p = msg.payload || {};
 const id = p.device_id;
 if (!id) { node.warn('telemetria sem device_id, descartada'); return null; }
 
+// ---- Amostra recuperada do buffer do ESP32? -------------------------
+// O firmware guarda o que mediu enquanto o MQTT estava fora do ar e despeja
+// quando volta, marcando com buffer:true e o atraso desde a captura. O
+// ESP32 nao tem relogio de parede, entao quem reconstroi o instante e o
+// painel, que tem hora certa.
+//
+// Isso NAO pode entrar no estado ao vivo: um valor critico de duas horas
+// atras dispararia alarme agora, e o operador correria atras de um problema
+// que ja passou. Vai so para o historico, com o carimbo de tempo correto.
+const eh_buffer = (p.buffer === true);
+const atraso_ms = (typeof p.atraso_ms === 'number' && isFinite(p.atraso_ms)
+                   && p.atraso_ms >= 0) ? p.atraso_ms : 0;
+
 const ativos = flow.get('ativos') || {};
 const a = ativos[id] || { id: id };
 
@@ -231,31 +244,117 @@ function valida_vib(v) {
     return v;
 }
 
+// ATENCAO a diferenca entre undefined e null nestes dois -- ela NAO e
+// cosmetica. Mais adiante o calculo de estado trata:
+//     undefined -> o ativo nao tem essa grandeza, ignora
+//     null      -> tem e falhou, vira ATENCAO
+// Velocidade e crista sao campos NOVOS: um ESP32 ainda com firmware antigo
+// simplesmente nao os envia. Se ausencia virasse null, todo dispositivo nao
+// atualizado entraria em atencao com "Velocidade sem leitura" -- alarme
+// falso em massa no dia do deploy. Por isso ausente devolve undefined.
+function valida_vel(v) {
+    if (v === undefined) { return undefined; }        // firmware antigo
+    if (v === null) { return null; }
+    if (typeof v !== 'number' || !isFinite(v) || v < 0) { return null; }
+    if (v > 100) { node.warn('velocidade fora da faixa para ' + id + ': ' + v); return null; }
+    return v;
+}
+// Fator de crista: pico/RMS. Menor que 1 e impossivel por definicao; o
+// firmware manda 0 quando o eixo esta parado demais para a razao significar
+// algo, e nesse caso o certo e nao ter valor, nao ter zero.
+function valida_crista(v) {
+    if (v === undefined) { return undefined; }        // firmware antigo
+    if (v === null) { return null; }
+    if (typeof v !== 'number' || !isFinite(v)) { return null; }
+    if (v < 1 || v > 50) { return null; }
+    return v;
+}
+
+// Valores desta mensagem, ainda sem decidir se viram estado ao vivo.
+const lido = {
+    temperatura_c: valida_temp(p.temperatura_c),
+    vib_rms_g: null, vib_pico_g: null,
+    vib_vel_mm_s: undefined, vib_crista: undefined, fs_hz: null
+};
+if (p.vibracao) {
+    lido.vib_rms_g     = valida_vib(p.vibracao.rms_g);
+    lido.vib_pico_g    = valida_vib(p.vibracao.pico_g);
+    lido.vib_vel_mm_s  = valida_vel(p.vibracao.vel_mm_s);
+    lido.vib_crista    = valida_crista(p.vibracao.crista);
+    lido.fs_hz = (typeof p.vibracao.fs_hz === 'number' && isFinite(p.vibracao.fs_hz))
+                     ? p.vibracao.fs_hz : null;
+}
+
+// ---- Caminho do backfill: so historico, nunca estado ao vivo ---------
+if (eh_buffer) {
+    const fila = flow.get('backfill') || [];
+    fila.push({
+        ts: Date.now() - atraso_ms,
+        device_id: id,
+        temperatura_c: lido.temperatura_c,
+        vib_rms_g: lido.vib_rms_g,
+        vib_vel_mm_s: lido.vib_vel_mm_s,
+        vib_crista: lido.vib_crista
+    });
+    // Teto de seguranca: o buffer do ESP32 tem 240 posicoes, mas varios
+    // dispositivos voltando juntos poderiam encher isto. Descarta o mais
+    // antigo -- ja gravado ou nao, e melhor perder o mais velho.
+    if (fila.length > 2000) { fila.splice(0, fila.length - 2000); }
+    flow.set('backfill', fila);
+
+    // Marca a recuperacao para a linha do tempo poder mostrar o trecho
+    // preenchido em vez de um buraco.
+    //
+    // Guarda FAIXAS separadas, e nao um unico par (de, ate) por dispositivo:
+    // com um par so, uma queda hoje e outra daqui a um mes se fundiriam num
+    // intervalo de um mes, e a linha do tempo pintaria tudo como recuperado.
+    // Duas amostras a mais de 5 min uma da outra sao quedas diferentes.
+    const SEPARA_MS = 5 * 60 * 1000;
+    const MAX_FAIXAS = 40;
+    const lac = flow.get('recuperacoes') || {};
+    const faixas = lac[id] || [];
+    const t = Date.now() - atraso_ms;
+    const ult = faixas.length ? faixas[faixas.length - 1] : null;
+
+    if (ult && t >= (ult.de - SEPARA_MS) && t <= (ult.ate + SEPARA_MS)) {
+        if (t < ult.de)  { ult.de = t; }
+        if (t > ult.ate) { ult.ate = t; }
+        ult.n += 1;
+        if (p.decimado) { ult.decimado = true; }
+    } else {
+        faixas.push({ de: t, ate: t, n: 1, decimado: !!p.decimado });
+    }
+    if (faixas.length > MAX_FAIXAS) { faixas.splice(0, faixas.length - MAX_FAIXAS); }
+    lac[id] = faixas;
+    flow.set('recuperacoes', lac);
+
+    return null;   // nao alimenta grafico ao vivo nem estado
+}
+
 // null explicito quando o sensor falhou -- a UI mostra FALHA, e nao o
 // ultimo valor bom congelado, que leria como "esta tudo bem".
-a.temperatura_c = valida_temp(p.temperatura_c);
-
-if (p.vibracao) {
-    a.vib_rms_g  = valida_vib(p.vibracao.rms_g);
-    a.vib_pico_g = valida_vib(p.vibracao.pico_g);
-    a.fs_hz      = (typeof p.vibracao.fs_hz === 'number' && isFinite(p.vibracao.fs_hz))
-                       ? p.vibracao.fs_hz : null;
-} else {
-    a.vib_rms_g = null;
-}
+a.temperatura_c = lido.temperatura_c;
+a.vib_rms_g     = lido.vib_rms_g;
+a.vib_pico_g    = lido.vib_pico_g;
+a.vib_vel_mm_s  = lido.vib_vel_mm_s;
+a.vib_crista    = lido.vib_crista;
+a.fs_hz         = lido.fs_hz;
 if (p.rede) { a.rssi_dbm = p.rede.rssi_dbm ?? null; }
 
 // Cache curto das ultimas leituras para tendencia e sparklines.
 const MAX_HIST = 30;
 if (!a.hist) { a.hist = { temp: [], vib: [] }; }
-if (a.temperatura_c !== null) {
-    a.hist.temp.push(a.temperatura_c);
-    if (a.hist.temp.length > MAX_HIST) { a.hist.temp.shift(); }
+if (!a.hist.vel) { a.hist.vel = []; }        // series novas em instalacao ja rodando
+if (!a.hist.crista) { a.hist.crista = []; }
+function empilhar(serie, v) {
+    if (v === null || v === undefined) { return; }
+    serie.push(v);
+    if (serie.length > MAX_HIST) { serie.shift(); }
 }
-if (a.vib_rms_g !== null) {
-    a.hist.vib.push(a.vib_rms_g);
-    if (a.hist.vib.length > MAX_HIST) { a.hist.vib.shift(); }
-}
+empilhar(a.hist.temp, a.temperatura_c);
+empilhar(a.hist.vib, a.vib_rms_g);
+empilhar(a.hist.vel, a.vib_vel_mm_s);
+empilhar(a.hist.crista, a.vib_crista);
 
 ativos[id] = a;
 flow.set('ativos', ativos);
@@ -271,9 +370,18 @@ function acumular(id, campo, v) {
         acc[id] = { n: 0, ate: Date.now(),
                     temp: { n: 0, soma: 0, min: 0, max: 0 },
                     vib:  { n: 0, soma: 0, min: 0, max: 0 },
+                    vel:  { n: 0, soma: 0, min: 0, max: 0 },
+                    crista: { n: 0, soma: 0, min: 0, max: 0 },
                     corr: { n: 0, soma: 0, min: 0, max: 0 },
                     tensao: { n: 0, soma: 0 }, dcbus: { n: 0, soma: 0 },
                     freq: { n: 0, soma: 0 } };
+    }
+    // Instalacao que ja estava rodando quando o campo novo apareceu: o
+    // acumulador vive no contexto do flow e sobrevive ao deploy, entao um
+    // registro antigo nao tem as chaves novas. Sem isto, 'vel' e 'crista'
+    // seriam descartados silenciosamente ate o proximo reinicio do Node-RED.
+    if (!acc[id][campo]) {
+        acc[id][campo] = { n: 0, soma: 0, min: 0, max: 0 };
     }
     const c = acc[id][campo];
     if (!c) { return; }
@@ -293,8 +401,10 @@ function marcar_amostra(id, extra) {
     }
 }
 
-acumular(id, 'temp', a.temperatura_c);
-acumular(id, 'vib',  a.vib_rms_g);
+acumular(id, 'temp',   a.temperatura_c);
+acumular(id, 'vib',    a.vib_rms_g);
+acumular(id, 'vel',    a.vib_vel_mm_s);
+acumular(id, 'crista', a.vib_crista);
 marcar_amostra(id);
 
 const temp = (a.temperatura_c === null) ? null : { topic: id, payload: a.temperatura_c };
@@ -384,9 +494,18 @@ function acumular(id, campo, v) {
         acc[id] = { n: 0, ate: Date.now(),
                     temp: { n: 0, soma: 0, min: 0, max: 0 },
                     vib:  { n: 0, soma: 0, min: 0, max: 0 },
+                    vel:  { n: 0, soma: 0, min: 0, max: 0 },
+                    crista: { n: 0, soma: 0, min: 0, max: 0 },
                     corr: { n: 0, soma: 0, min: 0, max: 0 },
                     tensao: { n: 0, soma: 0 }, dcbus: { n: 0, soma: 0 },
                     freq: { n: 0, soma: 0 } };
+    }
+    // Instalacao que ja estava rodando quando o campo novo apareceu: o
+    // acumulador vive no contexto do flow e sobrevive ao deploy, entao um
+    // registro antigo nao tem as chaves novas. Sem isto, 'vel' e 'crista'
+    // seriam descartados silenciosamente ate o proximo reinicio do Node-RED.
+    if (!acc[id][campo]) {
+        acc[id][campo] = { n: 0, soma: 0, min: 0, max: 0 };
     }
     const c = acc[id][campo];
     if (!c) { return; }
@@ -542,8 +661,104 @@ const ATIVOS = flow.get('cadastro') || {};
 const LIM = {
     temperatura_c: { atencao: 60,  critico: 75,   nome: 'Temperatura', un: '°C' },
     vib_rms_g:     { atencao: 0.5, critico: 1.0,  nome: 'Vibracao',    un: 'g'  },
+    vib_vel_mm_s:  { atencao: 2.8, critico: 4.5,  nome: 'Velocidade',  un: 'mm/s' },
     corrente_a:    { atencao: 9.0, critico: 11.0, nome: 'Corrente',    un: 'A'  }
 };
+
+// ---- Zonas de severidade da ISO 20816-3 (antiga ISO 10816-3) ---------
+//
+// Diferente de todo o resto daqui, estes numeros NAO sao escolha nossa: sao
+// da norma, e e por eles que o pessoal de manutencao julga uma maquina.
+// Dizer "3,8 mm/s, zona C" comunica na hora; "0,42 g" nao diz nada.
+//
+//   A  maquina nova, recem-comissionada
+//   B  aceitavel para operacao continua sem restricao
+//   C  insatisfatorio para operacao continua -- so por periodo limitado
+//   D  severo, com risco de dano
+//
+// Valores conferidos contra o texto da propria norma (ISO 20816-3:2022,
+// Tabelas A.1 e A.2) -- nao contra resumo de blog. Grupos:
+//   2r / 2f  potencia >15 ate 300 kW, OU altura de eixo 160 <= H < 315 mm
+//   1r / 1f  potencia >300 kW,        OU altura de eixo H >= 315 mm
+//   peq      ABAIXO do escopo da 20816-3. Ver nota adiante.
+//
+// 'r' = base rigida, 'f' = base flexivel. A norma define rigida como aquela
+// cuja menor frequencia natural do conjunto maquina+base fica pelo menos 25%
+// ACIMA da frequencia de excitacao (em geral a de rotacao). Motor eletrico
+// medio em base de concreto normalmente e rigida -- por isso o padrao.
+const ISO_ZONAS = {
+    '2r':  { ab: 1.4,  bc: 2.8, cd: 4.5,  nome: 'Grupo 2, base rigida' },
+    '2f':  { ab: 2.3,  bc: 4.5, cd: 7.1,  nome: 'Grupo 2, base flexivel' },
+    '1r':  { ab: 2.3,  bc: 4.5, cd: 7.1,  nome: 'Grupo 1, base rigida' },
+    '1f':  { ab: 3.5,  bc: 7.1, cd: 11.0, nome: 'Grupo 1, base flexivel' },
+    // Maquina pequena (ate 15 kW): a ISO 20816-3 NAO a cobre -- seu escopo
+    // comeca acima de 15 kW. Estes valores sao os da Classe I da ISO
+    // 10816-1, que e a referencia usual para esse porte.
+    //
+    // Isto NAO e detalhe academico: aplicar o Grupo 2 a um motor de 7,5 kW
+    // usaria 2,8 mm/s como atencao onde o correto e 1,8 -- ou seja, o
+    // painel ficaria calado bem no comeco da degradacao de justamente as
+    // maquinas mais numerosas de uma planta.
+    'peq': { ab: 0.71, bc: 1.8, cd: 4.5,  nome: 'Classe I (maquina pequena)',
+             fora_escopo: true }
+};
+const ISO_GRUPO_PADRAO = '2r';
+
+// Altura de eixo a partir da carcaca IEC: "132S/M" -> 132, "112M" -> 112.
+// E o numero que abre a designacao, em milimetros. A norma aceita tanto
+// potencia quanto altura de eixo para classificar, e a carcaca costuma
+// estar na plaqueta mesmo quando a potencia em kW nao esta.
+function altura_eixo(carcaca) {
+    if (typeof carcaca !== 'string') { return 0; }
+    const m = carcaca.match(/^\s*(\d{2,3})/);
+    return m ? parseInt(m[1], 10) : 0;
+}
+
+// Deriva o grupo da placa. Um "iso_grupo" explicito no cadastro sempre
+// vence -- so quem conhece a fundacao sabe dizer se e rigida ou flexivel.
+function grupo_iso(placa) {
+    const p = placa || {};
+    if (p.iso_grupo && ISO_ZONAS[p.iso_grupo]) { return p.iso_grupo; }
+
+    const kw = (typeof p.potencia_kw === 'number' && p.potencia_kw > 0)
+        ? p.potencia_kw
+        : ((typeof p.potencia_cv === 'number' && p.potencia_cv > 0)
+            ? p.potencia_cv * 0.7355 : 0);
+    const h = altura_eixo(p.carcaca);
+
+    // Base flexivel nao da para adivinhar da placa; assume rigida, que e o
+    // caso comum de motor em base de concreto. Quem tiver base flexivel
+    // declara iso_grupo no cadastro.
+    if (kw > 300 || h >= 315) { return '1r'; }
+    if (kw > 15  || h >= 160) { return '2r'; }
+    if (kw > 0 || h > 0)      { return 'peq'; }
+    return ISO_GRUPO_PADRAO;   // placa sem porte nenhum: nao da para decidir
+}
+
+function zona_iso(v, grupo) {
+    if (v === null || v === undefined) { return null; }
+    const z = ISO_ZONAS[grupo] || ISO_ZONAS[ISO_GRUPO_PADRAO];
+    if (v < z.ab) { return 'A'; }
+    if (v < z.bc) { return 'B'; }
+    if (v < z.cd) { return 'C'; }
+    return 'D';
+}
+
+// ATENCAO ao ler o mm/s deste sistema. A ISO 20816-3 exige, em 4.3, que o
+// equipamento tenha "flat response over a frequency range of at least 10 Hz
+// to 1 000 Hz", e os limites das Tabelas A.1/A.2 valem para a banda de
+// 10 Hz a 1000 Hz.
+//
+// O nosso firmware cobre de 10 Hz ate ~metade da taxa de amostragem -- hoje
+// cerca de 100 Hz, teto imposto pelo I2C do ADXL345. Portanto o numero e
+// COMPARAVEL AO LONGO DO TEMPO na mesma maquina (que e como o usamos, para
+// tendencia e alarme) mas NAO e medicao certificada, e subestima maquina
+// com energia forte acima de 100 Hz.
+//
+// Detalhe extra da norma: para maquina abaixo de 600 rpm a banda comeca em
+// 2 Hz, nao em 10. Nosso passa-alta fixo de 10 Hz cortaria a fundamental
+// dessas maquinas (10 Hz = 600 rpm). Nao ha nenhuma no escopo atual, mas se
+// entrar uma, VIB_HP_HZ tem de mudar para ela. Ver docs/objetivo.md.
 
 // Sem telemetria por mais que isso, o ativo entra em SEM DADOS. Tem de ser
 // maior que o intervalo de publicacao (5s no firmware) com folga, senao
@@ -602,11 +817,26 @@ function avaliar(valor, lim, id_hist) {
 // placa, 90%/110% dela viram os limites daquele ativo -- que e a regra que
 // docs/arquitetura.md sempre recomendou e que ate agora estava chutada.
 function limites_de(a) {
-    const inom = (((a.placa || {}).corrente_nominal_a) || 0);
-    if (!inom) { return LIM; }
+    const placa = a.placa || {};
+    const inom = (placa.corrente_nominal_a || 0);
+    const grupo = grupo_iso(placa);
+    const z = ISO_ZONAS[grupo];
+
+    // Nada especifico da placa: os limites genericos servem.
+    if (!inom && (!z || grupo === ISO_GRUPO_PADRAO)) { return LIM; }
+
     const l = Object.assign({}, LIM);
-    l.corrente_a = { atencao: inom * 0.9, critico: inom * 1.1,
-                     nome: 'Corrente', un: 'A', derivado: inom };
+    if (inom) {
+        l.corrente_a = { atencao: inom * 0.9, critico: inom * 1.1,
+                         nome: 'Corrente', un: 'A', derivado: inom };
+    }
+    // Atencao na entrada da zona C (deixa de ser aceitavel para operacao
+    // continua) e critico na entrada da zona D (risco de dano). Os limites
+    // de velocidade vem da norma, nao de chute -- so o GRUPO e escolha.
+    if (z) {
+        l.vib_vel_mm_s = { atencao: z.bc, critico: z.cd,
+                           nome: 'Velocidade', un: 'mm/s', iso_grupo: grupo };
+    }
     return l;
 }
 
@@ -683,6 +913,8 @@ function juntar_parte(chave, rotulo, cfg, nivel, tag, nome_parte) {
         hist: {
             temp: (esp.hist || {}).temp || [],
             vib:  (esp.hist || {}).vib  || [],
+            vel:  (esp.hist || {}).vel  || [],
+            crista: (esp.hist || {}).crista || [],
             corr: (inv.hist || {}).corr || []
         },
         fonte_esp32: cfg.esp32,
@@ -690,6 +922,8 @@ function juntar_parte(chave, rotulo, cfg, nivel, tag, nome_parte) {
         tag_inversor: cfg.tag_inversor,
         temperatura_c: esp.temperatura_c,
         vib_rms_g: esp.vib_rms_g,
+        vib_vel_mm_s: esp.vib_vel_mm_s,
+        vib_crista: esp.vib_crista,
         corrente_a: inv.corrente_a,
         tensao_v: inv.tensao_v,
         dc_bus_v: inv.dc_bus_v,
@@ -744,7 +978,7 @@ function consolidar_pai(tag, cfg, partes) {
     // com uma caldeira cuja bomba tem In de 21,5 A: 12 A e folgado para
     // ela, mas estourava o limite fixo de 11 A do codigo.
     const niveis = {};
-    for (const campo of ['temperatura_c', 'vib_rms_g', 'corrente_a']) {
+    for (const campo of ['temperatura_c', 'vib_rms_g', 'vib_vel_mm_s', 'corrente_a']) {
         let pior_n = null;
         for (const pt of partes) {
             const v = pt[campo];
@@ -766,6 +1000,8 @@ function consolidar_pai(tag, cfg, partes) {
         local: (cadastro[tag] || {}).local,
         temperatura_c: pior('temperatura_c'),
         vib_rms_g: pior('vib_rms_g'),
+        vib_vel_mm_s: pior('vib_vel_mm_s'),
+        vib_crista: pior('vib_crista'),
         corrente_a: pior('corrente_a'),
         tensao_v: pior('tensao_v'),
         dc_bus_v: pior('dc_bus_v'),
@@ -774,6 +1010,8 @@ function consolidar_pai(tag, cfg, partes) {
         hist: {
             temp: ((dono.temperatura_c || {}).hist || {}).temp || [],
             vib:  ((dono.vib_rms_g || {}).hist || {}).vib  || [],
+            vel:  ((dono.vib_vel_mm_s || {}).hist || {}).vel || [],
+            crista: ((dono.vib_crista || {}).hist || {}).crista || [],
             corr: ((dono.corrente_a || {}).hist || {}).corr || []
         },
         falha_codigo: com_falha ? com_falha.falha_codigo : 0,
@@ -1052,6 +1290,7 @@ for (const a of lista) {
     linhas.push({
         Ativo: nome,
         Temperatura: fmt(a.temperatura_c, 1, '°C'),
+        Velocidade: fmt(a.vib_vel_mm_s, 2, 'mm/s'),
         'Vibracao RMS': fmt(a.vib_rms_g, 3, 'g'),
         Corrente: fmt(a.corrente_a, 2, 'A'),
         Tensao: fmt(a.tensao_v, 1, 'V'),
@@ -1246,11 +1485,58 @@ function tile_simples(nome, campo, casas, un) {
              cor: COR.sem_dados, simb: '', rotulo: '' };
 }
 
+// Velocidade tem tile proprio para o rotulo poder trazer a ZONA da ISO em
+// vez do nosso rotulo generico. "ZONA C" e uma informacao a mais que
+// "ATENÇÃO": diz quanto tempo ainda se pode operar assim.
+function tile_velocidade(hist) {
+    const t = tile('Velocidade', 'vib_vel_mm_s', 2, 'mm/s', hist);
+    const v = alvo.vib_vel_mm_s;
+    if (v === null || v === undefined) { return t; }
+    const grupo = grupo_iso(alvo.placa);
+    const zz = ISO_ZONAS[grupo] || ISO_ZONAS[ISO_GRUPO_PADRAO];
+    const z = zona_iso(v, grupo);
+    t.rotulo = 'ZONA ' + z;
+    t.zona = z;
+    t.dica = { A: 'maquina nova', B: 'aceitavel sem restricao',
+               C: 'so por periodo limitado', D: 'risco de dano' }[z];
+    // Mostra CONTRA O QUE o valor foi julgado. Sem isso, duas maquinas de
+    // porte diferente exibem "ZONA B" com limites diferentes e ninguem
+    // entende por que 2,0 mm/s e bom numa e ruim na outra.
+    t.criterio = zz.nome + (zz.fora_escopo ? ' — fora do escopo da 20816-3' : '');
+    return t;
+}
+
+// Crista NAO recebe limite de alarme, de proposito.
+//
+// Ela sobe quando um rolamento comeca a bater (impactos curtos elevam o
+// pico sem mexer no RMS) mas CAI de novo em estagio avancado, quando os
+// impactos viram ruido continuo e o RMS alcanca o pico. Um limite fixo
+// portanto acusaria defeito incipiente e depois se calaria justamente
+// quando o defeito piorou -- pior que nao alarmar e alarmar ao contrario.
+// O que vale e a tendencia, e e isso que o tile mostra.
+function tile_crista(hist) {
+    const v = alvo.vib_crista;
+    if (v === undefined || v === null) {
+        return { nome: 'Fator de crista', texto: '--', un: '', pct: 0,
+                 cor: COR.sem_dados, simb: '', rotulo: 'sem leitura',
+                 tend: { simb: '—', pct: 0, cor: '#71717a' }, spark: [] };
+    }
+    // Faixas de leitura, nao de alarme: senoide pura da 1,41; maquina sadia
+    // fica em 3-4; acima de 5 ha conteudo impulsivo que merece olhar.
+    const rotulo = (v < 3) ? 'suave' : (v < 5 ? 'tipico' : 'impulsivo');
+    return { nome: 'Fator de crista', texto: v.toFixed(2), un: '',
+             pct: Math.max(0, Math.min(100, (v / 8) * 100)),
+             cor: COR.sem_dados, simb: '', rotulo: rotulo,
+             tend: tendencia(hist), spark: hist || [] };
+}
+
+const h_esp = (registro[alvo.fonte_esp32] || {}).hist || {};
+
 const m3 = { payload: [
-    tile('Temperatura',  'temperatura_c', 1, '°C',
-         ((registro[alvo.fonte_esp32] || {}).hist || {}).temp || []),
-    tile('Vibracao RMS', 'vib_rms_g',     3, 'g',
-         ((registro[alvo.fonte_esp32] || {}).hist || {}).vib || []),
+    tile('Temperatura',  'temperatura_c', 1, '°C', h_esp.temp || []),
+    tile_velocidade(h_esp.vel || []),
+    tile('Vibracao RMS', 'vib_rms_g',     3, 'g',  h_esp.vib || []),
+    tile_crista(h_esp.crista || []),
     tile('Corrente',     'corrente_a',    2, 'A',
          ((registro[alvo.fonte_inversor] || {}).hist || {}).corr || []),
     tile_simples('Tensao',    'tensao_v', 1, 'V'),
@@ -1269,7 +1555,8 @@ function m4_cards() {
         }).length;
 
         const lims_card = limites_de(a);
-        const series = { temperatura_c: 'temp', vib_rms_g: 'vib', corrente_a: 'corr' };
+        const series = { temperatura_c: 'temp', vib_rms_g: 'vib',
+                         vib_vel_mm_s: 'vel', corrente_a: 'corr' };
 
         function medida(nome, campo, casas, un) {
             const serie = ((a.hist || {})[series[campo]]) || [];
@@ -1315,8 +1602,12 @@ function m4_cards() {
                     : (a.rodando ? '▶ rodando' : '■ parado'),
             marcha_cls: a.rodando ? 'on' : 'off',
             visto: ha_quanto(a.visto_em),
+            // O card mostra VELOCIDADE, nao aceleracao: mm/s e a unidade em
+            // que a ISO 20816 julga severidade, e a que o mantenedor sabe
+            // interpretar de cabeca. O g continua na tela de detalhe, onde
+            // ha espaco para as duas.
             medidas: [ medida('Temp', 'temperatura_c', 1, '°C'),
-                       medida('Vib',  'vib_rms_g',     3, 'g'),
+                       medida('Vel',  'vib_vel_mm_s',  2, 'mm/s'),
                        medida('Corr', 'corrente_a',    2, 'A') ]
         };
     });
@@ -1556,13 +1847,34 @@ for (let k = 0; k <= 6; k++) {
 // dado. Fatia demais vira linha continua; de menos, esconde falha curta.
 const N_PONTOS = 150;
 const pontos = [];
+// Trechos que o buffer do ESP32 devolveu depois da queda. Sao uniao de
+// todos os dispositivos: a faixa e da planta, nao de um sensor so.
+const recs = flow.get('recuperacoes') || {};
+const faixas_rec = [];
+for (const k of Object.keys(recs)) {
+    const lista = recs[k];
+    if (!Array.isArray(lista)) { continue; }
+    for (const r of lista) {
+        // So o que cai dentro da janela desenhada interessa.
+        if (r && r.de && r.ate && r.ate >= t0) { faixas_rec.push(r); }
+    }
+}
+
 for (let k = 0; k < N_PONTOS; k++) {
     const t = t0 + (JANELA_MS * (k + 0.5) / N_PONTOS);
     if (t > agora) { break; }
     const dentro_lacuna = lacunas.some(function (l) {
         return t >= l.ini && t <= (l.fim || agora);
     });
-    pontos.push({ pct: ((k + 0.5) / N_PONTOS) * 100, ok: !dentro_lacuna });
+    // Um instante pode estar nos dois: houve lacuna ao vivo E o dado foi
+    // recuperado depois. Esse e o caso interessante -- e por isso o
+    // recuperado tem marca propria em vez de virar "ok". Fingir que nunca
+    // houve falha esconderia que o alarme daquele periodo nao rodou.
+    const recuperado = faixas_rec.some(function (r) {
+        return t >= r.de && t <= r.ate;
+    });
+    pontos.push({ pct: ((k + 0.5) / N_PONTOS) * 100,
+                  ok: !dentro_lacuna, rec: recuperado && dentro_lacuna });
 }
 
 const m10 = { payload: { eventos: eventos, marcas: marcas, pontos: pontos,
@@ -2404,6 +2716,7 @@ LINHA_TEMPO = r"""
         <!-- legenda a esquerda, como na referencia -->
         <div class="lt-leg">
             <span class="lt-li"><i class="lt-dot"></i>Dados</span>
+            <span class="lt-li"><i class="lt-dot lt-rec"></i>Recuperado</span>
             <span class="lt-li"><i class="lt-dia lt-c-at"></i>Atencao</span>
             <span class="lt-li"><i class="lt-dia lt-c-cr"></i>Critico</span>
             <span class="lt-li"><i class="lt-dia lt-c-sd"></i>Sem dados</span>
@@ -2429,7 +2742,9 @@ LINHA_TEMPO = r"""
             <!-- faixa de cobertura -->
             <div class="lt-cob">
                 <i v-for="(p, i) in pontos" :key="'p'+i"
-                   class="lt-dot" :class="{ 'lt-off': !p.ok }"
+                   class="lt-dot" :class="{ 'lt-off': !p.ok, 'lt-rec': p.rec }"
+                   :title="p.rec ? 'sem comunicacao — dado recuperado do buffer do sensor'
+                                 : (p.ok ? '' : 'sem dados')"
                    :style="{ left: p.pct + '%' }"></i>
             </div>
 
@@ -2503,6 +2818,19 @@ export default {
           background: #3987e5; transform: translateX(-50%); }
 .lt-leg .lt-dot { position: static; transform: none; }
 .lt-dot.lt-off  { background: #52525b; opacity: .45; }
+
+/* Recuperado do buffer do sensor: houve queda de comunicacao, mas o dado
+   nao se perdeu. Precisa vir DEPOIS de .lt-off -- mesma especificidade,
+   e o ponto recuperado tambem carrega a classe .lt-off (ok=false).
+
+   Alem da cor, e mais ALTO que os outros pontos. Distinguir so por matiz
+   num marcador de 3px falharia para quem tem baixa visao de cor -- e, a
+   rigor, para qualquer um: 3px de azul contra 3px de violeta ninguem
+   separa de relance. A altura resolve sem depender de cor. */
+.lt-dot.lt-rec  { background: #a78bfa; opacity: 1;
+                  height: 7px; width: 2px; border-radius: 1px;
+                  margin-top: -2px; }
+.lt-leg .lt-dot.lt-rec { height: 7px; width: 2px; margin-top: 0; }
 
 /* Losango: o quadrado girado da referencia. Marca o INICIO do evento --
    e a barra ao lado diz quanto durou, que a referencia nao mostra. */
@@ -2615,6 +2943,11 @@ for (const id of Object.keys(acc)) {
     function med(x) { return x.n ? x.soma / x.n : null; }
     const loc = onde[id] || {};
 
+    // Canais que so passaram a existir depois: um acumulador antigo,
+    // sobrevivente de deploy, nao os tem.
+    const vel = a.vel || { n: 0 };
+    const cri = a.crista || { n: 0 };
+
     linhas.push([
         new Date(a.ate).toISOString(),
         id,
@@ -2623,11 +2956,55 @@ for (const id of Object.keys(acc)) {
         a.n,
         med(a.temp), a.temp.n ? a.temp.min : null, a.temp.n ? a.temp.max : null,
         med(a.vib),  a.vib.n  ? a.vib.min  : null, a.vib.n  ? a.vib.max  : null,
+        med(vel),    vel.n ? vel.max : null,
+        med(cri),    cri.n ? cri.max : null,
         med(a.corr), a.corr.n ? a.corr.min : null, a.corr.n ? a.corr.max : null,
         med(a.tensao), med(a.dcbus), med(a.freq),
         (a.rodando === undefined) ? null : a.rodando,
-        estados[id] || null
+        estados[id] || null,
+        false                                  // recuperada: esta e ao vivo
     ]);
+}
+
+// ---- Amostras recuperadas do buffer do ESP32 -------------------------
+// Nao passam pelo acumulador: cada uma ja e uma medicao unica, com o
+// instante em que foi COLHIDA (reconstruido de atraso_ms). Agrega-las na
+// janela de agora jogaria o passado todo no minuto atual e destruiria
+// justamente a informacao que o buffer existe para preservar.
+//
+// media = min = max = o proprio valor, e amostras = 1: e literalmente o
+// que se sabe. E 'estado' fica nulo porque nao houve avaliacao ao vivo
+// naquele instante -- inventar um agora seria julgar o passado com o
+// cadastro de hoje.
+const fila = flow.get('backfill') || [];
+if (fila.length) {
+    const MAX_LOTE = 500;      // nao estourar o limite de parametros do PG
+    const lote = fila.splice(0, MAX_LOTE);
+    flow.set('backfill', fila);
+
+    for (const b of lote) {
+        const loc = onde[b.device_id] || {};
+        linhas.push([
+            new Date(b.ts).toISOString(),
+            b.device_id,
+            loc.ativo || null,
+            loc.parte || null,
+            1,
+            // ?? null porque undefined (campo que o firmware antigo nao
+            // manda) vira erro de parametro no driver do PostgreSQL.
+            b.temperatura_c ?? null, b.temperatura_c ?? null, b.temperatura_c ?? null,
+            b.vib_rms_g ?? null, b.vib_rms_g ?? null, b.vib_rms_g ?? null,
+            b.vib_vel_mm_s ?? null, b.vib_vel_mm_s ?? null,
+            b.vib_crista ?? null, b.vib_crista ?? null,
+            null, null, null,
+            null, null, null,
+            null,
+            null,
+            true                               // recuperada
+        ]);
+    }
+    node.warn('backfill: gravando ' + lote.length + ' amostras recuperadas'
+              + (fila.length ? ' (faltam ' + fila.length + ')' : ''));
 }
 
 if (!linhas.length) { return [null, null]; }
@@ -2650,8 +3027,10 @@ const m_med = {
     query: 'INSERT INTO medicoes (ts, device_id, ativo, parte, amostras,' +
            ' temperatura_c, temperatura_min_c, temperatura_max_c,' +
            ' vibracao_rms_g, vibracao_min_g, vibracao_max_g,' +
+           ' vibracao_vel_mm_s, vibracao_vel_max_mm_s,' +
+           ' vibracao_crista, vibracao_crista_max,' +
            ' corrente_a, corrente_min_a, corrente_max_a,' +
-           ' tensao_v, dc_bus_v, frequencia_hz, rodando, estado)' +
+           ' tensao_v, dc_bus_v, frequencia_hz, rodando, estado, recuperada)' +
            ' VALUES ' + valores,
     params: [].concat.apply([], linhas)
 };
