@@ -48,6 +48,8 @@ O projeto combina dois lados:
 ## Documentação
 
 - [Objetivo e visão do projeto](docs/objetivo.md)
+- [**Revisão crítica**](docs/revisao-critica.md) — ataque às decisões de
+  engenharia, com o que sobreviveu à verificação e a prioridade revisada
 - [**Material para investidor**](docs/INVESTIDOR.md) — mercado, estágio real,
   modelos de negócio e riscos, com fonte para cada número
 - [**Diferenciais frente aos concorrentes**](docs/diferenciais.md) — WEG,
