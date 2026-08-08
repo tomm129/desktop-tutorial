@@ -1945,7 +1945,10 @@ CARDS = r"""
             <div class="topo">
                 <div class="nome">
                     <div class="tag">{{ c.tag }}</div>
-                    <div class="desc" v-if="c.descricao">{{ c.descricao }}</div>
+                    <!-- Sem v-if: a .desc tem altura minima reservada (2
+                         linhas) para alinhar as medidas entre os cards;
+                         esconder o div vazio quebraria o alinhamento. -->
+                    <div class="desc">{{ c.descricao }}</div>
                 </div>
                 <!-- simbolo + texto: a cor nunca carrega o estado sozinha -->
                 <div class="chip" :style="{ color: c.cor, borderColor: c.cor }">
@@ -2022,13 +2025,18 @@ export default {
 </script>
 
 <style scoped>
-/* align-content/items em start: sem isso o grid estica os cards para
-   preencher a altura do grupo, e cada card vira uma coluna vazia enorme. */
-.parede { display: grid; gap: 16px; align-content: start; align-items: start;
+/* align-content em start: sem isso o grid estica as FILEIRAS para preencher
+   a altura do grupo, e cada fileira vira uma faixa vazia enorme. Ja o
+   align-items: stretch e o que IGUALA os cards da mesma fileira: o card com
+   menos conteudo estica ate a altura do vizinho mais alto, e o flex column
+   interno empurra o rodape para baixo (margin-top: auto no .rodape). */
+.parede { display: grid; gap: 16px; align-content: start; align-items: stretch;
           grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
 .vazio  { color: #71717a; padding: 12px; font-size: 14px; }
 
 .card {
+    display: flex;
+    flex-direction: column;
     background: #151518;
     border: 1px solid #3f3f46;
     border-left: 5px solid #71717a;   /* faixa de estado */
@@ -2048,8 +2056,13 @@ export default {
 
 .topo { display: flex; justify-content: space-between; align-items: flex-start;
         gap: 10px; margin-bottom: 14px; }
-.tag  { font-size: 17px; font-weight: 600; color: #f4f4f5; letter-spacing: -0.2px; }
-.desc { font-size: 12px; color: #a1a1aa; margin-top: 2px; line-height: 1.3; }
+/* Altura minima de 2 linhas no titulo e na descricao: e o que faz o bloco
+   de medidas comecar na MESMA altura em todos os cards da fileira, tenha o
+   texto quebrado ou nao. Nada e cortado -- so se reserva o espaco. */
+.tag  { font-size: 17px; font-weight: 600; color: #f4f4f5; letter-spacing: -0.2px;
+        line-height: 1.25; min-height: 2.5em; }
+.desc { font-size: 12px; color: #a1a1aa; margin-top: 2px; line-height: 1.3;
+        min-height: 2.6em; }
 .chip { font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid;
         border-radius: 12px; padding: 2px 10px; text-transform: uppercase;
         letter-spacing: .4px; }
@@ -2067,8 +2080,10 @@ export default {
 .trilho   { height: 4px; background: #27272a; border-radius: 2px; margin-top: 3px; overflow: hidden; }
 .preenche { height: 100%; border-radius: 2px; transition: width .4s ease, background .3s ease; }
 
-.rodape { display: flex; justify-content: space-between; margin-top: 14px;
-          font-size: 11px; color: #71717a; }
+/* margin-top: auto cola o rodape embaixo quando o card foi esticado pela
+   fileira; o padding-top garante o respiro de 14px na altura natural. */
+.rodape { display: flex; justify-content: space-between; margin-top: auto;
+          padding-top: 14px; font-size: 11px; color: #71717a; }
 /* Marcha e contexto, nao saude: fica discreta e nunca usa a cor de status,
    senao "rodando" leria como "OK" e "parado" como alarme. */
 .marcha        { margin-left: 6px; font-weight: 500; }
@@ -2472,8 +2487,10 @@ CADASTRO = r"""
                             </span>
                         </td>
                         <td class="acao">
-                            <button class="mini" @click="editar(nome, pn, pt)">editar</button>
-                            <button class="mini" @click="remover(nome, pn)">remover</button>
+                            <div class="acoes">
+                                <button class="mini" @click="editar(nome, pn, pt)">editar</button>
+                                <button class="mini perigo" @click="remover(nome, pn)">remover</button>
+                            </div>
                         </td>
                     </tr>
                 </template>
@@ -2636,7 +2653,13 @@ table  { border-collapse: collapse; width: 100%; }
 .resumo { color: #a1a1aa; font-variant-numeric: tabular-nums; }
 .visto  { color: #71717a; font-size: 12px; text-align: right; }
 .visto.mudo { color: #ef4444; }
-.acao   { color: #71717a; text-align: right; width: 90px; }
+.acao   { color: #71717a; text-align: right; }
+/* Botoes da linha de parte: lado a lado, MESMA largura, alinhados a direita
+   e centrados verticalmente. Em tela estreita o flex-wrap quebra os dois
+   juntos, mantendo o alinhamento a direita. */
+.acoes  { display: flex; gap: 6px; justify-content: flex-end;
+          align-items: center; flex-wrap: wrap; }
+.acoes .mini { min-width: 70px; text-align: center; }
 
 .form   { background: #151518; border: 1px solid #3f3f46; border-radius: 10px; padding: 18px; }
 .linha  { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
@@ -2670,7 +2693,11 @@ button:hover { filter: brightness(1.1); }
 .cancelar { background: transparent; color: #a1a1aa; border: 1px solid #3f3f46; }
 .mini     { background: transparent; color: #a1a1aa; border: 1px solid #3f3f46;
             font-size: 11px; padding: 4px 10px; border-radius: 6px; }
-.mini:hover { color: #ef4444; border-color: #ef4444; filter: none; }
+/* Hover neutro no "editar" (sobe um degrau na paleta); o vermelho fica
+   RESERVADO ao "remover", a unica acao destrutiva da linha. */
+.mini:hover { color: #f4f4f5; border-color: #52525b; filter: none; }
+.mini.perigo { color: #71717a; }
+.mini.perigo:hover { color: #ef4444; border-color: #ef4444; }
 .aviso    { color: #22c55e; font-size: 13px; margin-top: 12px; }
 
 .pai td   { padding-top: 16px; color: #f4f4f5; }
