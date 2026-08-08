@@ -1,0 +1,12 @@
+# Alvo de bancada. Trocar com: idf.py set-target esp32s3
+CONFIG_IDF_TARGET="esp32c6"
+
+# O portal serve HTML por chunks e precisa de folga no cabecalho da resposta.
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=512
+
+# Log em portugues nao existe; o que da para fazer e nao poluir o console.
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+
+# NVS na particao padrao; sem particionamento custom neste firmware minimo.
+CONFIG_PARTITION_TABLE_SINGLE_APP_LARGE=y
