@@ -27,3 +27,6 @@ integracoes/**/config.env
 dados/ativos.json
 dados/fotos/*
 !dados/fotos/.gitkeep
+
+# Backup do cadastro feito por tools/gera_planta_teste.py -- dado local.
+dados/ativos.json.antes-do-teste
