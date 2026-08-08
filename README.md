@@ -48,6 +48,8 @@ O projeto combina dois lados:
 ## Documentação
 
 - [Objetivo e visão do projeto](docs/objetivo.md)
+- [Teste de escala do painel](docs/teste-de-escala.md) — o que quebra com
+  77 dispositivos, e como reproduzir
 - [**Revisão crítica**](docs/revisao-critica.md) — ataque às decisões de
   engenharia, com o que sobreviveu à verificação e a prioridade revisada
 - [**Material para investidor**](docs/INVESTIDOR.md) — mercado, estágio real,

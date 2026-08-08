@@ -181,9 +181,9 @@ grupo(G_ATIVOS_TAB, "Todos os ativos e partes", 12, 1, altura=16,
       pagina=PAGINA_ATIVOS)
 
 # --- Tela: Tendencias (as tres grandezas, planta inteira) -------------
-grupo(G_TEND_T, "Temperatura (°C)",  12, 1, altura=8, pagina=PAGINA_TEND)
-grupo(G_TEND_V, "Vibracao RMS (g)",  12, 2, altura=8, pagina=PAGINA_TEND)
-grupo(G_TEND_C, "Corrente (A)",      12, 3, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_T, "Temperatura (°C) — ate 8 series, as de pior estado",  12, 1, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_V, "Vibracao RMS (g) — ate 8 series, as de pior estado",  12, 2, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_C, "Corrente (A) — ate 8 series, as de pior estado",      12, 3, altura=8, pagina=PAGINA_TEND)
 
 # --- Telas de roadmap -------------------------------------------------
 # Altura 9 (era 12): com a escada em duas colunas o conteudo encolheu
@@ -425,6 +425,17 @@ acumular(id, 'vel',    a.vib_vel_mm_s);
 acumular(id, 'crista', a.vib_crista);
 marcar_amostra(id);
 
+// So os dispositivos eleitos alimentam o grafico de tendencia -- ver o
+// comentario de 'devices_grafico' na funcao "montar painel". Enquanto a
+// lista nao existe (primeiros segundos), todos passam.
+// A guarda e ESTRITA de proposito. Deixar passar enquanto a lista nao
+// existe (os ~2s ate "montar painel" rodar pela primeira vez) parece
+// inofensivo, mas o ui-chart ACUMULA series: os 45 dispositivos que
+// passaram nesse instante ficam na legenda para sempre, mesmo depois de o
+// corte comecar a valer. Melhor o grafico ficar vazio por dois segundos.
+const eleitos = flow.get('devices_grafico');
+if (!eleitos || eleitos.indexOf(id) < 0) { return [null, null]; }
+
 const temp = (a.temperatura_c === null) ? null : { topic: id, payload: a.temperatura_c };
 const vib  = (a.vib_rms_g === null)     ? null : { topic: id, payload: a.vib_rms_g };
 return [temp, vib];
@@ -548,6 +559,13 @@ acumular(id, 'tensao', a.tensao_v);
 acumular(id, 'dcbus',  a.dc_bus_v);
 acumular(id, 'freq',   a.frequencia_hz);
 marcar_amostra(id, { rodando: a.rodando });
+
+// Mesmo corte de series do grafico de temperatura/vibracao: sem ele a
+// tela de Corrente voltava a ter uma serie por inversor -- 32 na planta de
+// teste -- com a paleta repetindo cor e a legenda ilegivel.
+// Estrita pelo mesmo motivo da telemetria: ver o comentario la.
+const eleitos = flow.get('devices_grafico');
+if (!eleitos || eleitos.indexOf(id) < 0) { return null; }
 
 return (typeof a.corrente_a === 'number')
     ? { topic: id, payload: Math.round(a.corrente_a * 100) / 100 }
@@ -1936,6 +1954,43 @@ for (let k = 0; k < N_PONTOS; k++) {
     pontos.push({ pct: ((k + 0.5) / N_PONTOS) * 100,
                   ok: !dentro_lacuna, rec: recuperado && dentro_lacuna });
 }
+
+// ---- Quais dispositivos alimentam os graficos de tendencia ----------
+//
+// Um grafico de linha suporta ~8 series. Acima disso a paleta categorica
+// se esgota e comeca a REPETIR cor -- com 45 series havia quatro "verdes"
+// diferentes, a legenda tomava tres linhas e nenhuma serie era
+// distinguivel. Mais series nao e mais informacao; e menos.
+//
+// Entao elegemos ate 8: os de PIOR estado primeiro, desempatando pelo mais
+// recentemente visto. Quem esta em critico e o que interessa acompanhar; o
+// resto tem o card e a tabela.
+// Eleicao SEPARADA por tipo: uma lista unica misturaria ESP32 e inversores,
+// e as oito vagas do grafico de temperatura poderiam ser ocupadas por
+// drives, que nao publicam temperatura -- o grafico ficaria com tres linhas
+// sem que nada indicasse o porque.
+const ORDEM_PIOR = { critico: 0, atencao: 1, sem_dados: 2, normal: 3 };
+
+function eleger(tipo) {
+    return Object.keys(registro)
+        .filter(function (id) { return (registro[id] || {}).tipo === tipo; })
+        .map(function (id) {
+            const est = est_dev[id] || 'normal';
+            return { id: id,
+                     p: (ORDEM_PIOR[est] === undefined ? 3 : ORDEM_PIOR[est]) };
+        })
+        // Desempate por ID, nao por "visto por ultimo": o ui-chart ACUMULA
+        // series, entao um criterio que muda a cada ciclo faz a legenda
+        // crescer sem limite conforme os dispositivos se revezam. Assim o
+        // conjunto so muda quando um ESTADO muda -- que e quando se quer.
+        .sort(function (a, b) {
+            return (a.p - b.p) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+        })
+        .slice(0, 8)
+        .map(function (x) { return x.id; });
+}
+
+flow.set('devices_grafico', eleger('esp32').concat(eleger('inversor')));
 
 const m10 = { payload: { eventos: eventos, marcas: marcas, dias: dias, pontos: pontos,
                          // Teto de 6 faixas: cada uma soma 13px de altura, e

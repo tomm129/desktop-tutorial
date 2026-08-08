@@ -96,6 +96,28 @@ def cliente(host, porta, usuario, senha):
     return cli
 
 
+def ler_cadastro(caminho):
+    """Le dados/ativos.json e devolve a lista de dispositivos a simular.
+
+    Serve para testar o painel sob escala sem ter de duplicar a planta aqui:
+    o cadastro e a fonte de verdade do que existe, e o simulador passa a
+    seguir ele em vez de ter a planta fixa no codigo.
+
+    Devolve [(device_id, inversor_id ou None, indice)] -- o indice da a cada
+    dispositivo uma "personalidade" propria, para as series nao ficarem
+    empilhadas no grafico.
+    """
+    with open(caminho, encoding="utf-8") as f:
+        cad = json.load(f)
+    saida = []
+    for ativo in sorted(k for k in cad if not k.startswith("_")):
+        for parte in sorted((cad[ativo].get("partes") or {})):
+            p = cad[ativo]["partes"][parte]
+            if p.get("esp32"):
+                saida.append((p["esp32"], p.get("inversor"), len(saida)))
+    return saida
+
+
 def bloco_vibracao(vib_g, vel_mm_s, crista, fs_media=371.4, fs_dp=0.6):
     """Monta o bloco 'vibracao' no formato que o firmware publica.
 
@@ -253,6 +275,43 @@ def publicar_backfill(cli, devs, minutos, passo_s=5):
         print(f"  {dev}: {total} amostras enviadas")
 
 
+def publicar_do_cadastro(cli, dispositivos, t):
+    """Publica um ciclo para todos os dispositivos lidos do cadastro."""
+    for dev, inv, i in dispositivos:
+        fase = i * 0.7
+        temp = 42.0 + (i % 7) * 3.0 + 2.5 * math.sin(t / 40.0 + fase) + random.gauss(0, 0.3)
+        vib = 0.14 + (i % 5) * 0.03 + abs(random.gauss(0, 0.01))
+        # Um em cada nove entra em zona critica, para a tela de escala ter
+        # estados misturados em vez de um mar de verde.
+        ruim = (i % 9 == 0)
+        vel = (5.4 if ruim else 0.9 + (i % 6) * 0.08) + abs(random.gauss(0, 0.06))
+        crista = random.uniform(6.0, 7.2) if ruim else random.uniform(3.0, 4.2)
+
+        cli.publish(f"{BASE}/{dev}/telemetria", json.dumps({
+            "device_id": dev,
+            "ts": int(t * 1000),
+            "temperatura_c": round(temp, 1),
+            "vibracao": bloco_vibracao(vib, vel, crista),
+            "rede": {"rssi_dbm": int(random.gauss(-62, 4)), "uptime_s": int(t)},
+        }), qos=0)
+
+        if not inv:
+            continue
+        corr = 8.0 + (i % 11) * 1.4 + random.gauss(0, 0.1)
+        cli.publish(f"{BASE}/{inv}/inversor", json.dumps({
+            "ts": int(time.time() * 1000),
+            "corrente_a": round(corr, 2),
+            "tensao_v": round(380.0 + random.gauss(0, 1.5), 1),
+            "dc_bus_v": round(537.0 + random.gauss(0, 2.0), 1),
+            "frequencia_hz": round(60.0 + random.gauss(0, 0.05), 2),
+            "rodando": True,
+            # Um inversor em falha, para o estado critico por drive aparecer.
+            "falha": {"codigo": 8 if i == 3 and t > 15 else 0,
+                      "texto": FALHAS_DEMO.get(8) if i == 3 and t > 15 else None},
+            "status_bruto": 3,
+        }), qos=0)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -270,13 +329,27 @@ def main():
     ap.add_argument("--demo", action="store_true",
                     help="planta de demonstracao (caldeira, ETE, torre, "
                          "transporte) com estados variados")
+    ap.add_argument("--do-cadastro", action="store_true",
+                    help="le dados/ativos.json e simula TODOS os dispositivos "
+                         "cadastrados (use com tools/gera_planta_teste.py "
+                         "para testar o painel sob escala)")
     ap.add_argument("--backfill", type=float, default=0, metavar="MIN",
                     help="antes de comecar, despeja MIN minutos de amostras "
                          "'recuperadas do buffer' (simula a volta de uma "
                          "queda de comunicacao)")
     a = ap.parse_args()
 
-    if a.demo:
+    do_cadastro = None
+    if a.do_cadastro:
+        import os
+        caminho = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "dados", "ativos.json")
+        do_cadastro = ler_cadastro(caminho)
+        devs = [d for d, _, _ in do_cadastro]
+        inversores = [i for _, i, _ in do_cadastro if i]
+        inversor = None
+        print(f"lendo o cadastro: {len(devs)} ESP32 + {len(inversores)} inversores")
+    elif a.demo:
         devs = [c[0] for c in PLANTA_DEMO]
         inversores = [c[1] for c in PLANTA_DEMO if c[1]]
         inversor = None
@@ -305,6 +378,13 @@ def main():
             t = time.time() - t0
             if a.duracao and t > a.duracao:
                 break
+
+            if do_cadastro:
+                publicar_do_cadastro(cli, do_cadastro, t)
+                print(" t=%6.1fs  %d dispositivos publicando"
+                      % (t, len(do_cadastro)), flush=True)
+                time.sleep(a.intervalo)
+                continue
 
             if a.demo:
                 publicar_demo(cli, t)
