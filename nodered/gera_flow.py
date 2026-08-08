@@ -186,11 +186,16 @@ grupo(G_TEND_V, "Vibracao RMS (g)",  12, 2, altura=8, pagina=PAGINA_TEND)
 grupo(G_TEND_C, "Corrente (A)",      12, 3, altura=8, pagina=PAGINA_TEND)
 
 # --- Telas de roadmap -------------------------------------------------
-grupo(G_IA,  "", 12, 1, altura=12, pagina=PAGINA_IA,  titulo=False)
-grupo(G_REL, "", 12, 1, altura=12, pagina=PAGINA_REL, titulo=False)
+# Altura 9 (era 12): com a escada em duas colunas o conteudo encolheu
+# pela metade, e a altura antiga deixava um vazio grande embaixo.
+grupo(G_IA,  "", 12, 1, altura=9, pagina=PAGINA_IA,  titulo=False)
+grupo(G_REL, "", 12, 1, altura=9, pagina=PAGINA_REL, titulo=False)
 
 # --- Tela 4: alarmes/historico ----------------------------------------
-grupo(G_ALARMES_KPI,  "Resumo de alarmes", 12, 1, altura=2,
+# KPI em altura 1: a faixa e uma linha so de indicadores compactos
+# (rotulo + numero lado a lado). Altura 2 deixava ~100px de caixa para
+# dois textos pequenos -- cinco retangulos grandes e vazios.
+grupo(G_ALARMES_KPI,  "Resumo de alarmes", 12, 1, altura=1,
       pagina=PAGINA_ALARMES, titulo=False)
 grupo(G_ALARMES_LISTA, "Historico",         12, 2, altura=14,
       pagina=PAGINA_ALARMES, titulo=False)
@@ -1767,11 +1772,29 @@ const m7 = { payload: {
     sem_dados: hist.filter(function (h) { return h.estado === 'sem_dados'; }).length
 } };
 
+// Duracao em formato humano. Segundos crus ficam ilegiveis rapido: um
+// alarme de meio dia virava "43200s", que ninguem le. Definida uma vez e
+// usada tanto aqui quanto na linha do tempo.
+function dur_humana(ms) {
+    const s = Math.round(ms / 1000);
+    if (s < 60)    { return s + 's'; }
+    if (s < 3600)  { return Math.round(s / 60) + 'min'; }
+    if (s < 86400) {
+        const h = Math.floor(s / 3600);
+        const m = Math.round((s % 3600) / 60);
+        // "2h" e nao "2h 0min": o zero nao informa nada e polui.
+        return m ? (h + 'h ' + m + 'min') : (h + 'h');
+    }
+    const d = Math.floor(s / 86400);
+    const h = Math.round((s % 86400) / 3600);
+    return h ? (d + 'd ' + h + 'h') : (d + (d > 1 ? ' dias' : ' dia'));
+}
+
 // ---- Saida 8: historico de alarmes ----------------------------------
 const m8 = { payload: hist.map(function (h) {
     const duracao = h.fim_ms
-        ? Math.round((h.fim_ms - h.inicio_ms) / 1000) + 's'
-        : Math.round((agora - h.inicio_ms) / 1000) + 's (aberto)';
+        ? dur_humana(h.fim_ms - h.inicio_ms)
+        : dur_humana(agora - h.inicio_ms) + ' (aberto)';
     return {
         ativo: h.ativo,
         parte: h.parte,
@@ -1854,9 +1877,7 @@ const eventos = hist
             parte: h.parte,
             motivos: h.motivos.join(' | '),
             quando: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            duracao: dur_s < 60 ? (dur_s + 's')
-                   : dur_s < 3600 ? (Math.round(dur_s / 60) + 'min')
-                   : (Math.round(dur_s / 360) / 10 + 'h')
+            duracao: dur_humana(fim - h.inicio_ms)
         };
     });
 
@@ -2886,7 +2907,11 @@ export default {
 </script>
 
 <style scoped>
-.rm   { color: #a1a1aa; max-width: 90ch; }
+.rm   { color: #a1a1aa; }
+/* A limitacao de 90ch vale para TEXTO CORRIDO, onde linha longa cansa
+   a leitura -- nao para a escada de degraus, que e conteudo tabular.
+   Aplicada ao container inteiro, ela deixava metade da tela vazia. */
+.lead, .nota { max-width: 82ch; }
 .tag  { display: inline-block; font-size: 11px; text-transform: uppercase;
         letter-spacing: .5px; color: #f59e0b; border: 1px solid #f59e0b;
         border-radius: 10px; padding: 2px 10px; margin-bottom: 12px; }
@@ -2894,7 +2919,8 @@ h2    { color: #f4f4f5; font-size: 22px; margin: 0 0 8px; font-weight: 600; }
 .lead { font-size: 14px; line-height: 1.6; margin: 0 0 26px; }
 em    { color: #f4f4f5; font-style: normal; }
 
-.escada { display: flex; flex-direction: column; gap: 2px; }
+.escada { display: grid; gap: 10px;
+          grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
 .degrau { display: flex; gap: 16px; padding: 14px 16px; border-left: 3px solid #27272a;
           background: #151518; border-radius: 0 8px 8px 0; }
 .degrau.ok   { border-left-color: #22c55e; }
@@ -2975,7 +3001,8 @@ h2    { color: #f4f4f5; font-size: 22px; margin: 0 0 8px; font-weight: 600; }
 .lead { font-size: 14px; line-height: 1.6; margin: 0 0 26px; }
 em, b { color: #f4f4f5; font-style: normal; font-weight: 600; }
 
-.camadas { display: flex; flex-direction: column; gap: 2px; }
+.camadas { display: grid; gap: 10px;
+           grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
 .camada  { padding: 14px 16px; border-left: 3px solid #27272a;
            background: #151518; border-radius: 0 8px 8px 0; }
 .camada.ok   { border-left-color: #22c55e; }
@@ -3001,13 +3028,13 @@ em, b { color: #f4f4f5; font-style: normal; font-weight: 600; }
 # demonstracao -- elas mostram o roadmap: o que entrega, o que falta e por
 # que a ordem e essa. Honesto e util.
 no(id="pg_ia_conteudo", type="ui-template", z="flow_monitor", group=G_IA,
-   name="roadmap de IA", order=1, width="12", height="12",
+   name="roadmap de IA", order=1, width="12", height="9",
    head="", format=ROADMAP_IA, storeOutMessages=False, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=880, wires=[[]])
 
 no(id="pg_rel_conteudo", type="ui-template", z="flow_monitor", group=G_REL,
-   name="roadmap de relatorios", order=1, width="12", height="12",
+   name="roadmap de relatorios", order=1, width="12", height="9",
    head="", format=ROADMAP_REL, storeOutMessages=False, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=940, wires=[[]])
@@ -3581,10 +3608,13 @@ export default {
 </script>
 
 <style scoped>
-.kpi-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; }
-.kpi { background: #151518; border: 1px solid #3f3f46; border-radius: 10px; padding: 12px 14px; text-align: center; }
-.kpi .rot { font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 4px; }
-.kpi .val { font-size: 26px; font-weight: 600; color: #f4f4f5; }
+/* Faixa compacta, no espirito do resumo da /visao: rotulo e numero na
+   mesma linha, caixa ajustada ao conteudo em vez de esticada na altura. */
+.kpi-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+.kpi { display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+       background: #151518; border: 1px solid #3f3f46; border-radius: 8px; padding: 7px 12px; }
+.kpi .rot { font-size: 11px; color: #71717a; text-transform: uppercase; letter-spacing: .4px; }
+.kpi .val { font-size: 18px; font-weight: 600; color: #f4f4f5; font-variant-numeric: tabular-nums; }
 .kpi.crit .val { color: #ef4444; }
 .kpi.atn .val { color: #f59e0b; }
 .kpi.off .val { color: #71717a; }
@@ -3593,7 +3623,7 @@ export default {
 """
 
 no(id="alarmes_kpi", type="ui-template", z="flow_monitor", group=G_ALARMES_KPI,
-   name="KPI de alarmes", order=1, width="12", height="2",
+   name="KPI de alarmes", order=1, width="12", height="1",
    head="", format=ALARMES_KPI, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=540, wires=[[]])
