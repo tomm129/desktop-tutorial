@@ -161,8 +161,14 @@ grupo(G_CAB,    "",                       12, 1, altura=3, pagina=PAGINA_DET, ti
 grupo(G_TILES,  "Leituras agora",          6, 2, altura=8, pagina=PAGINA_DET)
 grupo(G_CMD,    "Comandos",                6, 3, altura=2, pagina=PAGINA_DET)
 grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=5, pagina=PAGINA_DET)
-# Altura 10 (era 13): sem a coluna de sobressalentes o bloco encolheu.
-grupo(G_PLACA,  "Dados de placa", 12, 5, altura=10, pagina=PAGINA_DET)
+# Altura 10: com os dados de placa em 3 colunas (grupos identificacao /
+# eletrico / mecanico) uma ficha cabe nessa altura; o widget usa o mesmo
+# valor (era 13, sobra da epoca da coluna de sobressalentes).
+# Altura 15: um ativo com DUAS partes (o caso comum -- motor + ventilador,
+# soprador 1 + 2) precisa de duas fichas empilhadas. Com 10 a segunda saia
+# cortada ao meio, e a altura foi calibrada olhando so um ativo de uma
+# parte. Acima de duas partes o bloco rola, que e degradacao aceitavel.
+grupo(G_PLACA,  "Dados de placa", 12, 5, altura=17, pagina=PAGINA_DET)
 grupo(G_TEMP,   "Temperatura (°C)",        6, 6, altura=8, pagina=PAGINA_DET)
 grupo(G_VIB,    "Vibracao RMS (g)",        6, 7, altura=8, pagina=PAGINA_DET)
 grupo(G_CORR,   "Corrente (A)",           12, 8, altura=8, pagina=PAGINA_DET)
@@ -2151,14 +2157,24 @@ PLACA = r"""
                     </div>
                 </div>
 
-                <div class="col">
+                <div class="col dados-col">
                     <div class="titulo">Dados de placa</div>
-                    <table class="ficha">
-                        <tr v-for="(c, j) in f.campos" :key="j">
-                            <th>{{ c.rot }}</th>
-                            <td>{{ c.val }}</td>
-                        </tr>
-                    </table>
+                    <div class="grupos">
+                        <div v-for="(g, k) in grupos(f)" :key="k" class="grupo">
+                            <div class="subtitulo">{{ g.nome }}</div>
+                            <table class="ficha">
+                                <tr v-for="(c, j) in g.campos" :key="j">
+                                    <th><span v-if="c.imp && c.rot"
+                                              class="ponto"></span>{{ c.rot }}</th>
+                                    <td :class="{ imp: c.imp }">{{ c.val }}</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="legenda">
+                        <span class="ponto"></span>define os limites de alarme
+                        e a zona ISO 20816
+                    </div>
                 </div>
 
             </div>
@@ -2178,6 +2194,55 @@ export default {
                 this.fichas = ((m && m.payload) || {}).fichas || [];
             }
         }
+    },
+    methods: {
+        // Espalha a lista plana de campos em colunas por natureza. Os
+        // rotulos sao os que a function "montar painel" emite; um rotulo
+        // que ela ainda nao conheca cai num grupo "Outros" em vez de sumir.
+        grupos (f) {
+            const gs = [
+                { nome: 'Identificacao',
+                  rots: ['Fabricante', 'Modelo', 'Numero de serie', 'Ano'],
+                  campos: [] },
+                { nome: 'Eletrico',
+                  rots: ['Potencia', 'Tensao', 'Corrente nominal', 'Rotacao',
+                         'Frequencia', 'Polos', 'Fator de servico',
+                         'Rendimento', 'Fator de potencia', 'Limite de alarme'],
+                  campos: [] },
+                { nome: 'Mecanico',
+                  rots: ['Carcaca', 'Grau de protecao', 'Isolamento', 'Peso'],
+                  campos: [] }
+            ];
+            // Campos que MUDAM O COMPORTAMENTO do alarme: a corrente nominal
+            // define os limites de 90%/110%; potencia e carcaca definem o
+            // grupo da ISO 20816 (a zona do mesmo mm/s muda com o porte).
+            const CRITICOS = ['Potencia', 'Corrente nominal', 'Carcaca',
+                              'Limite de alarme'];
+            let atual = null, imp = false;
+            for (const c of f.campos) {
+                if (c.rot) {
+                    atual = null;
+                    for (const g of gs) {
+                        if (g.rots.indexOf(c.rot) >= 0) { atual = g; break; }
+                    }
+                    if (!atual) {
+                        for (const g of gs) {
+                            if (g.nome === 'Outros') { atual = g; break; }
+                        }
+                    }
+                    if (!atual) {
+                        atual = { nome: 'Outros', rots: [], campos: [] };
+                        gs.push(atual);
+                    }
+                    imp = CRITICOS.indexOf(c.rot) >= 0;
+                }
+                // Linha sem rotulo e continuacao da anterior ("7,5 kW" logo
+                // abaixo de "Potencia"): herda o grupo E o destaque.
+                (atual || gs[0]).campos.push(
+                    { rot: c.rot, val: c.val, imp: imp });
+            }
+            return gs.filter(function (g) { return g.campos.length; });
+        }
     }
 }
 </script>
@@ -2191,16 +2256,35 @@ export default {
    subiam demais e cobriam o rotulo "PLAQUETA" da primeira coluna. */
 .local  { font-size: 12px; color: #71717a; margin-bottom: 20px; }
 
-.painel { display: flex; gap: 24px; flex-wrap: wrap; align-items: flex-start; }
+.painel { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
 .col    { flex: 1 1 260px; min-width: 240px; }
 .foto-col { flex: 0 1 300px; }
+/* A area de dados ocupa todo o restante da largura: sem isso a metade
+   direita do bloco ficava vazia depois que a coluna de sobressalentes
+   saiu. */
+.dados-col { flex: 3 1 460px; min-width: 300px; }
 .titulo { font-size: 12px; text-transform: uppercase; letter-spacing: .4px;
           color: #71717a; margin-bottom: 10px; }
-.conta  { background: #27272a; color: #a1a1aa; border-radius: 8px;
-          padding: 0 7px; margin-left: 6px; }
 
-.foto   { max-width: 100%; border: 1px solid #3f3f46; border-radius: 8px;
-          display: block; box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+/* As colunas de dados quebram sozinhas: 3 lado a lado no monitor, 2 ou 1
+   conforme a largura do tablet. */
+.grupos { display: grid; gap: 14px 28px;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.subtitulo { font-size: 11px; text-transform: uppercase; letter-spacing: .4px;
+             color: #a1a1aa; border-bottom: 1px solid #27272a;
+             padding-bottom: 4px; margin-bottom: 2px; }
+
+/* Destaque dos campos que calibram o alarme: ponto azul + valor em
+   negrito. Azul (#3b82f6) e a cor de destaque do tema; verde/ambar/
+   vermelho ficam reservados para estado de alarme. */
+.ponto { display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+         background: #3b82f6; margin-right: 6px; vertical-align: 1px; }
+.legenda { font-size: 11px; color: #71717a; margin-top: 12px; }
+
+/* max-height: uma plaqueta retrato alta demais esticava o bloco inteiro. */
+.foto   { max-width: 100%; max-height: 320px; border: 1px solid #3f3f46;
+          border-radius: 8px; display: block;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
 .foto:hover { border-color: #52525b; }
 .semfoto { color: #71717a; font-size: 13px; border: 1px dashed #3f3f46;
            border-radius: 8px; padding: 18px; text-align: center; }
@@ -2214,21 +2298,12 @@ table { border-collapse: collapse; width: 100%; }
 /* tabular-nums aqui SIM: sao colunas que alinham verticalmente */
 .ficha td { color: #f4f4f5; font-size: 13px; padding: 4px 0;
             font-variant-numeric: tabular-nums; }
-
-.sobras td { padding: 5px 0; border-bottom: 1px solid #27272a;
-             font-size: 13px; vertical-align: top; }
-.sobras tr:last-child td { border-bottom: none; }
-.it  { color: #a1a1aa; }
-.obs { font-size: 11px; color: #52525b; }
-.cod { color: #f4f4f5; font-family: ui-monospace, "Cascadia Code", monospace;
-       padding-left: 12px !important; white-space: nowrap; }
-.qt  { color: #71717a; text-align: right; padding-left: 10px !important;
-       white-space: nowrap; }
+.ficha td.imp { font-weight: 600; }
 </style>
 """
 
 no(id="painel_placa", type="ui-template", z="flow_monitor", group=G_PLACA,
-   name="dados de placa", order=1, width="12", height="13",
+   name="dados de placa", order=1, width="12", height="17",
    head="", format=PLACA, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=500, wires=[[]])
