@@ -263,3 +263,7 @@ usa a mesma infraestrutura. Fica para depois do primeiro piloto.
   ligado**, o Windows apaga arquivo sozinho e sem avisar — já evaporou um venv
   inteiro no meio de uma sessão. Conferir espaço antes de qualquer instalação.
 - `idf.py monitor` não funciona aqui (sem TTY) — usar script de monitor serial.
+- **`.ps1` só com ASCII.** O PowerShell 5.1 lê script sem BOM como ANSI: um
+  travessão `—` ou acento vira lixo multibyte e o parser acusa *"cadeia de
+  caracteres não tem o terminador"* numa linha que está visivelmente correta.
+  Custou uma rodada de depuração no `gravar.ps1`.

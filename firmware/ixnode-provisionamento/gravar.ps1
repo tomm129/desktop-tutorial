@@ -61,7 +61,7 @@ Write-Output "`n=== monitor (Ctrl+] para sair) ==="
 Write-Output "Procure no log, nesta ordem:"
 Write-Output "  1. 'auto-teste vibracao: PASSOU'   <- a matematica no chip real"
 Write-Output "  2. 'LED de identificacao no GPIO8'"
-Write-Output "  3. 'no virgem — subindo portal'    <- se a flash foi apagada"
+Write-Output "  3. 'no virgem -- subindo portal'    <- se a flash foi apagada"
 Write-Output "  4. 'ouvindo comandos em monitoramento/ixn-xxxxxx/cmd'"
 Write-Output ""
 idf.py -p $Porta monitor
