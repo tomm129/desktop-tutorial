@@ -1,0 +1,10 @@
+dependencies:
+  # Para o comando "identificar": pisca o LED do no para quem esta na frente
+  # da maquina saber QUAL dos nos e aquele. O C6-DevKitC-1 traz um WS2812
+  # embutido (GPIO8), e o led_strip fala com ele pelo RMT.
+  #
+  # Placa de producao com LED comum nao precisa disto -- ver
+  # IDENT_TIPO em led_ident.h, que compila sem o componente.
+  espressif/led_strip: "^2.5.0"
+  idf:
+    version: ">=5.3"

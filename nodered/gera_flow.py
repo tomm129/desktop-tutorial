@@ -159,7 +159,10 @@ grupo(G_CAB,    "",                       12, 1, altura=3, pagina=PAGINA_DET, ti
 # 8 tiles em 3 colunas = 3 linhas. Com altura 5 a terceira ficava cortada e
 # o grupo criava barra de rolagem propria.
 grupo(G_TILES,  "Leituras agora",          6, 2, altura=8, pagina=PAGINA_DET)
-grupo(G_CMD,    "Comandos",                6, 3, altura=2, pagina=PAGINA_DET)
+# Altura 8, igual a "Leituras agora" ao lado. Com altura 2 (so o botao de
+# publicar) sobrava um vao morto de ~200px na coluna direita, e o card ficava
+# atarracado ao lado de um alto.
+grupo(G_CMD,    "Comandos",                6, 3, altura=8, pagina=PAGINA_DET)
 grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=5, pagina=PAGINA_DET)
 # Altura 10: com os dados de placa em 3 colunas (grupos identificacao /
 # eletrico / mecanico) uma ficha cabe nessa altura; o widget usa o mesmo
@@ -357,6 +360,13 @@ a.vib_pico_g    = lido.vib_pico_g;
 a.vib_vel_mm_s  = lido.vib_vel_mm_s;
 a.vib_crista    = lido.vib_crista;
 a.fs_hz         = lido.fs_hz;
+// Ritmo que o proprio no informa. E o que permite a tela MOSTRAR o
+// intervalo vigente em vez de so oferecer um seletor que escreve e nunca
+// le. Firmware antigo nao manda o campo: fica undefined e a tela omite,
+// em vez de inventar "5 s" como se soubesse.
+if (typeof p.intervalo_ms === 'number' && isFinite(p.intervalo_ms)) {
+    a.intervalo_ms = p.intervalo_ms;
+}
 if (p.rede) { a.rssi_dbm = p.rede.rssi_dbm ?? null; }
 
 // Cache curto das ultimas leituras para tendencia e sparklines.
@@ -659,11 +669,12 @@ no(id="tick", type="inject", z="flow_monitor", name="a cada 2s",
    x=140, y=380, wires=[["montar_painel"]])
 
 no(id="montar_painel", type="function", z="flow_monitor",
-   name="montar painel", outputs=10, timeout=0, noerr=0,
+   name="montar painel", outputs=11, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=350, y=380,
    wires=[["tabela_ativos"], ["txt_resumo"], ["stat_tiles"],
           ["cards_ativos"], ["cab_detalhe"], ["painel_placa"],
-          ["alarmes_kpi"], ["alarmes_lista"], ["tabela_planta"], ["linha_tempo"]],
+          ["alarmes_kpi"], ["alarmes_lista"], ["tabela_planta"], ["linha_tempo"],
+          ["alvo_cmd"]],
    func=r"""
 // Unico ponto que decide estado, cor e texto -- se os limites mudarem,
 // mudam aqui e valem para a tabela, os alarmes e os medidores.
@@ -1365,6 +1376,27 @@ let linhas_det = linhas.filter(function (l) { return l._pai === sel; });
 if (!linhas_det.length) { linhas_det = linhas; }
 const m1 = { payload: linhas_det.map(limpar) };
 
+// ---- Saida 11: modulos que o card de Comandos vai comandar -----------
+// O card manda comando para um destinatario que, sem isto, e invisivel --
+// e "Identificar (LED)" so faz sentido depois de saber QUAL nó vai piscar.
+// Tambem e onde a taxa real de amostragem aparece: se o FIFO do ADXL345
+// comecar a transbordar em campo, o fs_hz cai aqui antes de virar sintoma
+// em qualquer outro lugar.
+const m11 = { payload: (esp32_por_chave[sel] || []).map(function (id) {
+    const r = registro[id] || {};
+    const est = est_dev[id] || 'sem_dados';
+    const partes = [ha_quanto(r.visto_em)];
+    // Ritmo vigente, dito pelo proprio no. So aparece se ele informar --
+    // firmware antigo nao manda, e chutar um valor seria pior que omitir.
+    if (typeof r.intervalo_ms === 'number' && isFinite(r.intervalo_ms)) {
+        partes.push((r.intervalo_ms / 1000) + ' s');
+    }
+    if (typeof r.fs_hz === 'number' && isFinite(r.fs_hz)) {
+        partes.push(r.fs_hz.toFixed(0) + ' S/s');
+    }
+    return { id: id, cor: COR[est] || COR.sem_dados, det: partes.join('  ·  ') };
+}) };
+
 // ---- Saude dos elos ---------------------------------------------------
 //
 // "Gateway online" mostrado PELO gateway e tautologia: se o Orange Pi
@@ -2001,7 +2033,7 @@ const m10 = { payload: { eventos: eventos, marcas: marcas, dias: dias, pontos: p
                          faixas: Math.max(1, Math.min(6, fim_faixa.length)),
                          janela: rotulo_janela(JANELA_MS) } };
 
-return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9, m10];
+return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9, m10, m11];
 """)
 
 # =====================================================================
@@ -3797,20 +3829,139 @@ grafico("chart_corr", G_CORR,  "Corrente",     "A",  "0", "", largura=12)
 # =====================================================================
 #  Comandos: escolher o ativo e mandar publicar
 # =====================================================================
-no(id="btn_publicar", type="ui-button", z="flow_monitor", group=G_CMD,
-   name="publicar agora", label="Publicar agora", order=1, width="6",
-   height="1", tooltip="Forca uma leitura imediata no ativo aberto",
-   color="", bgcolor="", className="", icon="", iconPosition="left",
-   payload="", payloadType="str", topic="topic", topicType="msg",
-   buttonColor="", textColor="", iconColor="", enableClick=True,
-   enablePointerdown=False, pointerdownPayload="",
-   pointerdownPayloadType="str", enablePointerup=False,
-   pointerupPayload="", pointerupPayloadType="str",
-   x=140, y=600, wires=[["monta_cmd"]])
+def botao_cmd(nid, rotulo, acao, ordem, largura, dica, y,
+              cor_texto="", cor_fundo=""):
+    """Botao que manda uma acao para o ESP32 do ativo aberto."""
+    no(id=nid, type="ui-button", z="flow_monitor", group=G_CMD,
+       name=acao, label=rotulo, order=ordem, width=str(largura),
+       height="1", tooltip=dica,
+       color="", bgcolor="", className="", icon="", iconPosition="left",
+       payload=acao, payloadType="str", topic="topic", topicType="msg",
+       buttonColor=cor_fundo, textColor=cor_texto, iconColor="",
+       enableClick=True,
+       enablePointerdown=False, pointerdownPayload="",
+       pointerdownPayloadType="str", enablePointerup=False,
+       pointerupPayload="", pointerupPayloadType="str",
+       x=140, y=y, wires=[["monta_cmd"]])
+
+
+# Unico botao azul do card. Antes eram dois lado a lado, "Publicar" e
+# "Identificar", com o mesmo peso visual -- e nao tem o mesmo peso: um e a
+# acao comum e segura, o outro e ocasional e so serve com voce na frente da
+# maquina. Identificar virou acao POR MODULO, na lista abaixo.
+botao_cmd("btn_publicar", "Publicar agora", "publicar", 1, 6,
+          "Forca uma leitura imediata em todos os modulos deste ativo", 560)
+
+# Rotulo no imperativo ("Mudar ... para") de proposito.
+#
+# Um seletor normalmente MOSTRA o estado atual, e este nao consegue: o valor
+# so existe no no, e o widget nao tem por onde receber de volta. Rotulado
+# como "Intervalo de publicacao" ele parecia exibir o ritmo vigente enquanto
+# na verdade estava sempre vazio. Rotulado como acao, ele nao promete o que
+# nao entrega -- e o ritmo real aparece na lista de modulos, vindo do proprio
+# no pela telemetria.
+no(id="dd_intervalo", type="ui-dropdown", z="flow_monitor", group=G_CMD,
+   name="intervalo", label="Mudar intervalo para...", order=2, width="6",
+   height="1", tooltip="Ritmo com que este ativo publica telemetria",
+   place="escolha...", className="", clearable=False, multiple=False,
+   chips=False, passthru=False, options=[
+       {"label": "1 s — diagnostico",  "value": 1000,  "type": "num"},
+       {"label": "2 s",                "value": 2000,  "type": "num"},
+       {"label": "5 s — padrao",       "value": 5000,  "type": "num"},
+       {"label": "15 s",               "value": 15000, "type": "num"},
+       {"label": "30 s — economia",    "value": 30000, "type": "num"},
+   ],
+   payload="", topic="topic", topicType="msg",
+   x=140, y=640, wires=[["monta_cmd"]])
+
+# Texto NEUTRO, nao vermelho.
+#
+# Vermelho aqui era tentador (acao destrutiva) e errado duas vezes: fere a
+# regra do projeto de que cor de status e reservada -- numa tela de ativo
+# CRITICO, texto vermelho le como "este modulo esta em falha", nao como
+# "esta acao e perigosa" -- e ainda reprovava em contraste (4,41:1 sobre o
+# fundo elevado, contra os 4,5 exigidos). Quem sinaliza o risco aqui e a
+# confirmacao em dois passos e o plural do rotulo, nao a cor.
+#
+# Plural: o comando vai para TODOS os modulos do ativo. "Reiniciar modulo",
+# no singular, escondia que num ativo de duas partes a telemetria inteira
+# cai junto.
+botao_cmd("btn_reiniciar", "Reiniciar modulos", "reiniciar", 5, 3,
+          "Reinicia todos os modulos deste ativo. Clique duas vezes para "
+          "confirmar.", 680, cor_texto=TINTA_1, cor_fundo=FUNDO_ELEV)
+
+# Qual modulo estou comandando?
+#
+# Sem isto o card manda comandos para um destinatario invisivel -- e o
+# "Identificar (LED)" so faz sentido depois de saber QUAL nó vai piscar.
+# Tambem e onde a taxa real de amostragem aparece: se o FIFO do ADXL345
+# estiver transbordando em campo, o fs_hz cai aqui antes de qualquer outro
+# sintoma.
+no(id="alvo_cmd", type="ui-template", z="flow_monitor", group=G_CMD,
+   name="modulo alvo", order=3, width="6", height="3",
+   format=(r"""
+<div class="alvo">
+  <div class="tit">Modulos deste ativo</div>
+  <div v-if="!msg || !msg.payload || !msg.payload.length" class="vazio">
+    Nenhum modulo associado a este ativo.
+  </div>
+  <div v-else v-for="d in msg.payload" :key="d.id" class="linha">
+    <span class="pt" :style="{background: d.cor}"></span>
+    <span class="id">{{ d.id }}</span>
+    <span class="det">{{ d.det }}</span>
+    <button class="piscar" @click="piscar(d.id)"
+            :title="'Pisca o LED de ' + d.id + ' por 15 s'">piscar</button>
+  </div>
+</div>
+
+<style scoped>
+.alvo  { padding: 2px 0 0 0; }
+.tit   { font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+         color: __T2__; margin-bottom: 6px; }
+.vazio { font-size: 13px; color: __T2__; }
+.linha { display: flex; align-items: center; gap: 8px; padding: 5px 0;
+         border-top: 1px solid __LN__; }
+.linha:first-of-type { border-top: 0; }
+.pt    { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
+.id    { font-size: 13px; color: __T1__;
+         font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* T2 e nao T3: T3 sobre o fundo do card da 3,77:1 e reprova no WCAG AA
+   (exige 4,5 para texto normal). T2 da 7,11:1. E texto que carrega dado --
+   o ritmo e a taxa de amostragem --, nao enfeite. */
+.det   { font-size: 12px; color: __T2__; margin-left: auto;
+         white-space: nowrap; }
+.piscar{ flex: 0 0 auto; font-size: 12px; padding: 4px 10px;
+         min-height: 32px;            /* alvo de toque com luva */
+         color: __T1__; background: __ELEV__;
+         border: 1px solid __BD__; border-radius: 6px; cursor: pointer; }
+.piscar:hover { border-color: __T2__; }
+</style>
+
+<script>
+export default {
+  methods: {
+    // Identificar tem de ser POR MODULO.
+    //
+    // Antes era um botao unico no card, que mandava piscar para todos os
+    // modulos do ativo -- o que anula a propria funcao: se os dois piscam
+    // juntos, voce continua sem saber qual e qual. Com dois modulos o
+    // recurso simplesmente nao servia para nada.
+    piscar(id) { this.send({ payload: { identificar: id } }); }
+  }
+}
+</script>
+""".replace("__T1__", TINTA_1)
+   .replace("__T2__", TINTA_2)
+   .replace("__LN__", LINHA)
+   .replace("__ELEV__", FUNDO_ELEV)
+   .replace("__BD__", BORDA)),
+   storeOutMessages=False, passthru=False, resendOnRefresh=True,
+   templateScope="local", className="", x=560, y=720,
+   wires=[["monta_cmd"]])
 
 no(id="monta_cmd", type="function", z="flow_monitor", name="monta comando",
-   outputs=1, timeout=0, noerr=0, initialize="", finalize="", libs=[],
-   x=340, y=600, wires=[["mqtt_cmd"]],
+   outputs=2, timeout=0, noerr=0, initialize="", finalize="", libs=[],
+   x=340, y=620, wires=[["mqtt_cmd"], ["aviso_cmd"]],
    func=r"""
 // Manda para o ativo ABERTO na tela, em vez de um id fixo no codigo.
 //
@@ -3818,22 +3969,92 @@ no(id="monta_cmd", type="function", z="flow_monitor", name="monta comando",
 // TAG do cadastro ("U1", "U1/Motor principal"). O comando so faz sentido
 // para um ESP32 de verdade, entao quem resolve isso e o registro publicado
 // pelo renderizador.
+//
+// Saida 0 -> MQTT.  Saida 1 -> aviso na tela.
+function aviso(txt, cor) {
+    return [null, { payload: txt, ui_update: { colorDefault: cor } }];
+}
+
 const chave = flow.get('ativo_sel');
-if (!chave) { node.warn('nenhum ativo aberto'); return null; }
+if (!chave) { return aviso('Nenhum ativo aberto.', 'warning'); }
 
 const destinos = (flow.get('esp32_por_chave') || {})[chave] || [];
 if (!destinos.length) {
-    node.warn('ativo "' + chave + '" nao tem ESP32 conhecido para comandar');
-    return null;
+    return aviso('"' + chave + '" nao tem modulo conhecido para comandar.',
+                 'warning');
+}
+
+// Numero = intervalo (dropdown). String = acao (botoes). Objeto com
+// .identificar = piscar UM modulo especifico (clique na lista).
+const p = msg.payload;
+let corpo = null;
+let texto = '';
+
+// Identificar e o unico comando que NAO vai para todos: mandar os dois
+// modulos piscarem juntos anula a funcao de descobrir qual e qual.
+if (p && typeof p === 'object' && p.identificar) {
+    const alvo = String(p.identificar);
+    if (destinos.indexOf(alvo) < 0) {
+        return aviso('"' + alvo + '" nao pertence a este ativo.', 'warning');
+    }
+    return [[{ topic: 'monitoramento/' + alvo + '/cmd',
+               payload: JSON.stringify({ comando: 'identificar', seg: 15 }) }],
+            { payload: 'Piscando ' + alvo + ' por 15 s — procure o modulo',
+              ui_update: { colorDefault: 'info' } }];
+}
+
+if (typeof p === 'number') {
+    corpo = { intervalo_ms: p };
+    texto = 'Intervalo de publicacao: ' + (p / 1000) + ' s';
+
+} else if (p === 'publicar') {
+    corpo = { comando: 'publicar' };
+    texto = 'Leitura imediata solicitada';
+
+} else if (p === 'reiniciar') {
+    // Confirmacao em dois cliques. Reiniciar cria buraco no historico, e um
+    // toque acidental na tela do painel de campo nao pode derrubar um no.
+    // Sem widget extra: o proprio botao arma e, no segundo clique dentro da
+    // janela, executa.
+    const agora = Date.now();
+    const armado = flow.get('reinicio_armado') || 0;
+    if (agora - armado > 5000) {
+        flow.set('reinicio_armado', agora);
+        return aviso('Clique de novo em 5 s para confirmar o reinicio.',
+                     'warning');
+    }
+    flow.set('reinicio_armado', 0);
+    corpo = { comando: 'reiniciar' };
+    texto = 'Reiniciando o modulo...';
+
+} else {
+    return aviso('Comando desconhecido.', 'warning');
 }
 
 // Um ativo principal com varias partes dispara em todas elas. O array
 // vem aninhado de proposito: assim as N mensagens saem PELA MESMA saida.
-return [destinos.map(function (dev) {
+const msgs = destinos.map(function (dev) {
     return { topic: 'monitoramento/' + dev + '/cmd',
-             payload: JSON.stringify({ comando: 'publicar' }) };
-})];
+             payload: JSON.stringify(corpo) };
+});
+
+const alvo = destinos.length > 1
+             ? ' (' + destinos.length + ' modulos)'
+             : '';
+return [msgs, { payload: texto + alvo, ui_update: { colorDefault: 'info' } }];
 """)
+
+# Sem isto o unico retorno visivel de um comando e o silencio: quem aperta
+# nao sabe se foi, se o ativo nao tem modulo, ou se o clique nem pegou.
+# 6 s, e nao 4: a janela de confirmacao do reinicio dura 5 s. Com o aviso
+# sumindo em 4 s, ele desaparecia com a janela ainda ABERTA -- e quem
+# clicasse de novo achando que estava recomecando do zero, na verdade
+# confirmava. O aviso tem de sobreviver a janela que ele descreve.
+no(id="aviso_cmd", type="ui-notification", z="flow_monitor", ui=BASE,
+   name="aviso de comando", position="bottom right", colorDefault="info",
+   color="", displayTime="6", showCountdown=True, allowDismiss=True,
+   dismissText="ok", allowConfirm=False, confirmText="", raw=False,
+   className="", x=560, y=660, wires=[[]])
 
 no(id="mqtt_cmd", type="mqtt out", z="flow_monitor", name="comando -> ESP32",
    topic="", qos="1", retain="false", respTopic="", contentType="",

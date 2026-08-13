@@ -30,9 +30,12 @@
 #include "mqtt_client.h"
 #include "nvs_flash.h"
 
+#include "cJSON.h"
+
 #include "adxl345.h"
 #include "config_nvs.h"
 #include "identidade.h"
+#include "led_ident.h"
 #include "portal.h"
 #include "vibracao.h"
 
@@ -110,9 +113,19 @@ static EventGroupHandle_t s_rede;
 
 static int s_tentativas = 0;
 static esp_mqtt_client_handle_t s_mqtt = NULL;
-static bool s_mqtt_ok = false;
+// volatile: escrito na task do cliente MQTT, lido no laco de app_main --
+// mesma razao dos flags de comando abaixo. Ficou de fora por descuido, e
+// so nao quebrou porque as chamadas de funcao no laco forcam releitura.
+static volatile bool s_mqtt_ok = false;
 static char s_topico[64];
 static char s_topico_status[64];
+static char s_topico_cmd[64];
+
+// Comandos vindos do painel. volatile: escritos na task do cliente MQTT,
+// lidos no laco de telemetria.
+static volatile bool s_publicar_ja = false;
+static volatile int  s_intervalo_ms = INTERVALO_MS;
+static volatile bool s_reiniciar = false;
 
 // ---------------------------------------------------------------------
 //  Wi-Fi
@@ -169,6 +182,76 @@ static bool conectar_wifi(const ixnode_config_t *cfg)
 // ---------------------------------------------------------------------
 //  MQTT
 // ---------------------------------------------------------------------
+// Forca do sinal Wi-Fi, em dBm.
+//
+// Estava fixo em 0 no JSON -- resto do esqueleto de batimento. E 0 dBm nao
+// e "sem informacao": e um valor VALIDO e absurdo (1 mW no receptor, sinal
+// mais forte que qualquer AP entrega). O painel exibia isso como leitura
+// boa, e o RSSI era justamente o que ia explicar telemetria intermitente
+// num no montado longe do roteador. Sem AP associado, devolve 0 e quem
+// publica omite o campo.
+static bool rssi_atual(int *dbm)
+{
+    wifi_ap_record_t ap;
+    if (esp_wifi_sta_get_ap_info(&ap) != ESP_OK) { return false; }
+    *dbm = ap.rssi;
+    return true;
+}
+
+// Trata uma linha de comando vinda do painel.
+//
+// O payload e JSON, o mesmo formato que o firmware Arduino ja aceitava --
+// manter compativel deixa os dois conviverem na mesma planta durante a
+// migracao:
+//   {"comando":"publicar"}                 leitura imediata
+//   {"comando":"identificar"}              pisca o LED (achar o no)
+//   {"comando":"identificar","seg":30}
+//   {"comando":"reiniciar"}                reboot
+//   {"intervalo_ms":2000}                  muda o ritmo de publicacao
+static void tratar_comando(const char *dados, int n)
+{
+    cJSON *j = cJSON_ParseWithLength(dados, (size_t)n);
+    if (j == NULL) {
+        ESP_LOGW(TAG, "comando com JSON invalido");
+        return;
+    }
+
+    const cJSON *iv = cJSON_GetObjectItemCaseSensitive(j, "intervalo_ms");
+    if (cJSON_IsNumber(iv)) {
+        const int v = iv->valueint;
+        // Piso de 500 ms: abaixo disso a janela de vibracao (1 s) nem
+        // termina antes da proxima, e o no passaria a viver so medindo.
+        // Teto de 1 h para um valor absurdo nao deixar o no mudo.
+        if (v >= 500 && v <= 3600000) {
+            s_intervalo_ms = v;
+            ESP_LOGI(TAG, "intervalo de publicacao = %d ms", v);
+        } else {
+            ESP_LOGW(TAG, "intervalo %d fora da faixa (500..3600000)", v);
+        }
+    }
+
+    const cJSON *c = cJSON_GetObjectItemCaseSensitive(j, "comando");
+    if (cJSON_IsString(c) && c->valuestring != NULL) {
+        if (strcmp(c->valuestring, "publicar") == 0) {
+            s_publicar_ja = true;
+            ESP_LOGI(TAG, "publicacao imediata solicitada");
+        } else if (strcmp(c->valuestring, "identificar") == 0) {
+            const cJSON *s = cJSON_GetObjectItemCaseSensitive(j, "seg");
+            led_ident_piscar(cJSON_IsNumber(s) ? s->valueint : 10);
+        } else if (strcmp(c->valuestring, "reiniciar") == 0) {
+            // Nao reinicia aqui: esta na task do cliente MQTT, e derrubar
+            // o proprio callback no meio deixa a desconexao suja. O laco
+            // principal reinicia depois de fechar o que precisa.
+            ESP_LOGW(TAG, "reinicio solicitado pelo painel");
+            s_reiniciar = true;
+        } else {
+            ESP_LOGW(TAG, "comando desconhecido: %s", c->valuestring);
+        }
+    }
+
+    cJSON_Delete(j);
+}
+
 static void ao_mqtt(void *arg, esp_event_base_t base, int32_t id, void *dados)
 {
     (void)arg; (void)base;
@@ -181,6 +264,17 @@ static void ao_mqtt(void *arg, esp_event_base_t base, int32_t id, void *dados)
         // Retido: quem abrir o painel depois ve o estado atual sem precisar
         // esperar o proximo batimento.
         esp_mqtt_client_publish(s_mqtt, s_topico_status, "online", 0, 1, 1);
+        // Assinar AQUI, e nao uma vez apos o start: a cada reconexao a
+        // sessao e nova (clean session) e a assinatura anterior se perde.
+        // Sem isto o botao do painel funciona so ate a primeira queda.
+        esp_mqtt_client_subscribe(s_mqtt, s_topico_cmd, 1);
+        ESP_LOGI(TAG, "ouvindo comandos em %s", s_topico_cmd);
+        break;
+
+    case MQTT_EVENT_DATA:
+        if (ev->topic_len > 0 && ev->data_len > 0) {
+            tratar_comando(ev->data, ev->data_len);
+        }
         break;
     case MQTT_EVENT_DISCONNECTED:
         ESP_LOGW(TAG, "MQTT desconectado");
@@ -202,6 +296,8 @@ static void iniciar_mqtt(const ixnode_config_t *cfg)
     snprintf(s_topico, sizeof(s_topico), "monitoramento/%s/telemetria", ixnode_id());
     snprintf(s_topico_status, sizeof(s_topico_status),
              "monitoramento/%s/status", ixnode_id());
+    snprintf(s_topico_cmd, sizeof(s_topico_cmd),
+             "monitoramento/%s/cmd", ixnode_id());
 
     esp_mqtt_client_config_t mc = {
         .broker.address.uri = uri,
@@ -252,7 +348,7 @@ void app_main(void)
     // indistinguivel de maquina ruim.
     {
         float err[3];
-        bool ok = vib_autoteste((float)VIB_ODR_HZ, err);
+        bool ok = vib_autoteste((float)VIB_ODR_HZ, VIB_HP_HZ, err);
         ESP_LOGI(TAG, "auto-teste vibracao: %s "
                       "(erro rms %+.2f%%, crista %+.2f%%, vel %+.2f%%)",
                  ok ? "PASSOU" : "FALHOU", err[0], err[1], err[2]);
@@ -304,15 +400,49 @@ void app_main(void)
         ESP_LOGE(TAG, "sem ADXL345 — publicando so batimento");
     }
 
+    led_ident_iniciar();   // falha nao e fatal: so perde o "identificar"
+
     int n = 0;
     while (1) {
-        vTaskDelay(pdMS_TO_TICKS(INTERVALO_MS));
+        // Espera em fatias em vez de um vTaskDelay longo, para o botao
+        // "Publicar agora" do painel nao ter de aguardar o ciclo inteiro --
+        // seria um comando de leitura imediata com ate 5 s de atraso.
+        const int PASSO_MS = 100;
+        for (int t = 0; t < s_intervalo_ms; t += PASSO_MS) {
+            vTaskDelay(pdMS_TO_TICKS(PASSO_MS));
+            if (s_publicar_ja || s_reiniciar) { break; }
+        }
+
+        if (s_reiniciar) {
+            // Avisa o painel antes de sumir: sem isto o LWT so dispara no
+            // timeout do broker, e o no aparece "online" por segundos
+            // depois de ja ter reiniciado.
+            esp_mqtt_client_publish(s_mqtt, s_topico_status, "offline", 0, 1, 1);
+            vTaskDelay(pdMS_TO_TICKS(300));
+            esp_restart();
+        }
+
+        s_publicar_ja = false;
+
         if (!s_mqtt_ok) {
             continue;
         }
 
         int64_t up = esp_timer_get_time() / 1000000;
         char json[384];
+
+        // Sem AP associado o campo sai AUSENTE em vez de zero: "nao sei" e
+        // "sinal perfeito" nao podem chegar ao painel como o mesmo numero.
+        char rede[64];
+        int dbm;
+        if (rssi_atual(&dbm)) {
+            snprintf(rede, sizeof(rede),
+                     "\"rede\":{\"rssi_dbm\":%d,\"uptime_s\":%lld}",
+                     dbm, (long long)up);
+        } else {
+            snprintf(rede, sizeof(rede),
+                     "\"rede\":{\"uptime_s\":%lld}", (long long)up);
+        }
 
         vib_resultado_t r;
         bool tem_vib = false;
@@ -334,11 +464,15 @@ void app_main(void)
                      "\"crista\":%.2f,\"vel_mm_s\":%.2f,"
                      "\"eixo_x_g\":%.2f,\"eixo_y_g\":%.2f,\"eixo_z_g\":%.2f,"
                      "\"fs_hz\":%.1f},"
-                     "\"rede\":{\"rssi_dbm\":%d,\"uptime_s\":%lld}}",
+                     // O no informa o proprio ritmo. Sem isto o painel
+                     // mostra um seletor de intervalo que nao sabe em que
+                     // valor o no esta -- um controle que so escreve e
+                     // nunca le, e que por isso mente sobre o estado.
+                     "\"intervalo_ms\":%d,%s}",
                      ixnode_id(), (long long)(up * 1000),
                      r.rms_g, r.pico_g, r.crista, r.vel_mm_s,
                      r.eixo_x_g, r.eixo_y_g, r.eixo_z_g, adxl345_odr(),
-                     0, (long long)up);
+                     s_intervalo_ms, rede);
         } else {
             // Sem vibracao confiavel, o campo sai AUSENTE -- nao zero e nao
             // null. O painel trata ausente como "nao medido" (e a razao de
@@ -348,9 +482,9 @@ void app_main(void)
                 ESP_LOGW(TAG, "FIFO transbordou — lote descartado");
             }
             snprintf(json, sizeof(json),
-                     "{\"device_id\":\"%s\",\"ts\":%lld,\"temperatura_c\":null,"
-                     "\"rede\":{\"rssi_dbm\":%d,\"uptime_s\":%lld}}",
-                     ixnode_id(), (long long)(up * 1000), 0, (long long)up);
+                     "{\"device_id\":\"%s\",\"ts\":%lld,"
+                     "\"temperatura_c\":null,%s}",
+                     ixnode_id(), (long long)(up * 1000), rede);
         }
 
         esp_mqtt_client_publish(s_mqtt, s_topico, json, 0, 0, 0);

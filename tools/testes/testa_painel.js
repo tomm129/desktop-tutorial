@@ -32,6 +32,7 @@ function ok(cond, nome, extra) {
 }
 
 const reg = acharNo('registrar telemetria');
+const cmd = acharNo('monta comando');
 
 // =====================================================================
 console.log('\n=== 1. Amostra ao vivo com os campos novos ===');
@@ -265,7 +266,16 @@ console.log('\n=== 8. Linha do tempo: viradas de dia ===');
                 { get: () => undefined, set: () => {} },
                 { get: () => undefined, set: () => {} },
                 {}, { get: () => undefined }, Buffer);
-            const m10 = saidas[saidas.length - 1];
+            // Acha a saida pelo NO de destino, nao por posicao.
+            //
+            // Antes era saidas[saidas.length - 1], assumindo que a linha do
+            // tempo fosse sempre a ultima. Bastou o painel ganhar mais uma
+            // saida para o teste ler outra coisa e quebrar num ponto que
+            // nada tinha a ver com a mudanca.
+            const idx = painel.wires.findIndex(
+                (w) => Array.isArray(w) && w.includes('linha_tempo'));
+            if (idx < 0) { return null; }
+            const m10 = saidas[idx];
             return m10 && m10.payload ? m10.payload : null;
         };
 
@@ -300,6 +310,73 @@ console.log('\n=== 8. Linha do tempo: viradas de dia ===');
                    `-> ${d.rot}`);
             }
         }
+    }
+}
+
+// =====================================================================
+// Comandos para o ativo aberto: confirmacao em dois cliques do reinicio.
+//
+// Reiniciar um ESP32 e destrutivo, entao o botao arma no primeiro clique
+// e so executa no segundo clique dentro de 5 s. Erros de temporizacao aqui
+// deixariam o operador sem feedback ou derrubariam modulos acidentalmente.
+console.log('\n=== 9. Comando reiniciar: confirmacao em dois cliques ===');
+{
+    function rodarCmd(payload, store) {
+        const ctx = { flow: { get: (k) => store[k], set: (k, v) => { store[k] = v; } },
+                      node: { warn: () => {}, error: (e) => { throw e; } } };
+        return rodar(cmd, { payload }, ctx);
+    }
+
+    function novoStore() {
+        return {
+            ativo_sel: 'motor-01',
+            esp32_por_chave: { 'motor-01': ['esp-a', 'esp-b'] }
+        };
+    }
+
+    // 1. Primeiro clique: arma, avisa e NAO envia comando MQTT.
+    {
+        const store = novoStore();
+        const [mqtt, aviso] = rodarCmd('reiniciar', store);
+        ok(mqtt === null, 'primeiro clique nao emite MQTT',
+           mqtt ? `-> ${JSON.stringify(mqtt)}` : '');
+        ok(aviso && /clique de novo/i.test(aviso.payload),
+           'primeiro clique pede confirmacao', aviso ? `-> ${aviso.payload}` : '');
+        ok(typeof store.reinicio_armado === 'number' && store.reinicio_armado > 0,
+           'reinicio_armado registrado', `-> ${store.reinicio_armado}`);
+    }
+
+    // 2. Segundo clique dentro de 5 s: envia reiniciar para todos os modulos.
+    {
+        const store = novoStore();
+        store.reinicio_armado = Date.now() - 1000; // armado ha 1 s
+        const [mqtt, aviso] = rodarCmd('reiniciar', store);
+        ok(Array.isArray(mqtt) && mqtt.length === 2,
+           'segundo clique envia para todos os modulos', `-> ${mqtt.length}`);
+        if (mqtt.length === 2) {
+            ok(mqtt.every(m => m.topic === 'monitoramento/esp-a/cmd'
+                             || m.topic === 'monitoramento/esp-b/cmd'),
+               'topicos apontam para os device_ids do ativo');
+            ok(mqtt.every(m => m.payload === JSON.stringify({ comando: 'reiniciar' })),
+               'payload e comando de reiniciar');
+        }
+        ok(store.reinicio_armado === 0,
+           'reinicio_armado e zerado apos a execucao');
+        ok(aviso && /reiniciando/i.test(aviso.payload),
+           'avisa que esta reiniciando', aviso ? `-> ${aviso.payload}` : '');
+    }
+
+    // 3. Segundo clique depois de 5 s: trata como primeiro clique.
+    {
+        const store = novoStore();
+        store.reinicio_armado = Date.now() - 6000; // armado ha 6 s
+        const [mqtt, aviso] = rodarCmd('reiniciar', store);
+        ok(mqtt === null, 'clique apos 5 s nao emite MQTT (rearma)',
+           mqtt ? `-> ${JSON.stringify(mqtt)}` : '');
+        ok(aviso && /clique de novo/i.test(aviso.payload),
+           'clique apos 5 s pede confirmacao de novo');
+        ok(typeof store.reinicio_armado === 'number' && store.reinicio_armado > 0,
+           'reinicio_armado e atualizado no rearme');
     }
 }
 

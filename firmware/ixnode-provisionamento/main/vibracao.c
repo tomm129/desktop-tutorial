@@ -256,7 +256,7 @@ bool vib_calcular(const vib_amostra_t *am, int n, int aquecimento,
 #define AT_FREQ    50.0f     // bem dentro da banda; longe do corte de 10 Hz
 #define AT_AMP      0.1f     // g de pico
 
-bool vib_autoteste(float fs_hz, float erro_pct[3])
+bool vib_autoteste(float fs_hz, float hp_hz, float erro_pct[3])
 {
     static vib_amostra_t buf[AT_N];   // 19 KB: static de proposito, a pilha
                                       // de uma task do IDF nao aguenta isso.
@@ -273,7 +273,7 @@ bool vib_autoteste(float fs_hz, float erro_pct[3])
     }
 
     vib_resultado_t r;
-    if (!vib_calcular(buf, AT_N, AT_AQUEC, fs_hz, 10.0f, &r)) { return false; }
+    if (!vib_calcular(buf, AT_N, AT_AQUEC, fs_hz, hp_hz, &r)) { return false; }
 
     // Valores analiticos para senoide pura de amplitude de pico A:
     //   rms   = A/raiz(2)

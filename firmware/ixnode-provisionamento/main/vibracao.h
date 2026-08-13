@@ -56,4 +56,8 @@ bool vib_calcular(const vib_amostra_t *am, int n, int aquecimento,
 //  velocidade) com o erro relativo de cada grandeza, para quem chamou
 //  poder logar.
 // ---------------------------------------------------------------------
-bool vib_autoteste(float fs_hz, float erro_pct[3]);
+// hp_hz e parametro, e nao constante interna, de proposito: o auto-teste
+// tem de exercitar o MESMO corte que embarca. Fixo em 10 Hz, ele validava
+// uma configuracao que o firmware nao usa mais (a producao esta em 5 Hz) --
+// um teste verde sobre codigo que ninguem roda.
+bool vib_autoteste(float fs_hz, float hp_hz, float erro_pct[3]);

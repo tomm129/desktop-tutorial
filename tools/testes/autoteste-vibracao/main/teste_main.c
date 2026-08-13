@@ -74,7 +74,7 @@ void app_main(void)
     printf("[1] vib_autoteste() embutido\n");
     {
         float e[3];
-        const bool ok = vib_autoteste(FS, e);
+        const bool ok = vib_autoteste(FS, 5.0f, e);
         if (!ok) { falhas++; }
         printf("  rms %+.2f%%  crista %+.2f%%  vel %+.2f%%   %s\n\n",
                e[0], e[1], e[2], ok ? "ok" : "FALHOU");
