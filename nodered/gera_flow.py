@@ -2220,11 +2220,26 @@ return { payload: { page: 'Detalhe' } };
 no(id="nav_detalhe", type="ui-control", z="flow_monitor", ui=BASE,
    name="navegar", events="all", x=1020, y=340, wires=[[]])
 
+# Voltar e NAVEGACAO, nao a acao principal da tela.
+#
+# Estava com largura 3 (um quarto da tela) e azul cheio: era o elemento mais
+# pesado do cabecalho, competindo com o nome do ativo e com o proprio estado
+# CRITICO -- o operador batia o olho no botao de sair antes de ver que a
+# maquina esta em falha.
+#
+# Altura 2, e nao 1: o bloco de titulo ao lado tem altura 2 dentro de um
+# grupo de altura 3. Com alturas diferentes os dois ocupavam faixas
+# verticais distintas, e o botao flutuava acima da linha do nome -- era isso
+# que dava a impressao de estar solto.
+#
+# Rotulo encurtado junto com a largura: "Todos os ativos" nao cabe em 2
+# colunas sem quebrar ou truncar.
 no(id="btn_voltar", type="ui-button", z="flow_monitor", group=G_CAB,
-   name="voltar", label="← Todos os ativos", order=1, width="3", height="1",
-   tooltip="", color="", bgcolor="", className="", icon="",
+   name="voltar", label="← Ativos", order=1, width="1", height="2",
+   tooltip="Volta para a visao geral da planta", color="", bgcolor="",
+   className="", icon="",
    iconPosition="left", payload="", payloadType="str", topic="topic",
-   topicType="msg", buttonColor="", textColor="", iconColor="",
+   topicType="msg", buttonColor=FUNDO_ELEV, textColor=TINTA_1, iconColor="",
    enableClick=True, enablePointerdown=False, pointerdownPayload="",
    pointerdownPayloadType="str", enablePointerup=False, pointerupPayload="",
    pointerupPayloadType="str", x=140, y=660, wires=[["voltar_visao"]])
@@ -2241,7 +2256,7 @@ return { payload: { page: 'Visao Geral' } };
 # cortada ao meio. E a altura do WIDGET que manda aqui -- aumentar so a do
 # grupo nao resolve, como se descobriu tentando.
 no(id="cab_detalhe", type="ui-text", z="flow_monitor", group=G_CAB,
-   order=2, width="9", height="2", name="cabecalho do detalhe", label="",
+   order=2, width="11", height="2", name="cabecalho do detalhe", label="",
    format="{{msg.payload}}", layout="row-left", style=False, font="",
    fontSize=16, color="#717171", wrapText=True, className="",
    x=640, y=460, wires=[])
