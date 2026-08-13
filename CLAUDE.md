@@ -119,6 +119,33 @@ séries**, piores primeiro. Três armadilhas que valem mais que o conserto:
    iniciais envenenava a legenda **para sempre**. A guarda é **estrita**:
    melhor gráfico vazio por dois segundos.
 
+### Corte do passa-alta reportava METADE em 10 Hz — CORRIGIDO no ESP-IDF
+
+A cadeia de velocidade tem **dois** passa-altas (um antes da integração,
+um depois). Ambos estavam em 10 Hz, o piso da banda da ISO 20816. No
+próprio corte cada um tira 3 dB — juntos, **metade**.
+
+| f (Hz) | corte 10 Hz | corte 5 Hz |
+|---|---|---|
+| 10 | **−50,0%** | −6,0% |
+| 15 | −17,0% | −0,6% |
+| 25 | −2,2% | +0,2% |
+
+Motor de 600 rpm era reportado pela metade; de 900 rpm, a 83%. Como a
+severidade ISO se julga em mm/s, era **falso negativo em máquina lenta**.
+
+Corte movido para **5 Hz** no ESP-IDF. O custo esperado (assentamento mais
+lento) foi medido e **não existe** — a 30 Hz o erro cai de −1,2% para
+−0,1%, e a rejeição de DC continua exata.
+
+**O firmware Arduino continua com 10 Hz** (mudar lá exigiria nova validação
+em bancada). Se alguém for usá-lo em máquina lenta, corrigir `VIB_HP_HZ`
+antes.
+
+Segue sem verificação: ruído de baixa frequência de máquina real, que
+sinal sintético não reproduz. Se aparecer mm/s inflado com máquina parada,
+este é o primeiro suspeito.
+
 ### Validadores devolvem `undefined`, não `null`
 
 `valida_vel`/`valida_crista` devolvem `undefined` para ausente. Isso é
@@ -156,6 +183,35 @@ python tools/gera_planta_teste.py --restaurar   # devolve o cadastro
 Suíte: `tools/testes/` — `testa_vibracao.py` (12), `testa_inversores.py` (32),
 `testa_painel.js` (47), `valida_flow.js`, `checa_firmware.py`.
 
+### Testar o C de verdade, sem hardware — QEMU
+
+**`testa_vibracao.py` reimplementa a matemática em Python**: valida o
+*algoritmo*, não o código que vai para o campo. Um coeficiente trocado no
+port passaria pelos 12/12 e sairia como número errado no painel.
+
+`tools/testes/autoteste-vibracao/` compila a **mesma** `vibracao.c` do
+firmware e a executa no QEMU do próprio IDF. Foi ele que achou o defeito
+do corte acima, no primeiro disparo.
+
+```bash
+# QEMU: o idf_tools falha na checagem pos-instalacao nesta maquina --
+# baixe e extraia o tar de ~/.espressif/dist/ na mao, funciona.
+cd tools/testes/autoteste-vibracao
+idf.py set-target esp32c3      # o QEMU do IDF so emula esp32 e esp32c3
+idf.py build
+cd build && python -m esptool --chip esp32c3 merge_bin \
+    --fill-flash-size 4MB -o flash_qemu.bin @flash_args
+
+~/.espressif/tools/qemu-riscv32/qemu/bin/qemu-system-riscv32.exe \
+  -machine esp32c3 -drive file=flash_qemu.bin,if=mtd,format=raw \
+  -serial stdio -display none -no-reboot
+```
+
+Duas pegadinhas custaram tempo e vão custar de novo: `-nographic` **não**
+entrega a serial no stdout redirecionado no Windows (use `-serial stdio`),
+e `CONFIG_NEWLIB_NANO_FORMAT` precisa ser `n` senão todo `%f` sai zerado —
+o teste compararia lixo sem acusar nada.
+
 ## Nunca versionar
 
 Já está no `.gitignore` e **tem que continuar**: `dados/ativos.json` e o
@@ -172,11 +228,15 @@ reservadas. Nunca eixo duplo.
 
 ## Prioridade revisada (após a revisão adversarial em `docs/revisao-critica.md`)
 
-1. **FIFO do ADXL345 em rajada, no firmware ESP-IDF** — esforço baixo, 20× na
-   taxa de amostragem, fecha a lacuna da ISO 20816 e traz os **120 Hz** (2×
-   frequência de linha) para dentro da banda. É a melhor relação do roadmap.
+1. ~~FIFO do ADXL345 em rajada~~ — **FEITO** (commit `48c33a8`). 1600 S/s
+   contra 370, banda útil até 800 Hz, dt cravado pelo oscilador do sensor.
+   Transbordo do FIFO é detectado e o lote descartado. Compila limpo para
+   C6; **falta rodar em hardware**.
 2. **Endurecer o armazenamento do gateway** — risco de desgaste do eMMC.
-3. **Gravar e testar o firmware ESP-IDF** no ESP32-**C6** do usuário.
+3. **Gravar e testar o firmware ESP-IDF** no ESP32-**C6** do usuário —
+   agora é o gargalo: a matemática está verificada no emulador, mas o
+   caminho I²C/FIFO nunca tocou um ADXL345 real. Conferir no log de boot
+   o `auto-teste vibracao: PASSOU` e o `fs_hz` publicado.
 4. **Sonda de MCSA** (`tools/mcsa_sonda.py`) num FC 302 real.
 5. **Resolver a contradição** entre `objetivo.md` (degrau 4) e
    `diferenciais.md` (on-premise).
