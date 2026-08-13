@@ -1,0 +1,7 @@
+# O teste imprime float com printf(). Com o newlib "nano" os %f saem
+# vazios ou como zero -- o teste passaria a comparar lixo sem acusar erro
+# nenhum. Formatacao completa e obrigatoria aqui.
+CONFIG_NEWLIB_NANO_FORMAT=n
+
+# 19 KB de buffer estatico de amostras + pilha do app_main.
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
