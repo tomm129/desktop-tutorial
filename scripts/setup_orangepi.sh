@@ -115,8 +115,12 @@ instalar_mosquitto() {
     else
         sudo mosquitto_passwd -c -b "$MOSQ_PASSWD" "$MQTT_USER" "$MQTT_PASS"
     fi
-    sudo chown mosquitto:mosquitto "$MOSQ_PASSWD"
-    sudo chmod 600 "$MOSQ_PASSWD"
+    # Dono root, grupo mosquitto. O broker avisa (e a partir da 2.1 recusa)
+    # password_file que nao pertenca ao root -- mas ele le o arquivo DEPOIS de
+    # largar privilegio, entao root:root da EACCES e o servico morre com
+    # status=13. root:mosquitto + 640 satisfaz o dono e mantem a leitura.
+    sudo chown root:mosquitto "$MOSQ_PASSWD"
+    sudo chmod 640 "$MOSQ_PASSWD"
     ok "usuario '${MQTT_USER}' gravado em ${MOSQ_PASSWD}"
 
     # O ponto do item 8 do review: sem um listener explicito, o Mosquitto 2.x
@@ -134,8 +138,10 @@ listener 1883 0.0.0.0
 allow_anonymous false
 password_file ${MOSQ_PASSWD}
 
-persistence true
-persistence_location /var/lib/mosquitto/
+# NAO repetir 'persistence' nem 'persistence_location' aqui: o
+# /etc/mosquitto/mosquitto.conf do Debian ja define os dois, e o include_dir
+# carrega este arquivo DEPOIS. O Mosquitto 2.x trata chave repetida como erro
+# fatal ("Duplicate persistence_location value") e o servico nao sobe.
 EOF
     ok "configuracao: ${MOSQ_CONF}"
 
@@ -172,7 +178,7 @@ instalar_nodered() {
         ok "Node-RED ja instalado ($(node-red --version 2>/dev/null | head -1))"
     else
         aviso "O instalador oficial e interativo — responda as perguntas dele."
-        bash <(curl -sL https://raw.githubusercontent.com/node-red/linux-installers/master/deb/update-nodered.js)
+        bash <(curl -sL https://raw.githubusercontent.com/node-red/linux-installers/master/deb/update-nodejs-and-nodered)
         command -v node-red >/dev/null || erro "Node-RED nao ficou disponivel no PATH."
         ok "Node-RED instalado"
     fi
@@ -214,6 +220,15 @@ instalar_nodered() {
     # isso a foto da plaqueta nao carrega -- o navegador pede /fotos/x.jpg
     # e o Node-RED responde 404, sem erro visivel no log do fluxo.
     local settings="${NODERED_DIR}/settings.js"
+    # Numa instalacao NOVA o settings.js so e criado no primeiro start do
+    # servico. Sem isto o patch do httpStatic abaixo cai sempre no ramo
+    # "ausente" e as fotos de plaqueta nunca sao servidas -- falha silenciosa,
+    # porque o script segue e diz "servico ativo" logo adiante.
+    if [[ ! -f "$settings" ]]; then
+        sudo systemctl start nodered 2>/dev/null || true
+        for _ in $(seq 1 20); do [[ -f "$settings" ]] && break; sleep 1; done
+        sudo systemctl stop nodered 2>/dev/null || true
+    fi
     # Procura a CHAVE de configuracao, nao a palavra: o settings.js padrao
     # cita "httpStatic" nos comentarios, e um grep solto acha o comentario e
     # conclui que ja esta configurado.
@@ -245,7 +260,7 @@ else:
 PY
         ok "fotos de plaqueta servidas em /fotos"
     else
-        aviso "httpStatic ja configurado (ou settings.js ausente) — confira na mao"
+        aviso "httpStatic ja estava configurado — nada a fazer"
     fi
 
     sudo systemctl enable --now nodered
@@ -384,12 +399,20 @@ instalar_banco() {
     # O TimescaleDB nao vem no repositorio padrao do Debian/Ubuntu.
     if ! sudo -u postgres psql -tAc          "SELECT 1 FROM pg_available_extensions WHERE name='timescaledb'"          | grep -q 1; then
         local codinome; codinome="$(lsb_release -cs)"
-        echo "deb https://packagecloud.io/timescale/timescaledb/ubuntu/ ${codinome} main"             | sudo tee /etc/apt/sources.list.d/timescaledb.list >/dev/null
+        # O caminho do repositorio segue a distro-BASE, nao o codinome:
+        # a imagem Armbian pode ser Debian (trixie) ou Ubuntu (resolute),
+        # e apontar /ubuntu/ num Debian devolve 404 no apt-get update.
+        local distro; distro="$(. /etc/os-release 2>/dev/null && echo "${ID:-debian}")"
+        [[ "$distro" == "debian" || "$distro" == "ubuntu" ]] || distro="debian"
+        echo "deb https://packagecloud.io/timescale/timescaledb/${distro}/ ${codinome} main"             | sudo tee /etc/apt/sources.list.d/timescaledb.list >/dev/null
         curl -sL https://packagecloud.io/timescale/timescaledb/gpgkey             | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/timescaledb.gpg
         sudo apt-get update -qq
         # A versao do pacote acompanha a do PostgreSQL instalado.
         local pgver; pgver="$(psql --version | grep -oE '[0-9]+' | head -1)"
-        sudo apt-get install -y -qq "timescaledb-2-postgresql-${pgver}" || {
+        # timescaledb-tools traz o timescaledb-tune, que e quem poe
+        # 'timescaledb' em shared_preload_libraries. Sem o tune, a extensao
+        # instala mas NAO carrega, e o CREATE EXTENSION derruba a conexao.
+        sudo apt-get install -y -qq "timescaledb-2-postgresql-${pgver}" timescaledb-tools || {
             aviso "TimescaleDB nao instalou para o PG ${pgver}."
             aviso "O esquema ainda funciona SEM ele, com uma tabela comum:"
             aviso "  comente as linhas de create_hypertable/compression em sql/01-esquema.sql"
@@ -425,7 +448,10 @@ instalar_banco() {
         aviso "banco 'insightx' ja existia"
     fi
 
-    if sudo -u postgres psql -d insightx -f "${REPO_DIR}/sql/01-esquema.sql" >/dev/null; then
+    # Por STDIN, nao com -f: o psql roda como o usuario "postgres", que nao
+    # atravessa /home/<user> (modo 0700 no Debian) e devolveria "Permissao
+    # negada" no arquivo. Aqui quem le e o shell, que ainda e o usuario dono.
+    if sudo -u postgres psql -d insightx -v ON_ERROR_STOP=1             < "${REPO_DIR}/sql/01-esquema.sql" >/dev/null; then
         ok "esquema aplicado"
     else
         erro "falha ao aplicar sql/01-esquema.sql"

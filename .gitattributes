@@ -1,0 +1,17 @@
+# Scripts de shell PRECISAM de LF, sempre.
+#
+# Com core.autocrlf=true (padrao de muitas instalacoes Windows) o checkout
+# converteria estes arquivos para CRLF. Enviados assim para o Orange Pi, o
+# bash morre em erros que nao apontam a causa:
+#     $'\r': command not found
+#     syntax error near unexpected token `$'{\r''
+# Marcar como LF resolve na origem, e vale para qualquer maquina.
+*.sh    text eol=lf
+*.bash  text eol=lf
+
+# Aplicados por psql no servidor; CR no meio de comando SQL tambem quebra.
+*.sql   text eol=lf
+
+# Gerados/consumidos por ferramentas Unix no gateway.
+*.yml   text eol=lf
+*.yaml  text eol=lf

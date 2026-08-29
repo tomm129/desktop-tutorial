@@ -30,3 +30,7 @@ dados/fotos/*
 
 # Backup do cadastro feito por tools/gera_planta_teste.py -- dado local.
 dados/ativos.json.antes-do-teste
+
+# Copia gerada por engano ao rodar o gerador fora de nodered/.
+# O valido e nodered/flows.json.
+/flows.json
