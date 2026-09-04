@@ -1,0 +1,16 @@
+; Arquivo de configuração do projeto Godot.
+; Você abre este projeto na Godot Engine (versão 4.3 ou mais nova).
+
+config_version=5
+
+[application]
+
+config/name="Brawl Coop - Prototipo"
+run/main_scene="res://Main.tscn"
+config/features=PackedStringArray("4.3")
+
+[display]
+
+window/size/viewport_width=1152
+window/size/viewport_height=648
+window/stretch/mode="canvas_items"
