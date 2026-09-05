@@ -27,7 +27,7 @@ const ESCALA_SPRITE := 0.72       # o quadro original é 128x128
 const ALTURA_SPRITE := -32.0
 
 const CHANCE_DE_LARGAR_ITEM := 0.35
-const ITENS_QUE_LARGA := ["kit", "frasco", "pilhas"]
+const ITENS_QUE_LARGA := ["kit", "escudo", "turbo", "estouro", "veloz", "foco"]
 
 var vida := VIDA_MAXIMA
 var neutro := false : set = _define_neutro

@@ -31,6 +31,10 @@ const ABERTURA_DO_GOLPE := 55.0  # meio-ângulo do leque do corpo a corpo
 const CURA_DO_KIT := 40
 const DURACAO_DO_ESCUDO := 4.0
 const DURACAO_DO_TURBO := 6.0
+const DURACAO_DA_VELOCIDADE := 6.0
+const BONUS_DE_VELOCIDADE := 1.5     # 50% mais rapido enquanto dura
+const DANO_DO_ESTOURO := 60
+const RAIO_DO_ESTOURO := 130.0
 const MAXIMO_POR_ITEM := 9
 
 # --- Ajustes da IA do aliado ---
@@ -44,7 +48,7 @@ var lider: Node2D                # a IA anda perto de quem está aqui
 
 var vida := 100
 var vida_maxima := 100
-var estoque := {"kit": 2, "frasco": 1, "pilhas": 1}
+var estoque := {"kit": 2, "escudo": 1, "turbo": 1, "estouro": 1, "veloz": 0, "foco": 0}
 
 var _d := {}                     # os dados da classe, lidos uma vez
 var _sprite: AnimatedSprite2D
@@ -54,6 +58,7 @@ var _tempo_invulneravel := 0.0
 var _tempo_machucado := 0.0
 var _tempo_escudo := 0.0
 var _tempo_turbo := 0.0
+var _tempo_veloz := 0.0
 var _tempo_golpe := 0.0
 var _recarga := 0.0
 # Aura (clérigo) e o "brilho" que as outras habilidades deixam na tela
@@ -117,7 +122,10 @@ func _physics_process(delta: float) -> void:
 	else:
 		direcao = _decide_ia() if por_ia else _decide_teclado()
 
-	velocity = direcao.normalized() * float(_d["velocidade"])
+	var rapidez := float(_d["velocidade"])
+	if _tempo_veloz > 0.0:
+		rapidez *= BONUS_DE_VELOCIDADE
+	velocity = direcao.normalized() * rapidez
 	if _tempo_investida > 0.0:
 		velocity = _mira * (float(_d.get("hab_distancia", 260.0)) / DURACAO_DA_INVESTIDA)
 	move_and_slide()
@@ -136,6 +144,7 @@ func _passa_o_tempo(delta: float) -> void:
 	_tempo_machucado = max(0.0, _tempo_machucado - delta)
 	_tempo_escudo = max(0.0, _tempo_escudo - delta)
 	_tempo_turbo = max(0.0, _tempo_turbo - delta)
+	_tempo_veloz = max(0.0, _tempo_veloz - delta)
 	_tempo_golpe = max(0.0, _tempo_golpe - delta)
 	_tempo_efeito = max(0.0, _tempo_efeito - delta)
 	_recarga = max(0.0, _recarga - delta)
@@ -147,14 +156,16 @@ func _passa_o_tempo(delta: float) -> void:
 # --- Vontade: teclado ou IA -------------------------------------------------
 
 func _decide_teclado() -> Vector2:
+	# Pergunta por ACAO e nao por tecla: e o que deixa o jogador remapear tudo
+	# na tela de controles (ver Controles.gd).
 	var direcao := Vector2.ZERO
-	if Input.is_physical_key_pressed(KEY_W): direcao.y -= 1
-	if Input.is_physical_key_pressed(KEY_S): direcao.y += 1
-	if Input.is_physical_key_pressed(KEY_A): direcao.x -= 1
-	if Input.is_physical_key_pressed(KEY_D): direcao.x += 1
+	if Input.is_action_pressed("andar_cima"): direcao.y -= 1
+	if Input.is_action_pressed("andar_baixo"): direcao.y += 1
+	if Input.is_action_pressed("andar_esq"): direcao.x -= 1
+	if Input.is_action_pressed("andar_dir"): direcao.x += 1
 
 	_mira = (get_global_mouse_position() - global_position).normalized()
-	if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+	if Input.is_action_pressed("atacar"):
 		_tenta_atacar()
 	return direcao
 
@@ -358,15 +369,25 @@ func usar_item(tipo: String, alvo: Node = null) -> bool:
 func pode_receber(tipo: String) -> bool:
 	if vida <= 0:
 		return false
-	if tipo == "kit":
-		return vida < vida_maxima
-	return tipo in ["frasco", "pilhas"]
+	match tipo:
+		"kit": return vida < vida_maxima          # nao desperdica com vida cheia
+		"foco": return _recarga > 0.0             # nem com a habilidade ja pronta
+		_: return tipo in ["escudo", "turbo", "veloz", "estouro"]
 
 func aplicar_efeito(tipo: String) -> void:
 	match tipo:
 		"kit": curar(CURA_DO_KIT)
-		"frasco": _tempo_escudo = DURACAO_DO_ESCUDO
-		"pilhas": _tempo_turbo = DURACAO_DO_TURBO
+		"escudo": _tempo_escudo = DURACAO_DO_ESCUDO
+		"turbo": _tempo_turbo = DURACAO_DO_TURBO
+		"veloz": _tempo_veloz = DURACAO_DA_VELOCIDADE
+		"foco": _recarga = 0.0
+		"estouro":
+			# Estoura em volta de QUEM RECEBEU. Jogado no aliado cercado, e ele
+			# quem limpa a volta dele -- por isso vale a pena mirar no parceiro.
+			for inimigo in get_tree().get_nodes_in_group("inimigos"):
+				if global_position.distance_to(inimigo.global_position) <= RAIO_DO_ESTOURO:
+					inimigo.receber_dano(DANO_DO_ESTOURO)
+			_mostra_efeito(RAIO_DO_ESTOURO)
 	queue_redraw()
 
 func curar(quantidade: int) -> void:
@@ -383,6 +404,9 @@ func tem_escudo() -> bool:
 
 func tem_turbo() -> bool:
 	return _tempo_turbo > 0.0
+
+func tem_velocidade() -> bool:
+	return _tempo_veloz > 0.0
 
 # --- Dano e desenho ---------------------------------------------------------
 

@@ -21,18 +21,49 @@ Godot_v4.3-stable_win64.exe --path . -- mago clerigo
 
 ## Controles
 
-| Ação                    | Tecla / botão                 |
+| Ação                    | Tecla padrão                  |
 |-------------------------|-------------------------------|
 | Escolher classe         | **1 a 7** (na tela inicial)   |
 | Andar                   | **W A S D**                   |
 | Mirar                   | mover o **mouse**             |
 | Atacar                  | **botão esquerdo** do mouse   |
 | Habilidade da classe    | **Q**                         |
-| Escolher item           | **1 2 3 4**                   |
+| Escolher item           | **1 a 6**                     |
 | Trocar o alvo do item   | **T** (você ↔ aliado)         |
 | Usar o item             | **E**                         |
 | Inimigos neutros/hostis | **N**                         |
 | Recomeçar               | **R** (depois do fim de jogo) |
+| **Configurar controles**| **F1**                        |
+
+**Tudo isso é configurável.** O **F1** abre a tela de controles em qualquer
+momento: clique na tecla de uma ação e aperte a nova. Fica salvo em
+`user://controles.cfg` e volta na próxima abertura; apagar esse arquivo devolve
+o padrão.
+
+Duas regras de propósito:
+
+- Botão do mouse só é aceito para **Atacar**. Nas outras ações, um clique seria
+  quase sempre a pessoa tentando clicar em outra linha da lista.
+- Duas ações não dividem a mesma tecla: ao repetir uma tecla, a ação antiga fica
+  com "—" e o jogador vê que precisa resolver. Duas ações na mesma tecla
+  brigariam em silêncio.
+- O menu de escolha de classe usa **1 a 7 fixos**, fora do remapeamento — senão
+  daria para se trancar fora do próprio menu.
+
+## Os 6 itens
+
+| Slot | Item | O que faz |
+|---|---|---|
+| 1 | Poção de cura | +40 de vida (recusa com a vida cheia) |
+| 2 | Escudo | 4s sem levar dano |
+| 3 | Poção de fogo | 6s atacando o dobro de rápido |
+| 4 | Frasco explosivo | 60 de dano num raio de 130 **em volta de quem recebe** |
+| 5 | Asas | 6s 50% mais rápido |
+| 6 | Pergaminho | deixa a habilidade pronta na hora (recusa se já estiver) |
+
+O **T** troca o alvo entre você e o aliado, e vale para todos: dá para curar o
+parceiro, blindá-lo, ou jogar o frasco explosivo nele para limpar a volta dele.
+Os inimigos largam qualquer um dos seis.
 
 ## As 7 classes
 

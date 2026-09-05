@@ -23,10 +23,12 @@ const LADO_DO_QUADRO := 128       # quadro das folhas de sprite, para o retrato
 # Os quatro slots do inventário, na ordem em que aparecem na tela.
 # O último é vazio de propósito, para mostrar como fica um slot sem nada.
 const ITENS := [
-	{"tipo": "kit",     "nome": "Kit médico (cura 40)"},
-	{"tipo": "frasco",  "nome": "Escudo (4s sem levar dano)"},
-	{"tipo": "pilhas",  "nome": "Turbo (6s atacando o dobro)"},
-	{"tipo": "",        "nome": "slot vazio"},
+	{"tipo": "kit",     "nome": "Poção de cura (+40 de vida)"},
+	{"tipo": "escudo",  "nome": "Escudo (4s sem levar dano)"},
+	{"tipo": "turbo",   "nome": "Poção de fogo (6s atacando o dobro)"},
+	{"tipo": "estouro", "nome": "Frasco explosivo (60 de dano em volta do alvo)"},
+	{"tipo": "veloz",   "nome": "Asas (6s 50% mais rápido)"},
+	{"tipo": "foco",    "nome": "Pergaminho (deixa a habilidade pronta na hora)"},
 ]
 
 var _chao: Node2D          # tiles de grama, sem ordenação
@@ -49,6 +51,11 @@ var _mirando_no_aliado := false
 
 var _camada_jogo: CanvasLayer
 var _camada_escolha: CanvasLayer
+var _camada_controles: CanvasLayer
+var _linhas_de_controle := {}   # id da acao -> botao que mostra a tecla
+var _capturando := ""          # acao esperando o jogador apertar a tecla nova
+var _estado_antes_dos_controles := "escolha_sua"
+var _aviso_controles: Label
 var _titulo_escolha: Label
 var _rodape_escolha: Label   # versao e recado do atualizador
 var _hud_vida: Label
@@ -92,6 +99,7 @@ func _ready() -> void:
 
 	_monta_hud(tela)
 	_monta_escolha(tela)
+	_monta_controles(tela)
 	_camada_jogo.visible = false
 	_talvez_pular_escolha()
 
@@ -109,8 +117,11 @@ func _talvez_pular_escolha() -> void:
 		return
 	# "hostil" como terceiro argumento ja comeca com os inimigos batendo,
 	# util para testar o que so aparece quando a vida cai.
-	if args.size() >= 3 and args[2] == "hostil":
+	if args.has("hostil"):
 		_inimigos_neutros = false
+	if args.has("controles"):
+		# atalho para conferir a tela de controles sem depender de apertar F1
+		call_deferred("_abre_controles")
 	_escolhe_classe(sua)
 	_escolhe_classe(aliado)
 
@@ -216,7 +227,7 @@ func _monta_escolha(tela: Vector2) -> void:
 	_rodape_escolha.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_rodape_escolha.add_theme_font_size_override("font_size", 14)
 	_rodape_escolha.modulate = Color(0.75, 0.75, 0.8)
-	_rodape_escolha.text = "versão %s" % Atualizador.versao_em_uso
+	_rodape_escolha.text = "versão %s   ·   F1 configura os controles" % Atualizador.versao_em_uso
 	_camada_escolha.add_child(_rodape_escolha)
 
 	Atualizador.aviso.connect(_ao_falar_o_atualizador)
@@ -226,7 +237,7 @@ func _monta_escolha(tela: Vector2) -> void:
 
 func _ao_falar_o_atualizador(texto: String) -> void:
 	if _rodape_escolha != null:
-		_rodape_escolha.text = "versão %s — %s" % [Atualizador.versao_em_uso, texto]
+		_rodape_escolha.text = "versão %s — %s   ·   F1 configura os controles" % [Atualizador.versao_em_uso, texto]
 
 func _ao_baixar_atualizacao(nova: String) -> void:
 	if _rodape_escolha == null:
@@ -268,6 +279,131 @@ func _comeca_o_jogo() -> void:
 	_monta_party(get_viewport_rect().size)
 	_atualiza_hud()
 	_atualiza_inventario()
+
+# --- Tela de controles ------------------------------------------------------
+
+func _monta_controles(tela: Vector2) -> void:
+	_camada_controles = CanvasLayer.new()
+	_camada_controles.layer = 30
+	_camada_controles.visible = false
+	# Funciona mesmo com a arvore pausada (fim de jogo, por exemplo).
+	_camada_controles.process_mode = Node.PROCESS_MODE_ALWAYS
+	add_child(_camada_controles)
+
+	# Praticamente opaco: com 0.88 dava para ver o jogo atras e o texto ficava
+	# dificil de ler.
+	var veu := ColorRect.new()
+	veu.color = Color(0.04, 0.05, 0.07, 0.985)
+	veu.size = tela
+	_camada_controles.add_child(veu)
+
+	var titulo := Label.new()
+	titulo.position = Vector2(0, 30)
+	titulo.size = Vector2(tela.x, 36)
+	titulo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	titulo.add_theme_font_size_override("font_size", 26)
+	titulo.text = "CONTROLES — clique numa tecla e aperte a nova"
+	_camada_controles.add_child(titulo)
+
+	# Duas colunas: 16 acoes nao cabem numa so sem virar lista minuscula.
+	var por_coluna := int(ceil(Controles.ACOES.size() / 2.0))
+	var largura_col := 460.0
+	var x0 := (tela.x - largura_col * 2.0) / 2.0
+	var y0 := 90.0
+	var altura := 34.0
+
+	for i in Controles.ACOES.size():
+		var acao: Dictionary = Controles.ACOES[i]
+		var col := 0 if i < por_coluna else 1
+		var linha := i if i < por_coluna else i - por_coluna
+		var x := x0 + col * largura_col
+		var y := y0 + linha * altura
+
+		var nome := Label.new()
+		nome.position = Vector2(x, y + 4)
+		nome.size = Vector2(260, 26)
+		nome.add_theme_font_size_override("font_size", 15)
+		nome.text = acao["nome"]
+		_camada_controles.add_child(nome)
+
+		var botao := Button.new()
+		botao.position = Vector2(x + 270, y)
+		botao.size = Vector2(150, 28)
+		botao.add_theme_font_size_override("font_size", 15)
+		botao.pressed.connect(_comeca_a_capturar.bind(acao["id"]))
+		_camada_controles.add_child(botao)
+		_linhas_de_controle[acao["id"]] = botao
+
+	var dica := Label.new()
+	dica.position = Vector2(0, tela.y - 128.0)
+	dica.size = Vector2(tela.x, 22)
+	dica.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dica.add_theme_font_size_override("font_size", 13)
+	dica.modulate = Color(0.65, 0.65, 0.7)
+	dica.text = "Botão do mouse só vale para \"Atacar\". Duas ações não dividem a mesma tecla: a antiga fica sem."
+	_camada_controles.add_child(dica)
+
+	_aviso_controles = Label.new()
+	_aviso_controles.position = Vector2(0, tela.y - 92.0)
+	_aviso_controles.size = Vector2(tela.x, 24)
+	_aviso_controles.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_aviso_controles.add_theme_font_size_override("font_size", 15)
+	_camada_controles.add_child(_aviso_controles)
+
+	var padrao := Button.new()
+	padrao.position = Vector2(tela.x / 2.0 - 230, tela.y - 62.0)
+	padrao.size = Vector2(210, 32)
+	padrao.text = "Restaurar o padrão"
+	padrao.pressed.connect(_restaura_controles)
+	_camada_controles.add_child(padrao)
+
+	var voltar := Button.new()
+	voltar.position = Vector2(tela.x / 2.0 + 20, tela.y - 62.0)
+	voltar.size = Vector2(210, 32)
+	voltar.text = "Voltar  (Esc)"
+	voltar.pressed.connect(_fecha_controles)
+	_camada_controles.add_child(voltar)
+
+	Controles.controles_mudaram.connect(_atualiza_rotulos_de_tecla)
+	_atualiza_rotulos_de_tecla()
+
+func _abre_controles() -> void:
+	_estado_antes_dos_controles = _estado
+	_estado = "controles"
+	_capturando = ""
+	_aviso_controles.text = ""
+	_camada_controles.visible = true
+
+func _fecha_controles() -> void:
+	_capturando = ""
+	_camada_controles.visible = false
+	_estado = _estado_antes_dos_controles
+
+func _comeca_a_capturar(id: String) -> void:
+	_capturando = id
+	_aviso_controles.text = "Aperte a tecla nova para \"%s\"  (Esc cancela)" % Controles.nome_da_acao(id)
+	_aviso_controles.modulate = Color(1, 0.9, 0.4)
+	_atualiza_rotulos_de_tecla()
+
+func _restaura_controles() -> void:
+	Controles.restaura_padrao()
+	_aviso_controles.text = "Controles de volta ao padrão."
+	_aviso_controles.modulate = Color(0.6, 0.9, 1.0)
+
+# Chamada sempre que uma tecla muda: os rotulos nao podem mentir sobre o que
+# esta valendo, nem aqui nem no HUD do jogo.
+func _atualiza_rotulos_de_tecla() -> void:
+	for id in _linhas_de_controle:
+		var botao: Button = _linhas_de_controle[id]
+		botao.text = "..." if id == _capturando else Controles.tecla_de(id)
+	for i in _slots.size():
+		if _slots[i].has("tecla"):
+			_slots[i]["tecla"].text = Controles.tecla_de("item_%d" % (i + 1))
+	if not _slot_hab.is_empty():
+		_slot_hab["letra"].text = Controles.tecla_de("habilidade")
+	if _jogador != null:
+		_atualiza_inventario()
+		_atualiza_hud()
 
 # --- Party ------------------------------------------------------------------
 
@@ -314,33 +450,80 @@ func _process(delta: float) -> void:
 			_mostra_aviso("Onda %d em %d..." % [_onda + 1, ceili(_tempo_ate_proxima_onda)])
 
 func _input(evento: InputEvent) -> void:
-	if not (evento is InputEventKey) or not evento.pressed or evento.echo:
+	# A tela de controles tem prioridade sobre tudo.
+	if _estado == "controles":
+		_input_dos_controles(evento)
 		return
 
+	# F1 abre os controles de qualquer lugar. F1 e nao uma letra: letra poderia
+	# ser justamente a que o jogador acabou de mapear para outra coisa.
+	if evento is InputEventKey and evento.pressed and not evento.echo 		and evento.physical_keycode == KEY_F1:
+		_abre_controles()
+		return
+
+	# Na tela de escolha as teclas sao fixas (1 a 7): menu nao entra no
+	# remapeamento, senao o jogador poderia se trancar fora do proprio menu.
 	if _estado != "jogando":
-		match evento.physical_keycode:
-			KEY_1: _escolhe_classe(0)
-			KEY_2: _escolhe_classe(1)
-			KEY_3: _escolhe_classe(2)
-			KEY_4: _escolhe_classe(3)
-			KEY_5: _escolhe_classe(4)
-			KEY_6: _escolhe_classe(5)
-			KEY_7: _escolhe_classe(6)
+		if evento is InputEventKey and evento.pressed and not evento.echo:
+			var n: int = evento.physical_keycode - KEY_1
+			if n >= 0 and n < Classes.ORDEM.size():
+				_escolhe_classe(n)
 		return
 
-	match evento.physical_keycode:
-		KEY_1: _escolhe_slot(0)
-		KEY_2: _escolhe_slot(1)
-		KEY_3: _escolhe_slot(2)
-		KEY_4: _escolhe_slot(3)
-		KEY_T: _troca_alvo()
-		KEY_E: _usa_slot_escolhido()
-		KEY_Q: _jogador.ativar_habilidade()
-		KEY_N: _alterna_neutros()
-		KEY_R:
-			if _fim_de_jogo:
-				get_tree().paused = false
-				get_tree().call_deferred("reload_current_scene")
+	# Em jogo tudo passa por ACAO, entao respeita o que o jogador configurou.
+	for i in ITENS.size():
+		if evento.is_action_pressed("item_%d" % (i + 1)):
+			_escolhe_slot(i)
+			return
+	if evento.is_action_pressed("trocar_alvo"):
+		_troca_alvo()
+	elif evento.is_action_pressed("usar_item"):
+		_usa_slot_escolhido()
+	elif evento.is_action_pressed("habilidade"):
+		_jogador.ativar_habilidade()
+	elif evento.is_action_pressed("neutro"):
+		_alterna_neutros()
+	elif evento.is_action_pressed("recomecar") and _fim_de_jogo:
+		get_tree().paused = false
+		get_tree().call_deferred("reload_current_scene")
+
+func _input_dos_controles(evento: InputEvent) -> void:
+	if not evento.is_pressed() or evento.is_echo():
+		return
+	var e_esc: bool = evento is InputEventKey and evento.physical_keycode == KEY_ESCAPE
+
+	if _capturando == "":
+		if e_esc:
+			_fecha_controles()
+		return
+
+	if e_esc:
+		_capturando = ""
+		_aviso_controles.text = "Cancelado."
+		_aviso_controles.modulate = Color(0.8, 0.8, 0.8)
+		_atualiza_rotulos_de_tecla()
+		return
+
+	# So o "Atacar" aceita botao de mouse. Nos outros, um clique seria quase
+	# sempre a pessoa tentando clicar em outra linha da lista, e viraria atalho
+	# sem querer.
+	var vale: bool = evento is InputEventKey
+	if evento is InputEventMouseButton and _capturando == "atacar":
+		vale = true
+	if not vale:
+		return
+
+	var id := _capturando
+	_capturando = ""
+	var conflito := Controles.define(id, evento)
+	if conflito == "":
+		_aviso_controles.text = "%s agora é %s." % [Controles.nome_da_acao(id), Controles.tecla_de(id)]
+		_aviso_controles.modulate = Color(0.6, 1.0, 0.7)
+	else:
+		_aviso_controles.text = "%s agora é %s — e \"%s\" ficou sem tecla." % [
+			Controles.nome_da_acao(id), Controles.tecla_de(id), Controles.nome_da_acao(conflito)]
+		_aviso_controles.modulate = Color(1.0, 0.8, 0.4)
+	_atualiza_rotulos_de_tecla()
 
 # --- Ondas ------------------------------------------------------------------
 
@@ -417,8 +600,10 @@ func _atualiza_inventario() -> void:
 		slot["icone"].modulate = Color(1, 1, 1, 1.0 if quantos > 0 else 0.25)
 
 	var em_quem := "no ALIADO" if _mirando_no_aliado else "em VOCÊ"
-	_hud_item.text = "[%d] %s   —   E usa %s   (T troca o alvo)" % [
-		_slot_escolhido + 1, ITENS[_slot_escolhido]["nome"], em_quem]
+	_hud_item.text = "[%s] %s   —   %s usa %s   (%s troca o alvo)" % [
+		Controles.tecla_de("item_%d" % (_slot_escolhido + 1)),
+		ITENS[_slot_escolhido]["nome"], Controles.tecla_de("usar_item"), em_quem,
+		Controles.tecla_de("trocar_alvo")]
 	_hud_item.modulate = Color(0.6, 0.85, 1.0) if _mirando_no_aliado else Color.WHITE
 
 # Aviso curto de que uma habilidade saiu -- o anel no chao dura meio segundo
@@ -444,13 +629,13 @@ func _atualiza_habilidade() -> void:
 
 	# Linha de texto no canto (a mesma de antes)
 	if _jogador.aura_ativa():
-		_hud_hab.text = "Q  %s: ATIVA" % nome
+		_hud_hab.text = "%s  %s: ATIVA" % [Controles.tecla_de("habilidade"), nome]
 		_hud_hab.modulate = Color(0.45, 1.0, 0.55)
 	elif pronta:
-		_hud_hab.text = "Q  %s: pronta" % nome
+		_hud_hab.text = "%s  %s: pronta" % [Controles.tecla_de("habilidade"), nome]
 		_hud_hab.modulate = cor
 	else:
-		_hud_hab.text = "Q  %s: %ds" % [nome, ceili(restante)]
+		_hud_hab.text = "%s  %s: %ds" % [Controles.tecla_de("habilidade"), nome, ceili(restante)]
 		_hud_hab.modulate = Color(0.65, 0.65, 0.65)
 
 	# Slot da habilidade, ao lado dos itens
@@ -508,7 +693,10 @@ func _monta_hud(tela: Vector2) -> void:
 # cortina escura que desce de cima para baixo conforme volta a ficar pronta.
 func _monta_habilidade(tela: Vector2) -> void:
 	var lado := 64.0
-	var x := (tela.x - (4 * lado + 3 * 10.0)) / 2.0 - lado - 22.0
+	# A conta tem que sair do TAMANHO da lista de itens: com "4" chumbado, o
+	# slot da habilidade foi parar em cima do item 1 quando viraram 6.
+	var largura_dos_itens := ITENS.size() * lado + (ITENS.size() - 1) * 10.0
+	var x := (tela.x - largura_dos_itens) / 2.0 - lado - 22.0
 	var y := tela.y - 88.0
 
 	var borda := ColorRect.new()
@@ -524,7 +712,7 @@ func _monta_habilidade(tela: Vector2) -> void:
 	var letra := _cria_texto(Vector2(x, y + 8), 30)
 	letra.size = Vector2(lado, 40)
 	letra.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	letra.text = "Q"
+	letra.text = Controles.tecla_de("habilidade")
 
 	# Cortina da recarga: fica em cima do slot e vai encolhendo.
 	var cortina := ColorRect.new()
@@ -578,17 +766,18 @@ func _monta_inventario(tela: Vector2) -> void:
 		icone.position = Vector2(x + 6, y + 6)
 		var tipo: String = ITENS[i]["tipo"]
 		if tipo != "":
-			icone.texture = load("res://arte/itens/%s.png" % tipo)
+			icone.texture = load("res://arte/itens2/%s.png" % tipo)
 		_camada_jogo.add_child(icone)
 
-		var tecla := _cria_texto(Vector2(x + 5, y + 1), 13)
-		tecla.text = str(i + 1)
+		# A tecla vem do Controles: se o jogador remapear, o rotulo acompanha.
+		var tecla := _cria_texto(Vector2(x + 4, y + 1), 13)
+		tecla.text = Controles.tecla_de("item_%d" % (i + 1))
 
 		var conta := _cria_texto(Vector2(x, y + lado - 24), 16)
 		conta.size = Vector2(lado - 6, 20)
 		conta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
-		_slots.append({"fundo": fundo, "borda": borda, "icone": icone, "conta": conta})
+		_slots.append({"fundo": fundo, "borda": borda, "icone": icone, "conta": conta, "tecla": tecla})
 
 func _cria_texto(pos: Vector2, tamanho: int) -> Label:
 	var etiqueta := Label.new()
@@ -626,5 +815,5 @@ func _atualiza_hud() -> void:
 		_hud_aliado.text = "Aliado (%s): caiu" % _aliado.nome_da_classe()
 		_hud_aliado.modulate = Color(0.7, 0.7, 0.7)
 	_hud_onda.text = "Onda: %d    Inimigos: %d" % [_onda, _vivos]
-	_hud_inimigos.text = "Inimigos: %s   (N alterna)" % ("NEUTROS" if _inimigos_neutros else "HOSTIS")
+	_hud_inimigos.text = "Inimigos: %s   (%s alterna)" % [("NEUTROS" if _inimigos_neutros else "HOSTIS"), Controles.tecla_de("neutro")]
 	_hud_inimigos.modulate = Color(0.5, 0.9, 1.0) if _inimigos_neutros else Color(1.0, 0.6, 0.6)

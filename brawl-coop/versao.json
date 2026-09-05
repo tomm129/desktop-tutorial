@@ -1,5 +1,5 @@
 {
-  "versao": "0.4.1",
+  "versao": "0.5.0",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Mostra a versao tambem durante a partida, para facilitar os relatos dos testadores."
+  "notas": "Atalhos configuraveis (F1), inventario de 6 slots com 3 itens novos e icones em pixel art."
 }

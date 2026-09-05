@@ -27,7 +27,7 @@ func _ready() -> void:
 	set_collision_mask_value(1, true)    # só o jogador encosta
 
 	_sprite = Sprite2D.new()
-	_sprite.texture = load("res://arte/itens/%s.png" % tipo)
+	_sprite.texture = load("res://arte/itens2/%s.png" % tipo)
 	# Cada ícone tem um tamanho diferente: normaliza pelo lado maior.
 	var t := _sprite.texture.get_size()
 	_sprite.scale = Vector2.ONE * (TAMANHO_NA_TELA / max(t.x, t.y))
