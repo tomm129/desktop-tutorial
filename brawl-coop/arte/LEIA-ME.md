@@ -110,6 +110,26 @@ geradas; as outras 3 saem por espelho.
 
 **Custo**: ~5,5 gerações por personagem (a cota gratuita é de ~40 por mês).
 
+### O que funciona e o que não funciona
+
+Só o **goblin** tem folha de ataque, e há uma razão. Tentei o guerreiro e saiu
+punho vazio em 6 das 8 direções: **o modelo move o braço, mas não leva a arma
+junto**. Ele só acompanha quando a arma está bem destacada na silhueta daquela
+direção — no goblin o martelo fica solto ao lado do corpo; no guerreiro ele
+some contra a capa.
+
+Tentativas que NÃO resolveram (registradas para ninguém repetir):
+
+- **Detectar a mão armada pela massa de pixels em volta.** A diferença fica
+  dentro do ruído da capa e do corpo: a heurística escolhia a mão errada
+  justamente na única direção que tinha dado certo.
+- **Mover os dois braços, como golpe de duas mãos.** Ficou pior — dois punhos
+  vazios erguidos, parecendo comemoração.
+
+O que provavelmente resolve, e ainda não testei: passar `inpainting_images`
+para travar a região da arma, ou dar um quadro de ataque desenhado à mão como
+`init_images` para o modelo seguir.
+
 Duas armadilhas que custaram tempo:
 
 - **Anime o braço que segura a arma.** Animando o outro, o boneco erguia o

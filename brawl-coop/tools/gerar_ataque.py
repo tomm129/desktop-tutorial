@@ -41,6 +41,7 @@ LADO = 128
 # animando o direito, ele erguia o punho vazio e a arma ficava parada -- virava
 # soco, nao golpe de arma.
 BRACO = "LEFT"
+OUTRO = "RIGHT"
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 
 # linha da folha -> (nome que a API entende, vetor "para frente" na tela)
@@ -103,26 +104,41 @@ def com(esqueleto: list, mudancas: dict) -> list:
 
 
 def poses_do_golpe(esqueleto: list, frente: tuple) -> list:
-    """As 3 poses. O golpe sai na direcao para onde o boneco esta olhando."""
+    """As 3 poses. O golpe sai na direcao para onde o boneco esta olhando.
+
+    Os DOIS bracos se movem juntos, como num golpe de duas maos. Isso e de
+    proposito: a arma aparece ora na mao esquerda, ora na direita, dependendo da
+    direcao, e animar um braco fixo fazia o boneco erguer o punho vazio com a
+    arma parada na outra mao -- virava soco. Tentei detectar a mao da arma pela
+    massa de pixels em volta, mas a diferenca fica dentro do ruido da capa e do
+    corpo. Movendo os dois, qualquer que seja a mao armada, a arma sobe e desce.
+    """
     fx, fy = frente
     ox, oy = ponto(esqueleto, BRACO + " SHOULDER")
 
     def preso(x, y):
         return (min(max(x, 0.03), 0.97), min(max(y, 0.03), 0.97))
 
+    oox, ooy = ponto(esqueleto, OUTRO + " SHOULDER")
     armada = com(esqueleto, {
         (BRACO + " ARM"):    preso(ox - fx * 0.24, oy - fy * 0.24 - 0.20),
         (BRACO + " ELBOW"):  preso(ox - fx * 0.13, oy - fy * 0.13 - 0.06),
+        (OUTRO + " ARM"):    preso(oox - fx * 0.20, ooy - fy * 0.20 - 0.18),
+        (OUTRO + " ELBOW"):  preso(oox - fx * 0.10, ooy - fy * 0.10 - 0.05),
         "NOSE":         preso(*[a + b for a, b in zip(ponto(esqueleto, "NOSE"), (-fx * 0.03, -fy * 0.03))]),
     })
     batendo = com(esqueleto, {
         (BRACO + " ARM"):    preso(ox + fx * 0.34, oy + fy * 0.34 + 0.12),
         (BRACO + " ELBOW"):  preso(ox + fx * 0.17, oy + fy * 0.17 + 0.06),
+        (OUTRO + " ARM"):    preso(oox + fx * 0.30, ooy + fy * 0.30 + 0.12),
+        (OUTRO + " ELBOW"):  preso(oox + fx * 0.15, ooy + fy * 0.15 + 0.06),
         "NOSE":         preso(*[a + b for a, b in zip(ponto(esqueleto, "NOSE"), (fx * 0.05, fy * 0.05))]),
     })
     voltando = com(esqueleto, {
         (BRACO + " ARM"):    preso(ox + fx * 0.10, oy + fy * 0.10 + 0.18),
         (BRACO + " ELBOW"):  preso(ox + fx * 0.05, oy + fy * 0.05 + 0.09),
+        (OUTRO + " ARM"):    preso(oox + fx * 0.08, ooy + fy * 0.08 + 0.17),
+        (OUTRO + " ELBOW"):  preso(oox + fx * 0.04, ooy + fy * 0.04 + 0.08),
     })
     return [armada, batendo, voltando]
 
