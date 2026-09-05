@@ -4,3 +4,8 @@
 # Qualquer pasta de exportacao (dist, dist_novo, dist_teste...): os binarios
 # vao para o GitHub Releases, nunca para o repositorio.
 /dist*/
+
+# Testes da PixelLab e spec da API: nao vao para o repositorio
+/teste_pixellab/
+/spec.json
+*.key

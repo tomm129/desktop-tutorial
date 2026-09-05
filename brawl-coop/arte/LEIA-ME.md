@@ -91,3 +91,29 @@ quem anima é o `Efeitos.gd`, fazendo o efeito nascer pequeno, crescer e sumir.
 
 `enfeites/` são vegetação e pedras espalhadas pelo chão, das categorias
 *foliage* e *rocks* do mesmo site.
+
+## Quadros de ataque — gerados pela PixelLab
+
+O FreePixel não tem folha de ataque. A do goblin (`classes/goblin/atacar.png`,
+3 quadros x 8 direções) foi **gerada** pela API da PixelLab a partir da nossa
+própria arte, o que mantém cor, proporção e densidade de pixel iguais:
+
+```
+set PIXELLAB_KEY=<chave>
+python tools/gerar_ataque.py goblin
+```
+
+Como funciona: para cada direção o script estima o esqueleto (18 pontos) do
+nosso quadro parado, move ombro/cotovelo/mão para montar 3 poses (arma erguida,
+golpe à frente, recuperação) e pede a animação em 128x128. Só 5 direções são
+geradas; as outras 3 saem por espelho.
+
+**Custo**: ~5,5 gerações por personagem (a cota gratuita é de ~40 por mês).
+
+Duas armadilhas que custaram tempo:
+
+- **Anime o braço que segura a arma.** Animando o outro, o boneco erguia o
+  punho vazio e a arma ficava parada — virava soco, não golpe.
+- **`/estimate-skeleton` devolve `z_index` fracionário (-3.5) e
+  `/animate-with-skeleton` exige inteiro**, recusando com 422. A saída de um
+  endpoint não entra direto no outro; o script arredonda.

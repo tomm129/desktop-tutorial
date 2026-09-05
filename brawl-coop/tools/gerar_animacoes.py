@@ -28,6 +28,7 @@ LADO = 128            # tamanho do quadro
 DIRECOES = 8          # linhas da folha
 FPS_PARADO = 6.0
 FPS_ANDANDO = 12.0
+FPS_ATACANDO = 11.0   # 3 quadros: erguer, bater, voltar
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 
@@ -39,9 +40,14 @@ def gera(pasta_arte: str, saida: str) -> None:
     animacoes = []    # (nome, [ids de sub], loop, fps)
 
     for chave, arquivo, fps in (("parado", "parado.png", FPS_PARADO),
-                                ("andando", "andar.png", FPS_ANDANDO)):
+                                ("andando", "andar.png", FPS_ANDANDO),
+                                ("atacando", "atacar.png", FPS_ATACANDO)):
         caminho = RAIZ / pasta_arte / arquivo
         if not caminho.exists():
+            # A folha de ataque e opcional: so alguns personagens tem, porque
+            # ela e gerada pela PixelLab e custa cota (ver tools/gerar_ataque.py).
+            if chave == "atacando":
+                continue
             raise SystemExit(f"faltando: {caminho}")
 
         # Descobre quantos quadros tem a folha pela largura dela.
@@ -57,7 +63,7 @@ def gera(pasta_arte: str, saida: str) -> None:
                 id_sub = f"{chave}_{linha}_{coluna}"
                 sub.append((id_sub, id_folha, coluna * LADO, linha * LADO))
                 ids.append(id_sub)
-            animacoes.append((f"{chave}_{linha}", ids, True, fps))
+            animacoes.append((f"{chave}_{linha}", ids, chave != "atacando", fps))
 
     linhas = [f'[gd_resource type="SpriteFrames" load_steps={len(ext) + len(sub) + 1} format=3]', ""]
     for id_ext, caminho in ext:

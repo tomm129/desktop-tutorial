@@ -1,5 +1,5 @@
 {
-  "versao": "0.8.2",
+  "versao": "0.9.0",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Goblin e arqueiro ficavam invisiveis andando para certos lados: a arte vinha com direcoes em branco."
+  "notas": "O goblin agora ATACA de verdade: quadros de golpe nas 8 direcoes, gerados pela PixelLab."
 }

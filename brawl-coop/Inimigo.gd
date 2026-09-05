@@ -18,7 +18,7 @@ const DANO_CONTATO := 10
 const COOLDOWN_DANO := 0.8
 const ALCANCE_CONTATO := 48.0    # raio do inimigo (20) + raio da party (24) + folga
 const TEMPO_MACHUCADO := 0.15
-const TEMPO_DO_BOTE := 0.28      # quanto tempo dura a estocada do ataque
+const TEMPO_DO_BOTE := 0.28      # casa com os 3 quadros a 11fps da folha de ataque      # quanto tempo dura a estocada do ataque
 const DISTANCIA_DO_BOTE := 16.0
 const TEMPO_SUMINDO := 0.55   # curto de proposito: sem quadro de morte, o
                               # corpo e o sprite girado 90 graus, e girado
@@ -152,9 +152,14 @@ func _linha_da_direcao(d: Vector2) -> int:
 	return (int(round(graus / 45.0)) + 6) % 8
 
 func _atualiza_sprite(para_o_alvo: Vector2, andando: bool) -> void:
-	# A estocada sai e volta: vai ate o pico na metade do tempo e recua.
+	var linha := _linha_da_direcao(para_o_alvo)
+	# Se este personagem TEM quadro de ataque (folha gerada pela PixelLab), o
+	# golpe e a animacao. Se nao tem, cai na estocada -- que era a gambiarra
+	# que segurava a peteca antes de existir a folha.
+	var atacando: bool = _tempo_bote > 0.0 		and _sprite.sprite_frames.has_animation("atacando_%d" % linha)
+
 	var quanto := 0.0
-	if _tempo_bote > 0.0:
+	if _tempo_bote > 0.0 and not atacando:
 		var andamento: float = 1.0 - (_tempo_bote / TEMPO_DO_BOTE)
 		quanto = sin(andamento * PI)
 	_sprite.position = Vector2(0, ALTURA_SPRITE) + _bote * quanto
@@ -170,8 +175,8 @@ func _atualiza_sprite(para_o_alvo: Vector2, andando: bool) -> void:
 		cor.a = 0.75                     # translúcido = está desarmado
 	_sprite.modulate = cor
 
-	var estado := "andando" if andando else "parado"
-	var nome := "%s_%d" % [estado, _linha_da_direcao(para_o_alvo)]
+	var estado := "atacando" if atacando else ("andando" if andando else "parado")
+	var nome := "%s_%d" % [estado, linha]
 	if _sprite.animation != nome:
 		_sprite.play(nome)
 

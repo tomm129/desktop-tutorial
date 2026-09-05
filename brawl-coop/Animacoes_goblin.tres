@@ -1,7 +1,8 @@
-[gd_resource type="SpriteFrames" load_steps=83 format=3]
+[gd_resource type="SpriteFrames" load_steps=108 format=3]
 
 [ext_resource type="Texture2D" path="res://arte/classes/goblin/parado.png" id="p"]
 [ext_resource type="Texture2D" path="res://arte/classes/goblin/andar.png" id="a"]
+[ext_resource type="Texture2D" path="res://arte/classes/goblin/atacar.png" id="a"]
 
 [sub_resource type="AtlasTexture" id="parado_0_0"]
 atlas = ExtResource("p")
@@ -322,6 +323,102 @@ region = Rect2(512, 896, 128, 128)
 [sub_resource type="AtlasTexture" id="andando_7_5"]
 atlas = ExtResource("a")
 region = Rect2(640, 896, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_0_0"]
+atlas = ExtResource("a")
+region = Rect2(0, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_0_1"]
+atlas = ExtResource("a")
+region = Rect2(128, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_0_2"]
+atlas = ExtResource("a")
+region = Rect2(256, 0, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_1_0"]
+atlas = ExtResource("a")
+region = Rect2(0, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_1_1"]
+atlas = ExtResource("a")
+region = Rect2(128, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_1_2"]
+atlas = ExtResource("a")
+region = Rect2(256, 128, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_2_0"]
+atlas = ExtResource("a")
+region = Rect2(0, 256, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_2_1"]
+atlas = ExtResource("a")
+region = Rect2(128, 256, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_2_2"]
+atlas = ExtResource("a")
+region = Rect2(256, 256, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_3_0"]
+atlas = ExtResource("a")
+region = Rect2(0, 384, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_3_1"]
+atlas = ExtResource("a")
+region = Rect2(128, 384, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_3_2"]
+atlas = ExtResource("a")
+region = Rect2(256, 384, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_4_0"]
+atlas = ExtResource("a")
+region = Rect2(0, 512, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_4_1"]
+atlas = ExtResource("a")
+region = Rect2(128, 512, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_4_2"]
+atlas = ExtResource("a")
+region = Rect2(256, 512, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_5_0"]
+atlas = ExtResource("a")
+region = Rect2(0, 640, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_5_1"]
+atlas = ExtResource("a")
+region = Rect2(128, 640, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_5_2"]
+atlas = ExtResource("a")
+region = Rect2(256, 640, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_6_0"]
+atlas = ExtResource("a")
+region = Rect2(0, 768, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_6_1"]
+atlas = ExtResource("a")
+region = Rect2(128, 768, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_6_2"]
+atlas = ExtResource("a")
+region = Rect2(256, 768, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_7_0"]
+atlas = ExtResource("a")
+region = Rect2(0, 896, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_7_1"]
+atlas = ExtResource("a")
+region = Rect2(128, 896, 128, 128)
+
+[sub_resource type="AtlasTexture" id="atacando_7_2"]
+atlas = ExtResource("a")
+region = Rect2(256, 896, 128, 128)
 
 [resource]
 animations = [{
@@ -644,4 +741,116 @@ animations = [{
 "loop": true,
 "name": &"andando_7",
 "speed": 12.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("atacando_0_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_0_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_0_2")
+}],
+"loop": false,
+"name": &"atacando_0",
+"speed": 11.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("atacando_1_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_1_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_1_2")
+}],
+"loop": false,
+"name": &"atacando_1",
+"speed": 11.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("atacando_2_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_2_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_2_2")
+}],
+"loop": false,
+"name": &"atacando_2",
+"speed": 11.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("atacando_3_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_3_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_3_2")
+}],
+"loop": false,
+"name": &"atacando_3",
+"speed": 11.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("atacando_4_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_4_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_4_2")
+}],
+"loop": false,
+"name": &"atacando_4",
+"speed": 11.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("atacando_5_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_5_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_5_2")
+}],
+"loop": false,
+"name": &"atacando_5",
+"speed": 11.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("atacando_6_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_6_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_6_2")
+}],
+"loop": false,
+"name": &"atacando_6",
+"speed": 11.0
+}, {
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("atacando_7_0")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_7_1")
+}, {
+"duration": 1.0,
+"texture": SubResource("atacando_7_2")
+}],
+"loop": false,
+"name": &"atacando_7",
+"speed": 11.0
 }]
