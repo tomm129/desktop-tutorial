@@ -1,230 +1,230 @@
 [gd_resource type="SpriteFrames" load_steps=59 format=3]
 
-[ext_resource type="Texture2D" path="res://arte/classes/assassino/parado.png" id="p"]
-[ext_resource type="Texture2D" path="res://arte/classes/assassino/andar.png" id="a"]
+[ext_resource type="Texture2D" path="res://arte/classes/assassino/parado.png" id="f0"]
+[ext_resource type="Texture2D" path="res://arte/classes/assassino/andar.png" id="f1"]
 
 [sub_resource type="AtlasTexture" id="parado_0_0"]
-atlas = ExtResource("p")
+atlas = ExtResource("f0")
 region = Rect2(0, 0, 128, 128)
 
 [sub_resource type="AtlasTexture" id="parado_1_0"]
-atlas = ExtResource("p")
+atlas = ExtResource("f0")
 region = Rect2(0, 128, 128, 128)
 
 [sub_resource type="AtlasTexture" id="parado_2_0"]
-atlas = ExtResource("p")
+atlas = ExtResource("f0")
 region = Rect2(0, 256, 128, 128)
 
 [sub_resource type="AtlasTexture" id="parado_3_0"]
-atlas = ExtResource("p")
+atlas = ExtResource("f0")
 region = Rect2(0, 384, 128, 128)
 
 [sub_resource type="AtlasTexture" id="parado_4_0"]
-atlas = ExtResource("p")
+atlas = ExtResource("f0")
 region = Rect2(0, 512, 128, 128)
 
 [sub_resource type="AtlasTexture" id="parado_5_0"]
-atlas = ExtResource("p")
+atlas = ExtResource("f0")
 region = Rect2(0, 640, 128, 128)
 
 [sub_resource type="AtlasTexture" id="parado_6_0"]
-atlas = ExtResource("p")
+atlas = ExtResource("f0")
 region = Rect2(0, 768, 128, 128)
 
 [sub_resource type="AtlasTexture" id="parado_7_0"]
-atlas = ExtResource("p")
+atlas = ExtResource("f0")
 region = Rect2(0, 896, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_0_0"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(0, 0, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_0_1"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(128, 0, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_0_2"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(256, 0, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_0_3"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(384, 0, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_0_4"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(512, 0, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_0_5"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(640, 0, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_1_0"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(0, 128, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_1_1"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(128, 128, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_1_2"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(256, 128, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_1_3"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(384, 128, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_1_4"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(512, 128, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_1_5"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(640, 128, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_2_0"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(0, 256, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_2_1"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(128, 256, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_2_2"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(256, 256, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_2_3"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(384, 256, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_2_4"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(512, 256, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_2_5"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(640, 256, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_3_0"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(0, 384, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_3_1"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(128, 384, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_3_2"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(256, 384, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_3_3"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(384, 384, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_3_4"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(512, 384, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_3_5"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(640, 384, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_4_0"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(0, 512, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_4_1"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(128, 512, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_4_2"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(256, 512, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_4_3"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(384, 512, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_4_4"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(512, 512, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_4_5"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(640, 512, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_5_0"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(0, 640, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_5_1"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(128, 640, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_5_2"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(256, 640, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_5_3"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(384, 640, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_5_4"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(512, 640, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_5_5"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(640, 640, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_6_0"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(0, 768, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_6_1"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(128, 768, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_6_2"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(256, 768, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_6_3"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(384, 768, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_6_4"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(512, 768, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_6_5"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(640, 768, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_7_0"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(0, 896, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_7_1"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(128, 896, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_7_2"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(256, 896, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_7_3"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(384, 896, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_7_4"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(512, 896, 128, 128)
 
 [sub_resource type="AtlasTexture" id="andando_7_5"]
-atlas = ExtResource("a")
+atlas = ExtResource("f1")
 region = Rect2(640, 896, 128, 128)
 
 [resource]

@@ -137,6 +137,11 @@ func _ready() -> void:
 # O primeiro nome é a sua classe, o segundo é a do aliado.
 func _talvez_pular_escolha() -> void:
 	var args := OS.get_cmdline_user_args()
+	# Bancada de inspecao da arte (Visualizador.gd). Nao e parte do jogo.
+	if args.has("ver"):
+		get_tree().call_deferred("change_scene_to_file", "res://Visualizador.tscn")
+		return
+
 
 	# Atalhos de rede, para testar duas instancias sem clicar em nada:
 	#   -- host              abre a sala

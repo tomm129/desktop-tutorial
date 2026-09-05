@@ -1,5 +1,5 @@
 {
-  "versao": "0.9.0",
+  "versao": "0.9.1",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "O goblin agora ATACA de verdade: quadros de golpe nas 8 direcoes, gerados pela PixelLab."
+  "notas": "CORRECAO: na 0.9.0 o goblin andando usava os quadros errados e sumia metade do tempo."
 }

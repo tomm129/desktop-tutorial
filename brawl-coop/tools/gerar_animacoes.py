@@ -54,7 +54,10 @@ def gera(pasta_arte: str, saida: str) -> None:
         largura = _largura_png(caminho)
         quadros = largura // LADO
 
-        id_folha = chave[0]
+        # O id NAO pode ser chave[0]: "andando" e "atacando" dariam os dois "a",
+        # uma folha sobrescreveria a outra e a caminhada passaria a apontar para
+        # os quadros de ataque (foi exatamente o que aconteceu na 0.9.0).
+        id_folha = "f%d" % len(ext)
         ext.append((id_folha, f"res://{pasta_arte}/{arquivo}"))
 
         for linha in range(DIRECOES):
