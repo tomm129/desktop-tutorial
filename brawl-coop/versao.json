@@ -1,5 +1,5 @@
 {
-  "versao": "0.10.1",
+  "versao": "0.10.2",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Balanceamento dos ataques medido e corrigido: assassino era o pior negocio, guerreiro nao tinha contrapartida."
+  "notas": "Conserta a Investida do assassino, que prendia o personagem na borda da tela."
 }

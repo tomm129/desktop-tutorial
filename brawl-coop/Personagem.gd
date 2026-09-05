@@ -181,6 +181,10 @@ func _passa_o_tempo(delta: float) -> void:
 	_tempo_turbo = max(0.0, _tempo_turbo - delta)
 	_tempo_veloz = max(0.0, _tempo_veloz - delta)
 	_tempo_golpe = max(0.0, _tempo_golpe - delta)
+	# Sem esta linha a investida NUNCA acaba: o personagem sai voando na
+	# direcao da mira ate grudar na borda da tela, sem responder ao teclado
+	# (durante a investida o _decide_teclado nem chega a ser chamado).
+	_tempo_investida = max(0.0, _tempo_investida - delta)
 	_tempo_efeito = max(0.0, _tempo_efeito - delta)
 	_recarga = max(0.0, _recarga - delta)
 	if _d.get("recurso_tipo", "tempo") == "tempo":
