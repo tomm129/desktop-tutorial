@@ -87,6 +87,44 @@ mexer para balancear.
   Criar o arquivo e rodar direto dá "Identifier not declared", e o jogo abre sem
   personagem nenhum. Rode a Godot uma vez com `--import` depois de criar.
 
+## Publicando uma versão nova (o que os jogadores recebem)
+
+O jogo distribuído são dois arquivos: **BrawlCoop.exe** (o motor, ~84 MB, quase
+nunca muda) e **BrawlCoop.pck** (o jogo inteiro, ~824 KB). Uma atualização é só
+o `.pck` novo — foi conferido que o `.exe` sai byte a byte idêntico entre
+versões que só mexem no jogo.
+
+Para publicar:
+
+1. Suba a versão em **dois** lugares: `const VERSAO` no `Atualizador.gd` e o
+   campo `versao` do `versao.json`.
+2. Exporte:
+   `Godot.exe --headless --path . --export-release "Windows" ../dist/BrawlCoop.exe`
+3. Publique a release com os três arquivos anexados:
+   `gh release create v0.4.2 dist/BrawlCoop.exe dist/BrawlCoop.pck dist/versao.json --title "..." --notes "..."`
+
+O `.exe` vai junto para quem for instalar do zero; quem já tem o jogo recebe só
+o `.pck`.
+
+### Como o cliente se atualiza
+
+`Atualizador.gd` é um autoload, então roda **antes** da cena principal:
+
+1. monta o `.pck` mais recente que estiver em `user://patches/` (é assim que uma
+   atualização já baixada entra em vigor, sem sobrescrever arquivo nenhum e sem
+   precisar de permissão de administrador)
+2. consulta `releases/latest/download/versao.json` — o próprio GitHub resolve
+   qual é a release mais nova, então não há URL para editar a cada versão
+3. se houver versão maior, baixa o `.pck` em segundo plano e avisa no rodapé
+4. na abertura seguinte, o passo 1 aplica
+
+Sem internet, ou com o GitHub fora, o jogo abre normalmente na versão que já
+tem: o atualizador nunca bloqueia a abertura.
+
+**Pegadinha observada:** logo depois de publicar, a URL de `latest` pode servir
+por alguns instantes a resposta anterior em cache. O cliente vê a versão nova na
+tentativa seguinte.
+
 ## Próximas etapas
 
 1. **Online** — dois jogadores de verdade, em PCs diferentes, com o multiplayer
