@@ -31,12 +31,12 @@ const ORDEM := ["guerreiro", "paladino", "clerigo", "mago", "arqueiro", "druida"
 const DADOS := {
 	"guerreiro": {
 		"nome": "Guerreiro", "cor": Color(0.85, 0.35, 0.25),
-		"vida": 160, "velocidade": 265, "cadencia": 0.45, "dano": 40,
+		"vida": 160, "velocidade": 265, "cadencia": 0.45, "dano": 34,
 		"ataque": "arco", "alcance": 78,
 		"habilidade": "giro", "hab_nome": "Golpe giratório",
 		"recarga": 8.0, "hab_dano": 55, "hab_raio": 135.0,
 		"recurso": "Fúria", "cor_recurso": Color(0.85, 0.15, 0.12),
-		"recurso_max": 100, "recurso_tipo": "combate", "recurso_ganho": 9, "custo_hab": 45,
+		"recurso_max": 100, "recurso_tipo": "combate", "recurso_ganho": 6, "custo_hab": 45,
 		"resumo": "Casca grossa. Bate perto e forte.",
 	},
 	"paladino": {
@@ -46,12 +46,12 @@ const DADOS := {
 		"habilidade": "escudo", "hab_nome": "Escudo sagrado",
 		"recarga": 14.0, "hab_duracao": 4.0, "hab_raio": 210.0,
 		"recurso": "Fervor", "cor_recurso": Color(0.98, 0.80, 0.25),
-		"recurso_max": 100, "recurso_tipo": "combate", "recurso_ganho": 8, "custo_hab": 50,
+		"recurso_max": 100, "recurso_tipo": "combate", "recurso_ganho": 5, "custo_hab": 50,
 		"resumo": "Aguenta pancada e blinda a party inteira.",
 	},
 	"clerigo": {
 		"nome": "Clérigo", "cor": Color(0.6, 0.9, 0.7),
-		"vida": 110, "velocidade": 290, "cadencia": 0.35, "dano": 18,
+		"vida": 110, "velocidade": 290, "cadencia": 0.35, "dano": 14,
 		"ataque": "reto", "alcance": 460,
 		"habilidade": "aura", "hab_nome": "Aura de cura",
 		"recarga": 12.0, "hab_duracao": 4.0, "hab_raio": 145.0, "hab_cura": 10.0,
@@ -62,7 +62,7 @@ const DADOS := {
 	"mago": {
 		"nome": "Mago", "cor": Color(0.65, 0.45, 1.0),
 		"vida": 90, "velocidade": 275, "cadencia": 0.62, "dano": 28,
-		"ataque": "explosivo", "alcance": 470, "raio_estouro": 72.0, "dano_estouro": 22,
+		"ataque": "explosivo", "alcance": 470, "raio_estouro": 88.0, "dano_estouro": 30,
 		"habilidade": "nova", "hab_nome": "Nova de fogo",
 		"recarga": 10.0, "hab_dano": 70, "hab_raio": 175.0,
 		"recurso": "Mana", "cor_recurso": Color(0.30, 0.55, 1.0),
@@ -98,8 +98,8 @@ const DADOS := {
 		"habilidade": "investida", "hab_nome": "Investida",
 		"recarga": 6.0, "hab_dano": 45, "hab_distancia": 260.0,
 		"recurso": "Energia", "cor_recurso": Color(0.45, 0.95, 0.45),
-		"recurso_max": 100, "recurso_tipo": "tempo", "recurso_regen": 22.0, "custo_hab": 30,
-		"custo_ataque": 7,
+		"recurso_max": 100, "recurso_tipo": "tempo", "recurso_regen": 26.0, "custo_hab": 30,
+		"custo_ataque": 4,
 		"resumo": "Vidro. Muito rápido, golpes secos e curtos.",
 	},
 }

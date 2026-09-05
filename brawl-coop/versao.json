@@ -1,5 +1,5 @@
 {
-  "versao": "0.10.0",
+  "versao": "0.10.1",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Cada classe tem seu recurso: Furia, Mana, Energia, Foco, Fe, Natureza, Fervor."
+  "notas": "Balanceamento dos ataques medido e corrigido: assassino era o pior negocio, guerreiro nao tinha contrapartida."
 }

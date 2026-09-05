@@ -51,6 +51,37 @@ Duas regras de propósito:
 - O menu de escolha de classe usa **1 a 7 fixos**, fora do remapeamento — senão
   daria para se trancar fora do próprio menu.
 
+## Dano medido (não estimado)
+
+Medido com `tools/` contra alvos parados, 15 segundos atacando sem parar. A
+coluna "3 juntos" mostra quem ganha atacando um grupo — é onde o arco corpo a
+corpo e o estouro do mago aparecem.
+
+| Classe | Vida | Alvo único | 3 juntos | Alcance |
+|---|---|---|---|---|
+| Assassino | 85 | **97** | 291 | 62 (colado) |
+| Arqueiro | 100 | **95** | 95 | 620 (longe) |
+| Guerreiro | 160 | 75 | 224 | 78 |
+| Paladino | 150 | 61 | 183 | 84 |
+| Druida | 120 | 48 | 48 | 430 |
+| Mago | 90 | 45 | **141** | 470 |
+| Clérigo | 110 | 38 | 38 | 460 |
+
+A regra é: **quem bate mais, morre mais fácil e tem que chegar perto**. O
+assassino tem o maior dano e a menor vida, e o alcance mais curto do jogo. O
+arqueiro bate quase igual, mas de 620px — em troca, é o único que não ganha
+nada atacando um grupo.
+
+Três problemas que essa medição pegou, e que estavam invisíveis:
+
+- **O guerreiro não tinha contrapartida**: a maior vida (160), o segundo maior
+  dano E o arco que acerta vários. O dano dele caiu de 40 para 34.
+- **O assassino era o pior negócio do jogo**: a menor vida e *menos* dano
+  sustentado que o guerreiro, porque a energia secava em 4 segundos. Custo por
+  golpe caiu de 7 para 4 e a regeneração subiu para 26/s.
+- **O clérigo batia igual ao druida e mais que o mago**, apesar do resumo dizer
+  "ataque fraco". Caiu de 18 para 14.
+
 ## O recurso de cada classe
 
 Cada classe tem o seu recurso, com regra própria — a ideia veio das árvores de
