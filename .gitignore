@@ -1,3 +1,6 @@
 
 # Pacote exportado do jogo: vai para o GitHub Releases, nao para o repositorio
-/dist/
+
+# Qualquer pasta de exportacao (dist, dist_novo, dist_teste...): os binarios
+# vao para o GitHub Releases, nunca para o repositorio.
+/dist*/

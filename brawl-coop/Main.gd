@@ -494,6 +494,12 @@ func _monta_hud(tela: Vector2) -> void:
 	_hud_aviso.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hud_aviso.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 
+	# Versao no canto: o testador precisa saber em qual esta ao relatar algo,
+	# e nem sempre ele volta para a tela inicial para olhar.
+	var etiqueta := _cria_texto(Vector2(12, tela.y - 26.0), 12)
+	etiqueta.text = "v%s" % Atualizador.versao_em_uso
+	etiqueta.modulate = Color(1, 1, 1, 0.45)
+
 	_monta_habilidade(tela)
 	_monta_inventario(tela)
 
