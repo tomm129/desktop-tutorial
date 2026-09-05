@@ -1,5 +1,5 @@
 {
-  "versao": "0.8.1",
+  "versao": "0.8.2",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Habilidades e golpes com arte de efeito de verdade, no lugar das particulas simples."
+  "notas": "Goblin e arqueiro ficavam invisiveis andando para certos lados: a arte vinha com direcoes em branco."
 }

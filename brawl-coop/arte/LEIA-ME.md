@@ -36,6 +36,16 @@ Quem converte ângulo em linha é `_linha_da_direcao()`, no `Personagem.gd` e no
 | `classes/assassino` | Masked Assassin |
 | `classes/goblin`    | Goblin Warrior (o inimigo) |
 
+**ATENÇÃO: algumas folhas vêm com direções em branco.** A do goblin vinha sem
+as linhas 2, 6 e 7; a do arqueiro, sem a linha 1. No jogo isso aparecia como
+personagem **invisível** andando para aquele lado — só a sombra e a barra de
+vida. O `tools/completar_folha.py` preenche essas linhas copiando e espelhando
+as vizinhas, e é bom rodá-lo em toda folha nova:
+
+```
+python tools/completar_folha.py arte/classes/<classe>/andar.png
+```
+
 **Estas folhas não têm quadro de morte nem de levar pancada.** O jogo resolve
 assim: pancada = tingir de vermelho; morte = girar o sprite 90 graus e sumir
 desvanecendo. Se um dia aparecer arte com esses quadros, é só acrescentar as
