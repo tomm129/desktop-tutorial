@@ -1,5 +1,5 @@
 {
-  "versao": "0.7.2",
+  "versao": "0.7.3",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Quem cai numa partida em rede nao congela mais o jogo dos outros."
+  "notas": "Itens que caem no chao agora aparecem para todos os jogadores."
 }

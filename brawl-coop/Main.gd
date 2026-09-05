@@ -66,6 +66,8 @@ var _t_envio_jogador := 0.0
 var _t_envio_inimigos := 0.0
 var _proximo_id_inimigo := 1
 var _inimigos_por_id := {}          # id de rede -> no (usado nos clientes)
+var _proximo_id_item := 1
+var _itens_por_id := {}             # idem para os itens caidos
 var _linhas_de_controle := {}   # id da acao -> botao que mostra a tecla
 var _capturando := ""          # acao esperando o jogador apertar a tecla nova
 var _estado_antes_dos_controles := "escolha_sua"
@@ -881,6 +883,7 @@ func _sincroniza(delta: float) -> void:
 			_t_envio_inimigos = 0.0
 			_estado_dos_inimigos.rpc(_foto_dos_inimigos(), _onda)
 			_estado_dos_aliados.rpc(_foto_dos_aliados())
+			_estado_dos_itens.rpc(_foto_dos_itens())
 
 # Relatorio periodico no console, so com o argumento "log". Serve para conferir
 # a sincronia entre duas maquinas sem precisar olhar as duas telas.
@@ -906,9 +909,12 @@ func _relata(delta: float) -> void:
 	for f in _arena.get_children():
 		if f is Area2D and f.has_method("_ao_acertar"):
 			tiros += 1
-	print("[%s] party: %s | inimigos: %d | 1o: %s | onda %d | tiros na tela: %d"
+	var itens := []
+	for it in get_tree().get_nodes_in_group("itens"):
+		itens.append("%s#%d@%s" % [it.tipo, it.id_rede, str(it.global_position.round())])
+	print("[%s] party: %s | inimigos: %d | onda %d | tiros: %d | itens no chao: %s"
 		% ["ANFITRIAO" if Rede.sou_anfitriao else "CLIENTE", ", ".join(posicoes),
-		   inimigos.size(), primeiro, _onda, tiros])
+		   inimigos.size(), _onda, tiros, ("nenhum" if itens.is_empty() else ", ".join(itens))])
 
 # Aliados de computador: mesma ideia da horda, mas eles tem mira, que importa
 # para a animacao de qual lado o boneco esta olhando.
@@ -989,6 +995,75 @@ func _tiro_de_alguem(pos: Vector2, direcao: Vector2, classe: String) -> void:
 	bala.alcance = float(dados.get("alcance", 450.0))
 	bala.global_position = pos
 	_arena.add_child(bala)
+
+# --- Itens no chao ----------------------------------------------------------
+#
+# Mesma ideia dos inimigos: quem cria e remove e o anfitriao. O cliente so
+# mostra e PEDE para pegar -- senao duas pessoas pegariam o mesmo item, cada
+# uma na sua tela, e o item viraria dois.
+
+func solta_item(tipo: String, onde: Vector2) -> void:
+	if Rede.esta_em_rede() and not Rede.sou_anfitriao:
+		return   # so o anfitriao cria
+	var item: Area2D = load("res://Item.gd").new()
+	item.tipo = tipo
+	item.id_rede = _proximo_id_item
+	_proximo_id_item += 1
+	item.global_position = onde
+	_arena.add_child(item)
+
+func _foto_dos_itens() -> Array:
+	var foto := []
+	for it in get_tree().get_nodes_in_group("itens"):
+		foto.append([it.id_rede, it.tipo, it.global_position.x, it.global_position.y])
+	return foto
+
+@rpc("authority", "unreliable_ordered")
+func _estado_dos_itens(foto: Array) -> void:
+	var vistos := {}
+	for e in foto:
+		var id: int = e[0]
+		vistos[id] = true
+		var no = _itens_por_id.get(id)
+		if no == null or not is_instance_valid(no):
+			no = load("res://Item.gd").new()
+			no.remoto = true
+			no.id_rede = id
+			no.tipo = e[1]
+			no.global_position = Vector2(e[2], e[3])
+			_arena.add_child(no)
+			_itens_por_id[id] = no
+	for id in _itens_por_id.keys():
+		if not vistos.has(id):
+			var no = _itens_por_id[id]
+			if is_instance_valid(no):
+				no.queue_free()
+			_itens_por_id.erase(id)
+
+func pede_pegar_item(id: int) -> void:
+	if Rede.esta_em_rede():
+		_pegar_item.rpc_id(1, id)
+
+@rpc("any_peer", "reliable")
+func _pegar_item(id: int) -> void:
+	if not Rede.sou_anfitriao:
+		return
+	var quem := multiplayer.get_remote_sender_id()
+	for it in get_tree().get_nodes_in_group("itens"):
+		if it.id_rede == id:
+			_recebe_item.rpc_id(quem, it.tipo)
+			it.queue_free()
+			return
+
+# Item pego por um jogador de outra maquina, encostado aqui no anfitriao.
+func entrega_item(id: int, tipo: String) -> void:
+	if Rede.esta_em_rede():
+		_recebe_item.rpc_id(id, tipo)
+
+@rpc("any_peer", "reliable")
+func _recebe_item(tipo: String) -> void:
+	if _jogador != null:
+		_jogador.pegar_item(tipo)
 
 # Chamado pelo Inimigo de um cliente: quem aplica o dano e o anfitriao.
 func pede_dano_em_inimigo(id: int, dano: int) -> void:

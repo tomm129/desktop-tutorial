@@ -222,12 +222,14 @@ func _morrer() -> void:
 func _talvez_largar_item() -> void:
 	if randf() >= CHANCE_DE_LARGAR_ITEM:
 		return
-	var item: Area2D = load("res://Item.gd").new()
-	item.tipo = ITENS_QUE_LARGA[randi() % ITENS_QUE_LARGA.size()]
-	item.global_position = global_position
-	# call_deferred: isto aqui roda dentro do passo de física (veio do sinal
-	# body_entered da bala), e a Godot reclama se a cena mudar no meio dele.
-	get_parent().call_deferred("add_child", item)
+	# Quem cria o item e a Main: e ela que da o numero de rede e avisa as
+	# outras maquinas. call_deferred porque isto roda dentro do passo de fisica
+	# (veio do sinal body_entered da bala) e a Godot reclama se a cena mudar
+	# no meio dele.
+	var principal := get_tree().get_first_node_in_group("main")
+	if principal != null:
+		principal.call_deferred("solta_item",
+			ITENS_QUE_LARGA[randi() % ITENS_QUE_LARGA.size()], global_position)
 
 # Quem desenha a barra e a camada BarrasNaTela.gd. So aparece depois do
 # primeiro dano, e sem coracao -- coracao e coisa da party.

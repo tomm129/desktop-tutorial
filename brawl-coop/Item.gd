@@ -9,6 +9,10 @@ const TAMANHO_NA_TELA := 34.0   # o ícone é redimensionado para caber nisso
 const ALTURA_DO_BALANCO := 4.0  # sobe e desce parado no chão
 
 var tipo := "kit"               # kit | frasco | pilhas
+# Numa partida em rede quem manda nos itens e o anfitriao, igual aos
+# inimigos: o cliente so mostra, e pede para pegar.
+var remoto := false
+var id_rede := 0
 
 var _sprite: Sprite2D
 var _tempo := 0.0
@@ -34,6 +38,7 @@ func _ready() -> void:
 	add_child(_sprite)
 
 	body_entered.connect(_ao_encostar)
+	add_to_group("itens")
 
 func _process(delta: float) -> void:
 	_tempo += delta
@@ -46,7 +51,27 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 func _ao_encostar(corpo: Node2D) -> void:
-	if corpo.has_method("pegar_item") and corpo.pegar_item(tipo):
+	if not corpo.has_method("pegar_item"):
+		return
+	if corpo.por_ia:
+		return   # aliado de computador nao cata item, deixa para a gente
+	var principal := get_tree().get_first_node_in_group("main")
+
+	# Cliente: nao pega por conta, pede ao anfitriao. Senao duas pessoas
+	# pegariam o mesmo item, cada uma na sua tela.
+	if remoto:
+		if not corpo.remoto and principal != null:
+			principal.pede_pegar_item(id_rede)
+		return
+
+	# Anfitriao (ou jogo local). Se quem encostou e de outra maquina, o item
+	# vai para o inventario DELA.
+	if corpo.remoto:
+		if principal != null:
+			principal.entrega_item(corpo.id_de_rede, tipo)
+			queue_free()
+		return
+	if corpo.pegar_item(tipo):
 		queue_free()
 
 func _draw() -> void:
