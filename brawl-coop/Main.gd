@@ -18,6 +18,9 @@ const LONGE_DA_PARTY := 200.0
 const COMECA_COM_INIMIGOS_NEUTROS := true
 
 const LADO_DO_TILE := 32.0
+const ENFEITES := ["tufo", "samambaia", "pedra", "arbusto"]
+const QUANTOS_ENFEITES := 55
+const LONGE_DO_COMECO := 120.0   # nao nasce enfeite em cima da party
 const LADO_DO_QUADRO := 128       # quadro das folhas de sprite, para o retrato
 
 # Os quatro slots do inventário, na ordem em que aparecem na tela.
@@ -161,6 +164,12 @@ func _talvez_pular_escolha() -> void:
 	if args.has("controles"):
 		# atalho para conferir a tela de controles sem depender de apertar F1
 		call_deferred("_abre_controles")
+	# Sem isto o atalho nao faz nada: _escolhe_classe so age nos estados de
+	# escolha, e desde que existe menu o estado inicial passou a ser 'menu'.
+	_sozinho = true
+	_camada_menu.visible = false
+	_camada_escolha.visible = true
+	_estado = "escolha_sua"
 	_escolhe_classe(sua)
 	_escolhe_classe(aliado)
 
@@ -180,6 +189,29 @@ func _monta_piso(tela: Vector2) -> void:
 			# do fundo.
 			chao.modulate = Color(0.78, 0.78, 0.78)
 			_chao.add_child(chao)
+	_espalha_enfeites(tela)
+
+# O tile de grama e uma cor chapada. Sao estes enfeites espalhados que tiram o
+# ar de "parede verde" -- e eles ficam no _chao, atras de todo mundo.
+func _espalha_enfeites(tela: Vector2) -> void:
+	var texturas := []
+	for nome in ENFEITES:
+		texturas.append(load("res://arte/enfeites/%s.png" % nome))
+	var meio := tela / 2.0
+	for i in QUANTOS_ENFEITES:
+		var textura = texturas[randi() % texturas.size()]
+		var onde := Vector2(randf_range(24.0, tela.x - 24.0), randf_range(24.0, tela.y - 24.0))
+		if onde.distance_to(meio) < LONGE_DO_COMECO:
+			continue   # deixa o centro limpo: e onde a party comeca
+		var enfeite := Sprite2D.new()
+		enfeite.texture = textura
+		var lado := float(max(textura.get_width(), textura.get_height()))
+		enfeite.scale = Vector2.ONE * (randf_range(26.0, 48.0) / lado)
+		enfeite.position = onde
+		# Mesmo escurecido do piso, para nao saltarem do fundo.
+		var tom := randf_range(0.72, 0.86)
+		enfeite.modulate = Color(tom, tom, tom)
+		_chao.add_child(enfeite)
 
 # --- Escolha de classe ------------------------------------------------------
 

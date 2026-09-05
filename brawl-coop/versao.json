@@ -1,5 +1,5 @@
 {
-  "versao": "0.7.3",
+  "versao": "0.7.4",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Itens que caem no chao agora aparecem para todos os jogadores."
+  "notas": "CORRECAO IMPORTANTE: o modo sozinho nao criava inimigos. E o chao ganhou vegetacao."
 }

@@ -27,6 +27,10 @@ const MAXIMO_DE_JOGADORES := 4
 var jogadores := {}
 var sou_anfitriao := false
 var em_partida := false
+# Ligado de verdade? NAO da para perguntar isso ao multiplayer_peer: na Godot 4
+# ele nunca e nulo -- vem um OfflineMultiplayerPeer por padrao, e ai qualquer
+# teste de "esta em rede?" da verdadeiro ate numa partida local.
+var _ligado := false
 
 func _ready() -> void:
 	multiplayer.peer_connected.connect(_ao_conectar_alguem)
@@ -46,6 +50,7 @@ func hospedar(nome: String, porta: int = PORTA_PADRAO) -> String:
 	if erro != OK:
 		return "não deu para abrir a porta %d (erro %d)" % [porta, erro]
 	multiplayer.multiplayer_peer = peer
+	_ligado = true
 	sou_anfitriao = true
 	jogadores = {1: {"nome": nome, "classe": "guerreiro"}}
 	lista_mudou.emit()
@@ -57,6 +62,7 @@ func entrar(ip: String, nome: String, porta: int = PORTA_PADRAO) -> String:
 	if erro != OK:
 		return "não deu para falar com %s:%d (erro %d)" % [ip, porta, erro]
 	multiplayer.multiplayer_peer = peer
+	_ligado = true
 	sou_anfitriao = false
 	_meu_nome = nome
 	return ""
@@ -65,13 +71,14 @@ func sair() -> void:
 	if multiplayer.multiplayer_peer != null:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = null
+	_ligado = false
 	jogadores.clear()
 	sou_anfitriao = false
 	em_partida = false
 	lista_mudou.emit()
 
 func esta_em_rede() -> bool:
-	return multiplayer.multiplayer_peer != null
+	return _ligado
 
 var _meu_nome := "jogador"
 
@@ -95,10 +102,12 @@ func _ao_entrar_no_servidor() -> void:
 
 func _ao_falhar() -> void:
 	multiplayer.multiplayer_peer = null
+	_ligado = false
 	desconectado.emit("não consegui conectar")
 
 func _ao_cair_o_servidor() -> void:
 	multiplayer.multiplayer_peer = null
+	_ligado = false
 	jogadores.clear()
 	em_partida = false
 	desconectado.emit("o anfitrião saiu")
