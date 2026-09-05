@@ -900,9 +900,13 @@ func _relata(delta: float) -> void:
 	if inimigos.size() > 0:
 		primeiro = "id%d@%s vida=%d" % [inimigos[0].id_rede,
 			str(inimigos[0].global_position.round()), inimigos[0].vida]
-	print("[%s] party: %s | inimigos: %d | 1o: %s | onda %d"
+	var tiros := 0
+	for f in _arena.get_children():
+		if f is Area2D and f.has_method("_ao_acertar"):
+			tiros += 1
+	print("[%s] party: %s | inimigos: %d | 1o: %s | onda %d | tiros na tela: %d"
 		% ["ANFITRIAO" if Rede.sou_anfitriao else "CLIENTE", ", ".join(posicoes),
-		   inimigos.size(), primeiro, _onda])
+		   inimigos.size(), primeiro, _onda, tiros])
 
 # Aliados de computador: mesma ideia da horda, mas eles tem mira, que importa
 # para a animacao de qual lado o boneco esta olhando.
@@ -965,6 +969,24 @@ func _estado_dos_inimigos(foto: Array, onda: int) -> void:
 
 	_vivos = foto.size()
 	_atualiza_hud()
+
+# Tiro de alguem: as outras maquinas so DESENHAM, nao contam dano.
+func avisa_tiro(pos: Vector2, direcao: Vector2, classe: String) -> void:
+	if Rede.esta_em_rede() and Rede.em_partida:
+		_tiro_de_alguem.rpc(pos, direcao, classe)
+
+@rpc("any_peer", "unreliable")
+func _tiro_de_alguem(pos: Vector2, direcao: Vector2, classe: String) -> void:
+	var dados := Classes.dados(classe)
+	if dados["ataque"] == "arco":
+		return   # corpo a corpo nao tem projetil para mostrar
+	var bala: Area2D = load("res://Bala.gd").new()
+	bala.so_enfeite = true
+	bala.direcao = direcao
+	bala.cor = dados.get("cor", Color(1, 0.85, 0.2))
+	bala.alcance = float(dados.get("alcance", 450.0))
+	bala.global_position = pos
+	_arena.add_child(bala)
 
 # Chamado pelo Inimigo de um cliente: quem aplica o dano e o anfitriao.
 func pede_dano_em_inimigo(id: int, dano: int) -> void:

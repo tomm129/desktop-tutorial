@@ -279,6 +279,12 @@ func _dispara(direcao: Vector2) -> void:
 	bala.global_position = global_position + direcao * (RAIO + 6.0)
 	get_parent().add_child(bala)
 
+	# Avisa as outras maquinas para o tiro APARECER na tela delas. Sem isso o
+	# dano dos parceiros acontece, mas ninguem ve os projeteis deles.
+	var principal := get_tree().get_first_node_in_group("main")
+	if principal != null:
+		principal.avisa_tiro(bala.global_position, direcao, classe)
+
 # --- Habilidade (tecla Q) ---------------------------------------------------
 
 func ativar_habilidade() -> bool:

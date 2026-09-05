@@ -1,5 +1,5 @@
 {
-  "versao": "0.7.0",
+  "versao": "0.7.1",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Multiplayer ate 4 jogadores por conexao direta, com menu e sala de espera."
+  "notas": "Os tiros dos outros jogadores agora aparecem na sua tela."
 }

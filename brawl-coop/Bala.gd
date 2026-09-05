@@ -15,6 +15,9 @@ var dano_estouro := 0
 var lentidao := 0.0              # > 0 = deixa o alvo lento (0.45 = 45% mais devagar)
 var tempo_lentidao := 0.0
 
+# Tiro que veio de outra maquina: aparece, mas nao machuca ninguem. Quem conta
+# o dano e a maquina de quem atirou, senao o mesmo tiro contaria varias vezes.
+var so_enfeite := false
 var _percorrido := 0.0
 var _tempo_estouro := 0.0        # > 0 = já acertou, está só mostrando o estouro
 
@@ -30,7 +33,10 @@ func _ready() -> void:
 	collision_mask = 0
 	set_collision_layer_value(3, true)   # camada 3 = tiros da party
 	set_collision_mask_value(2, true)    # máscara 2 = só enxerga inimigos
-	body_entered.connect(_ao_acertar)
+	if so_enfeite:
+		set_deferred("monitoring", false)
+	else:
+		body_entered.connect(_ao_acertar)
 
 func _process(delta: float) -> void:
 	# Já acertou: fica parada só o tempo de desenhar o estouro.
