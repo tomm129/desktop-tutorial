@@ -1,5 +1,5 @@
 {
-  "versao": "0.7.1",
+  "versao": "0.7.2",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Os tiros dos outros jogadores agora aparecem na sua tela."
+  "notas": "Quem cai numa partida em rede nao congela mais o jogo dos outros."
 }

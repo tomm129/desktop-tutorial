@@ -666,14 +666,16 @@ func _process(delta: float) -> void:
 		return
 	_atualiza_habilidade()
 	_conta_o_flash(delta)
-	if _fim_de_jogo:
-		return
 
 	# Em rede, quem cria as ondas e o anfitriao; o cliente so mostra o que chega.
+	# O anfitriao continua comandando MESMO CAIDO: se ele parasse, os
+	# inimigos congelavam em todas as telas.
 	if Rede.esta_em_rede():
 		_sincroniza(delta)
 		if not Rede.sou_anfitriao:
 			return
+	elif _fim_de_jogo:
+		return
 
 	if _vivos == 0:
 		_tempo_ate_proxima_onda -= delta
@@ -1279,8 +1281,15 @@ func _ao_cair_aliado() -> void:
 
 func _ao_morrer_jogador() -> void:
 	_fim_de_jogo = true
-	_mostra_aviso("FIM DE JOGO — chegou até a onda %d\nAperte R para recomeçar" % _onda)
 	_atualiza_hud()
+	if Rede.esta_em_rede():
+		# Em rede ninguem pausa nada: pausar a arvore do anfitriao congelaria
+		# os inimigos em TODAS as telas.
+		_mostra_aviso("Você caiu na onda %d — a partida continua para os outros." % _onda)
+		return
+	_mostra_aviso("FIM DE JOGO — chegou até a onda %d
+Aperte %s para recomeçar"
+		% [_onda, Controles.tecla_de("recomecar")])
 	get_tree().paused = true   # congela inimigos e tiros
 
 func _atualiza_hud() -> void:
