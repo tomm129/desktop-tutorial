@@ -4,3 +4,10 @@
 
 # Pacote exportado: vai para o GitHub Releases, nao para o repositorio
 dist/
+
+# Modelos 3D do KayKit: baixados do itch.io, nao versionados (ver arte/3d/LEIA-ME.md)
+/arte/3d/*.gltf
+/arte/3d/*.glb
+/arte/3d/*.bin
+/arte/3d/*.fbx
+/arte/3d/textures/
