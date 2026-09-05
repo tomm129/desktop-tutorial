@@ -1,5 +1,5 @@
 {
-  "versao": "0.7.4",
+  "versao": "0.8.0",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "CORRECAO IMPORTANTE: o modo sozinho nao criava inimigos. E o chao ganhou vegetacao."
+  "notas": "Impacto no combate: faiscas, numeros de dano, recuo, tremor de tela e bote do inimigo. E o Escudo Sagrado do paladino voltou a funcionar."
 }

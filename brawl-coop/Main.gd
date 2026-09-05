@@ -34,6 +34,8 @@ const ITENS := [
 	{"tipo": "foco",    "nome": "Pergaminho (deixa a habilidade pronta na hora)"},
 ]
 
+var _mundo: Node2D         # so existe para poder TREMER a tela inteira
+var _tremor := 0.0
 var _chao: Node2D          # tiles de grama, sem ordenação
 var _arena: Node2D         # tudo que "pisa" no chão, ordenado por Y
 var _barras: Node2D        # desenha as barras de vida por cima de tudo
@@ -104,13 +106,17 @@ func _ready() -> void:
 	# Y-sort ordena os filhos pela posição Y, então quem está mais "à frente"
 	# (mais embaixo na tela) desenha por cima. Se os tiles ficassem junto,
 	# um tile lá de baixo passaria na frente de um personagem lá de cima.
+	# _chao e _arena moram dentro do _mundo: sacudir um no so e o jeito mais
+	# simples de tremer a tela sem mexer em camera.
+	_mundo = Node2D.new()
+	add_child(_mundo)
 	_chao = Node2D.new()
-	add_child(_chao)
+	_mundo.add_child(_chao)
 	_monta_piso(tela)
 
 	_arena = Node2D.new()
 	_arena.y_sort_enabled = true
-	add_child(_arena)
+	_mundo.add_child(_arena)
 
 	# Camada das barras de vida: entra DEPOIS da arena, entao desenha por
 	# cima de todos os personagens. E de la que sai o empilhamento.
@@ -700,6 +706,7 @@ func _process(delta: float) -> void:
 		return
 	_atualiza_habilidade()
 	_conta_o_flash(delta)
+	_conta_o_tremor(delta)
 
 	# Em rede, quem cria as ondas e o anfitriao; o cliente so mostra o que chega.
 	# O anfitriao continua comandando MESMO CAIDO: se ele parasse, os
@@ -1168,6 +1175,16 @@ func _ao_usar_habilidade(nome_da_hab: String, de_quem: String) -> void:
 	_hud_flash.text = "%s: %s!" % [de_quem, nome_da_hab]
 	_hud_flash.modulate = _jogador.cor_da_classe() if de_quem == "Você" else _aliado.cor_da_classe()
 	_tempo_flash = 1.6
+
+# Tremor de tela: some rapido, senao vira enjoo. So quem LEVA o dano treme.
+func tremer(forca: float) -> void:
+	_tremor = max(_tremor, forca)
+
+func _conta_o_tremor(delta: float) -> void:
+	if _tremor <= 0.0:
+		return
+	_tremor = max(0.0, _tremor - delta * 26.0)
+	_mundo.position = Vector2(randf_range(-_tremor, _tremor), randf_range(-_tremor, _tremor))
 
 func _conta_o_flash(delta: float) -> void:
 	_tempo_flash = max(0.0, _tempo_flash - delta)

@@ -23,6 +23,8 @@ const TEMPO_INVULNERAVEL := 0.2  # carência sem levar dano depois de ser atingi
 const ESCALA_SPRITE := 0.9      # o quadro original é 128x128
 const ALTURA_SPRITE := -38.0     # sobe o boneco: os pés ficam na base do círculo
 const TEMPO_MACHUCADO := 0.18
+const EMPURRAO_AO_APANHAR := 190.0   # quanto o golpe joga voce para tras
+const TREMOR_AO_APANHAR := 5.0
 const TEMPO_DO_GOLPE := 0.16     # quanto tempo o arco do golpe fica desenhado
 const DURACAO_DA_INVESTIDA := 0.18
 const ABERTURA_DO_GOLPE := 55.0  # meio-ângulo do leque do corpo a corpo
@@ -65,6 +67,7 @@ var _tempo_turbo := 0.0
 var _tempo_veloz := 0.0
 var _tempo_golpe := 0.0
 var _recarga := 0.0
+var _empurrao := Vector2.ZERO   # recuo de quem acabou de apanhar
 # Aura (clérigo) e o "brilho" que as outras habilidades deixam na tela
 var _tempo_aura := 0.0
 var _cura_acumulada := 0.0
@@ -149,7 +152,7 @@ func _physics_process(delta: float) -> void:
 	var rapidez := float(_d["velocidade"])
 	if _tempo_veloz > 0.0:
 		rapidez *= BONUS_DE_VELOCIDADE
-	velocity = direcao.normalized() * rapidez
+	velocity = direcao.normalized() * rapidez + _empurrao
 	if _tempo_investida > 0.0:
 		velocity = _mira * (float(_d.get("hab_distancia", 260.0)) / DURACAO_DA_INVESTIDA)
 	move_and_slide()
@@ -172,6 +175,7 @@ func _passa_o_tempo(delta: float) -> void:
 	_tempo_golpe = max(0.0, _tempo_golpe - delta)
 	_tempo_efeito = max(0.0, _tempo_efeito - delta)
 	_recarga = max(0.0, _recarga - delta)
+	_empurrao = _empurrao.lerp(Vector2.ZERO, min(1.0, delta * 9.0))
 
 	if _tempo_aura > 0.0:
 		_tempo_aura = max(0.0, _tempo_aura - delta)
@@ -261,7 +265,9 @@ func _golpe_em_arco() -> void:
 		var ate_ele: Vector2 = inimigo.global_position - global_position
 		if ate_ele.length() <= alcance + RAIO \
 			and absf(_mira.angle_to(ate_ele)) <= deg_to_rad(ABERTURA_DO_GOLPE):
-			inimigo.receber_dano(int(_d["dano"]))
+			inimigo.receber_dano(int(_d["dano"]), global_position)
+			Efeitos.faisca(get_parent(), inimigo.global_position + Vector2(0, -22),
+				Color(1, 0.9, 0.6), 8, 110.0)
 	_tempo_golpe = TEMPO_DO_GOLPE
 
 func _dispara(direcao: Vector2) -> void:
@@ -299,12 +305,17 @@ func ativar_habilidade() -> bool:
 		"giro", "nova":
 			for inimigo in get_tree().get_nodes_in_group("inimigos"):
 				if global_position.distance_to(inimigo.global_position) <= raio:
-					inimigo.receber_dano(int(_d.get("hab_dano", 50)))
+					inimigo.receber_dano(int(_d.get("hab_dano", 50)), global_position)
+					Efeitos.faisca(get_parent(), inimigo.global_position + Vector2(0, -24),
+						_d.get("cor", Color.WHITE), 14, 200.0)
+			Efeitos.poeira(get_parent(), global_position)
 			_mostra_efeito(raio)
 		"escudo":
 			for membro in get_tree().get_nodes_in_group("jogador"):
 				if membro.vida > 0 and global_position.distance_to(membro.global_position) <= raio:
-					membro.aplicar_efeito("frasco")
+					membro.aplicar_efeito("escudo")
+					Efeitos.faisca(get_parent(), membro.global_position + Vector2(0, -30),
+						Color(0.5, 0.85, 1.0), 12, 90.0)
 			_mostra_efeito(raio)
 		"leque":
 			var tiros := int(_d.get("hab_tiros", 5))
@@ -316,6 +327,9 @@ func ativar_habilidade() -> bool:
 			for inimigo in get_tree().get_nodes_in_group("inimigos"):
 				if global_position.distance_to(inimigo.global_position) <= raio:
 					inimigo.prender(float(_d.get("hab_duracao", 2.5)))
+					Efeitos.poeira(get_parent(), inimigo.global_position)
+					Efeitos.faisca(get_parent(), inimigo.global_position,
+						Color(0.35, 0.55, 0.2), 10, 80.0)
 			_mostra_efeito(raio)
 		"investida":
 			_tempo_investida = DURACAO_DA_INVESTIDA
@@ -339,7 +353,9 @@ func _corre_investida() -> Vector2:
 		if inimigo in _atingidos:
 			continue
 		if global_position.distance_to(inimigo.global_position) <= RAIO + 26.0:
-			inimigo.receber_dano(int(_d.get("hab_dano", 45)))
+			inimigo.receber_dano(int(_d.get("hab_dano", 45)), global_position)
+			Efeitos.faisca(get_parent(), inimigo.global_position + Vector2(0, -24),
+				Color(1, 1, 1), 14, 190.0)
 			_atingidos.append(inimigo)
 	return _mira
 
@@ -416,7 +432,10 @@ func aplicar_efeito(tipo: String) -> void:
 			# quem limpa a volta dele -- por isso vale a pena mirar no parceiro.
 			for inimigo in get_tree().get_nodes_in_group("inimigos"):
 				if global_position.distance_to(inimigo.global_position) <= RAIO_DO_ESTOURO:
-					inimigo.receber_dano(DANO_DO_ESTOURO)
+					inimigo.receber_dano(DANO_DO_ESTOURO, global_position)
+					Efeitos.faisca(get_parent(), inimigo.global_position + Vector2(0, -24),
+						Color(1.0, 0.5, 0.2), 16, 210.0)
+			Efeitos.faisca(get_parent(), global_position, Color(1.0, 0.6, 0.2), 24, 260.0)
 			_mostra_efeito(RAIO_DO_ESTOURO)
 	queue_redraw()
 
@@ -426,6 +445,7 @@ func curar(quantidade: int) -> void:
 	var antes := vida
 	vida = min(vida_maxima, vida + quantidade)
 	if vida != antes:
+		Efeitos.numero_de_cura(get_parent(), global_position + Vector2(0, -66), vida - antes)
 		vida_mudou.emit(vida)
 		queue_redraw()
 
@@ -440,7 +460,7 @@ func tem_velocidade() -> bool:
 
 # --- Dano e desenho ---------------------------------------------------------
 
-func receber_dano(quantidade: int) -> void:
+func receber_dano(quantidade: int, de_onde := Vector2.ZERO) -> void:
 	# Quem decide a vida de um personagem e a maquina do DONO dele. Se este
 	# aqui e de outra pessoa, avisamos ela em vez de mexer na vida por conta --
 	# senao cada maquina teria uma versao diferente da mesma vida.
@@ -454,6 +474,18 @@ func receber_dano(quantidade: int) -> void:
 	vida = max(0, vida - quantidade)
 	_tempo_invulneravel = TEMPO_INVULNERAVEL
 	_tempo_machucado = TEMPO_MACHUCADO
+
+	# O que faz a pancada PARECER pancada, ja que a arte nao tem quadro de dano:
+	# recuo, faisca no peito, numero subindo e -- so para quem levou -- tremor.
+	if de_onde != Vector2.ZERO:
+		_empurrao = (global_position - de_onde).normalized() * EMPURRAO_AO_APANHAR
+	Efeitos.faisca(get_parent(), global_position + Vector2(0, -34), Color(1.0, 0.45, 0.35), 12)
+	Efeitos.numero(get_parent(), global_position + Vector2(0, -66), quantidade)
+	if not por_ia and not remoto:
+		var quem_manda := get_tree().get_first_node_in_group("main")
+		if quem_manda != null:
+			quem_manda.tremer(TREMOR_AO_APANHAR)
+
 	vida_mudou.emit(vida)
 	queue_redraw()
 	if vida == 0:

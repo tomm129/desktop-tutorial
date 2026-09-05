@@ -18,6 +18,8 @@ const DANO_CONTATO := 10
 const COOLDOWN_DANO := 0.8
 const ALCANCE_CONTATO := 48.0    # raio do inimigo (20) + raio da party (24) + folga
 const TEMPO_MACHUCADO := 0.15
+const TEMPO_DO_BOTE := 0.28      # quanto tempo dura a estocada do ataque
+const DISTANCIA_DO_BOTE := 16.0
 const TEMPO_SUMINDO := 0.55   # curto de proposito: sem quadro de morte, o
                               # corpo e o sprite girado 90 graus, e girado
                               # sobre a grama ele vira so uma mancha escura.
@@ -44,6 +46,8 @@ var _tempo_sumindo := 0.0
 var _tempo_lentidao := 0.0
 var _fator_lentidao := 1.0
 var _tempo_preso := 0.0
+var _tempo_bote := 0.0
+var _bote := Vector2.ZERO   # estocada visual do ataque
 
 func _ready() -> void:
 	var forma := CircleShape2D.new()
@@ -112,9 +116,14 @@ func _physics_process(delta: float) -> void:
 
 	# --- Dano por encostar (com intervalo, senão drena a vida num piscar) ---
 	_tempo_ate_proximo_dano -= delta
+	_tempo_bote = max(0.0, _tempo_bote - delta)
 	if not neutro and ate_o_alvo.length() <= ALCANCE_CONTATO and _tempo_ate_proximo_dano <= 0.0:
-		alvo.receber_dano(DANO_CONTATO)
+		alvo.receber_dano(DANO_CONTATO, global_position)
 		_tempo_ate_proximo_dano = COOLDOWN_DANO
+		# Estocada: ele avanca no alvo e volta. Sem quadro de ataque na arte,
+		# e este movimento que diz "ele bateu agora".
+		_tempo_bote = TEMPO_DO_BOTE
+		_bote = ate_o_alvo.normalized() * DISTANCIA_DO_BOTE
 
 	_atualiza_sprite(ate_o_alvo, andando)
 	queue_redraw()
@@ -143,6 +152,13 @@ func _linha_da_direcao(d: Vector2) -> int:
 	return (int(round(graus / 45.0)) + 6) % 8
 
 func _atualiza_sprite(para_o_alvo: Vector2, andando: bool) -> void:
+	# A estocada sai e volta: vai ate o pico na metade do tempo e recua.
+	var quanto := 0.0
+	if _tempo_bote > 0.0:
+		var andamento: float = 1.0 - (_tempo_bote / TEMPO_DO_BOTE)
+		quanto = sin(andamento * PI)
+	_sprite.position = Vector2(0, ALTURA_SPRITE) + _bote * quanto
+
 	var cor := Color.WHITE
 	if _tempo_machucado > 0.0:
 		cor = Color(1, 0.5, 0.5)
@@ -161,7 +177,7 @@ func _atualiza_sprite(para_o_alvo: Vector2, andando: bool) -> void:
 
 # --- Dano, lentidão e raízes ------------------------------------------------
 
-func receber_dano(quantidade: int) -> void:
+func receber_dano(quantidade: int, _de_onde := Vector2.ZERO) -> void:
 	if _morto:
 		return
 	# Cliente nao mexe na vida de inimigo: pede para o anfitriao, que e quem
@@ -173,6 +189,8 @@ func receber_dano(quantidade: int) -> void:
 		return
 	vida -= quantidade
 	_tempo_machucado = TEMPO_MACHUCADO
+	Efeitos.faisca(get_parent(), global_position + Vector2(0, -24), Color(1.0, 0.5, 0.4), 10)
+	Efeitos.numero(get_parent(), global_position + Vector2(0, -52), quantidade)
 	queue_redraw()
 	if vida <= 0:
 		_morrer()
@@ -215,6 +233,9 @@ func _morrer() -> void:
 	# Esta arte não tem quadro de morte: deita o boneco.
 	_sprite.rotation = deg_to_rad(90.0)
 	_sprite.modulate = Color.WHITE
+	# Estouro de faiscas na morte: sem quadro de morte, e o que marca o fim.
+	Efeitos.faisca(get_parent(), global_position + Vector2(0, -20), Color(0.9, 0.35, 0.3), 22, 220.0)
+	Efeitos.poeira(get_parent(), global_position)
 	queue_redraw()
 
 	_talvez_largar_item()

@@ -57,7 +57,8 @@ func _ao_acertar(corpo: Node2D) -> void:
 	if _tempo_estouro > 0.0:
 		return   # não acerta duas vezes durante o estouro
 	if corpo.has_method("receber_dano"):
-		corpo.receber_dano(dano)
+		corpo.receber_dano(dano, global_position)
+		Efeitos.faisca(get_parent(), global_position, cor, 8, 120.0)
 		if lentidao > 0.0 and corpo.has_method("aplicar_lentidao"):
 			corpo.aplicar_lentidao(lentidao, tempo_lentidao)
 
