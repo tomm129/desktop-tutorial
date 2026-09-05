@@ -11,6 +11,7 @@ extends CharacterBody2D
 # da direção para onde o personagem está olhando (_linha_da_direcao).
 
 signal vida_mudou(vida_atual: int)
+signal recurso_mudou(quanto: float)
 signal inventario_mudou
 signal habilidade_usada(nome_da_hab: String)
 signal morreu
@@ -54,6 +55,9 @@ var lider: Node2D                # a IA anda perto de quem está aqui
 
 var vida := 100
 var vida_maxima := 100
+# Recurso da classe (Furia, Mana, Energia...). Ver Classes.gd.
+var recurso := 0.0
+var recurso_maximo := 100.0
 var estoque := {"kit": 2, "escudo": 1, "turbo": 1, "estouro": 1, "veloz": 0, "foco": 0}
 
 var _d := {}                     # os dados da classe, lidos uma vez
@@ -81,6 +85,10 @@ func _ready() -> void:
 	_d = Classes.dados(classe)
 	vida_maxima = int(_d["vida"])
 	vida = vida_maxima
+	recurso_maximo = float(_d.get("recurso_max", 100))
+	# Quem enche batendo comeca VAZIO (a furia se conquista na briga); quem
+	# enche com o tempo comeca cheio.
+	recurso = 0.0 if _d.get("recurso_tipo", "tempo") == "combate" else recurso_maximo
 
 	var forma := CircleShape2D.new()
 	forma.radius = RAIO
@@ -175,6 +183,8 @@ func _passa_o_tempo(delta: float) -> void:
 	_tempo_golpe = max(0.0, _tempo_golpe - delta)
 	_tempo_efeito = max(0.0, _tempo_efeito - delta)
 	_recarga = max(0.0, _recarga - delta)
+	if _d.get("recurso_tipo", "tempo") == "tempo":
+		_muda_recurso(float(_d.get("recurso_regen", 0.0)) * delta)
 	_empurrao = _empurrao.lerp(Vector2.ZERO, min(1.0, delta * 9.0))
 
 	if _tempo_aura > 0.0:
@@ -247,11 +257,40 @@ func _inimigo_mais_perto() -> Node2D:
 			melhor = inimigo
 	return melhor
 
+# --- Recurso ----------------------------------------------------------------
+
+func _muda_recurso(quanto: float) -> void:
+	var antes := recurso
+	recurso = clampf(recurso + quanto, 0.0, recurso_maximo)
+	if not is_equal_approx(antes, recurso):
+		recurso_mudou.emit(recurso)
+
+func tem_recurso(quanto: float) -> bool:
+	return recurso >= quanto
+
+func nome_do_recurso() -> String:
+	return _d.get("recurso", "Recurso")
+
+func cor_do_recurso() -> Color:
+	return _d.get("cor_recurso", Color.WHITE)
+
+# Furia e Fervor sobem batendo e apanhando: e o que faz o guerreiro querer
+# estar no meio da briga em vez de esperar recarga.
+func _ganha_no_combate(fator := 1.0) -> void:
+	if _d.get("recurso_tipo", "tempo") == "combate":
+		_muda_recurso(float(_d.get("recurso_ganho", 0)) * fator)
+
 # --- Ataque -----------------------------------------------------------------
 
 func _tenta_atacar() -> void:
 	if _tempo_ate_proximo_ataque > 0.0:
 		return
+	# Classes que gastam recurso por golpe (mago, arqueiro, assassino) param de
+	# atirar quando acaba -- e o que impede segurar o botao a partida inteira.
+	var custo := float(_d.get("custo_ataque", 0))
+	if custo > 0.0 and not tem_recurso(custo):
+		return
+	_muda_recurso(-custo)
 	match _d["ataque"]:
 		"arco": _golpe_em_arco()
 		_: _dispara(_mira)
@@ -266,6 +305,7 @@ func _golpe_em_arco() -> void:
 		if ate_ele.length() <= alcance + RAIO \
 			and absf(_mira.angle_to(ate_ele)) <= deg_to_rad(ABERTURA_DO_GOLPE):
 			inimigo.receber_dano(int(_d["dano"]), global_position)
+			_ganha_no_combate()
 			Efeitos.faisca(get_parent(), inimigo.global_position + Vector2(0, -22),
 				Color(1, 0.9, 0.6), 8, 110.0)
 	# Corte desenhado na direcao da mira, no lugar do arco branco simples.
@@ -298,6 +338,9 @@ func _dispara(direcao: Vector2) -> void:
 
 func ativar_habilidade() -> bool:
 	if vida <= 0 or _recarga > 0.0:
+		return false
+	var custo := float(_d.get("custo_hab", 0))
+	if not tem_recurso(custo):
 		return false
 	var raio := float(_d.get("hab_raio", 150.0))
 
@@ -348,6 +391,7 @@ func ativar_habilidade() -> bool:
 		_:
 			return false
 
+	_muda_recurso(-float(_d.get("custo_hab", 0)))
 	_recarga = float(_d.get("recarga", 10.0))
 	habilidade_usada.emit(nome_da_habilidade())
 	return true
@@ -486,6 +530,7 @@ func receber_dano(quantidade: int, de_onde := Vector2.ZERO) -> void:
 	vida = max(0, vida - quantidade)
 	_tempo_invulneravel = TEMPO_INVULNERAVEL
 	_tempo_machucado = TEMPO_MACHUCADO
+	_ganha_no_combate(1.5)   # apanhar da mais furia do que bater
 
 	# O que faz a pancada PARECER pancada, ja que a arte nao tem quadro de dano:
 	# recuo, faisca no peito, numero subindo e -- so para quem levou -- tremor.

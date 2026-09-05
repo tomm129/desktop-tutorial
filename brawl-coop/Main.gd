@@ -84,6 +84,9 @@ var _hud_aliado: Label
 var _hud_onda: Label
 var _hud_inimigos: Label
 var _hud_hab: Label
+var _barra_recurso: ColorRect
+var _fundo_recurso: ColorRect
+var _texto_recurso: Label
 var _hud_aviso: Label
 var _fundo_aviso: ColorRect
 var _hud_item: Label
@@ -1201,7 +1204,10 @@ func _atualiza_habilidade() -> void:
 		return
 	var nome: String = _jogador.nome_da_habilidade()
 	var cor: Color = _jogador.cor_da_classe()
-	var pronta: bool = _jogador.habilidade_pronta()
+	var custo: float = Classes.campo(_jogador.classe, "custo_hab", 0)
+	# "Pronta" agora e recarga E recurso: sem furia o Q nao sai, e o slot
+	# precisa mostrar isso.
+	var pronta: bool = _jogador.habilidade_pronta() and _jogador.tem_recurso(custo)
 	var restante: float = _jogador.recarga_restante()
 	var total: float = max(_jogador.recarga_total(), 0.001)
 
@@ -1219,6 +1225,14 @@ func _atualiza_habilidade() -> void:
 	# Slot da habilidade, ao lado dos itens
 	if _slot_hab.is_empty():
 		return
+	# Barra do recurso
+	if _barra_recurso != null:
+		var fracao: float = _jogador.recurso / max(_jogador.recurso_maximo, 1.0)
+		_barra_recurso.size.x = _fundo_recurso.size.x * fracao
+		_barra_recurso.color = _jogador.cor_do_recurso()
+		_texto_recurso.text = "%s  %d/%d" % [_jogador.nome_do_recurso(),
+			roundi(_jogador.recurso), roundi(_jogador.recurso_maximo)]
+
 	var lado: float = _slot_hab["lado"]
 	_slot_hab["nome"].text = nome
 	_slot_hab["nome"].modulate = cor if pronta else Color(0.7, 0.7, 0.7)
@@ -1275,7 +1289,7 @@ func _monta_hud(tela: Vector2) -> void:
 # titulo proprios: colados numa fileira so, o slot da habilidade parecia mais
 # um item, e a pessoa tentava usar a habilidade com a tecla de usar item.
 
-const ALTURA_DO_PAINEL := 108.0
+const ALTURA_DO_PAINEL := 126.0   # cabe o slot da habilidade + a barra de recurso
 const LADO_DO_SLOT := 64.0
 const VAO_ENTRE_SLOTS := 10.0
 
@@ -1335,6 +1349,25 @@ func _monta_habilidade(tela: Vector2) -> void:
 	var nome := _cria_texto(Vector2(x + LADO_DO_SLOT + 10.0, y + 20.0), 14)
 	nome.size = Vector2(largura_painel - LADO_DO_SLOT - 34.0, 40)
 	nome.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+	# Barra do recurso da classe (Furia, Mana, Energia...), colada no painel
+	# da habilidade: e o recurso que diz se da para usar a habilidade.
+	var largura_barra := largura_painel - 24.0
+	var y_barra := py + ALTURA_DO_PAINEL - 20.0
+	_fundo_recurso = ColorRect.new()
+	_fundo_recurso.color = Color(0, 0, 0, 0.55)
+	_fundo_recurso.size = Vector2(largura_barra, 12)
+	_fundo_recurso.position = Vector2(px + 12.0, y_barra)
+	_camada_jogo.add_child(_fundo_recurso)
+
+	_barra_recurso = ColorRect.new()
+	_barra_recurso.size = Vector2(largura_barra, 12)
+	_barra_recurso.position = Vector2(px + 12.0, y_barra)
+	_camada_jogo.add_child(_barra_recurso)
+
+	_texto_recurso = _cria_texto(Vector2(px + 12.0, y_barra - 3.0), 11)
+	_texto_recurso.size = Vector2(largura_barra, 16)
+	_texto_recurso.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	_slot_hab = {"borda": borda, "fundo": fundo, "letra": letra,
 		"cortina": cortina, "segundos": segundos, "nome": nome, "lado": LADO_DO_SLOT, "y": y}

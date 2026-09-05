@@ -51,6 +51,31 @@ Duas regras de propósito:
 - O menu de escolha de classe usa **1 a 7 fixos**, fora do remapeamento — senão
   daria para se trancar fora do próprio menu.
 
+## O recurso de cada classe
+
+Cada classe tem o seu recurso, com regra própria — a ideia veio das árvores de
+talento (Rage, Energy, Holiness, Faith, Mana, Focus, Nature). A habilidade (Q)
+só sai se houver recurso, então a recarga deixou de ser o único limite.
+
+| Classe | Recurso | Como enche | Q custa | Ataque custa |
+|---|---|---|---|---|
+| Guerreiro | Fúria | batendo (+9) e apanhando (+13,5) | 45 | — |
+| Paladino | Fervor | batendo (+8) e apanhando (+12) | 50 | — |
+| Clérigo | Fé | 7 por segundo | 40 | — |
+| Mago | Mana | 6 por segundo | 45 | 6 |
+| Arqueiro | Foco | 16 por segundo | 35 | 4 |
+| Druida | Natureza | 8 por segundo | 40 | — |
+| Assassino | Energia | 22 por segundo | 30 | 7 |
+
+Duas famílias, de propósito:
+
+- **Enche com o tempo** (mana, energia, foco, fé, natureza): começa cheio e
+  regenera. Quem gasta por golpe (mago, arqueiro, assassino) **para de atirar**
+  quando acaba — é o que impede segurar o botão a partida inteira.
+- **Enche no combate** (fúria, fervor): começa **vazio** e sobe batendo e
+  apanhando, com apanhar valendo 1,5x. Premia quem entra na briga em vez de
+  esperar recarga.
+
 ## Os 6 itens
 
 | Slot | Item | O que faz |
