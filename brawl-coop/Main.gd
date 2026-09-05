@@ -681,88 +681,121 @@ func _monta_hud(tela: Vector2) -> void:
 
 	# Versao no canto: o testador precisa saber em qual esta ao relatar algo,
 	# e nem sempre ele volta para a tela inicial para olhar.
-	var etiqueta := _cria_texto(Vector2(12, tela.y - 26.0), 12)
+	# Canto DIREITO: o esquerdo agora e do painel de habilidade.
+	var etiqueta := _cria_texto(Vector2(tela.x - 92.0, tela.y - 24.0), 12)
+	etiqueta.size = Vector2(80, 18)
+	etiqueta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	etiqueta.text = "v%s" % Atualizador.versao_em_uso
 	etiqueta.modulate = Color(1, 1, 1, 0.45)
 
 	_monta_habilidade(tela)
 	_monta_inventario(tela)
 
-# Slot da habilidade, a esquerda dos itens. Nao tem icone de habilidade na
-# arte, entao o slot e a cor da classe com um Q grande -- e a recarga e uma
-# cortina escura que desce de cima para baixo conforme volta a ficar pronta.
+# --- As duas barras de baixo ------------------------------------------------
+#
+# Habilidade e inventario ficam em GRUPOS SEPARADOS, cada um com painel e
+# titulo proprios: colados numa fileira so, o slot da habilidade parecia mais
+# um item, e a pessoa tentava usar a habilidade com a tecla de usar item.
+
+const ALTURA_DO_PAINEL := 108.0
+const LADO_DO_SLOT := 64.0
+const VAO_ENTRE_SLOTS := 10.0
+
+func _painel(pos: Vector2, tam: Vector2) -> void:
+	var fundo := ColorRect.new()
+	fundo.color = Color(0, 0, 0, 0.42)
+	fundo.size = tam
+	fundo.position = pos
+	_camada_jogo.add_child(fundo)
+
+func _titulo_do_painel(pos: Vector2, largura: float, texto: String) -> void:
+	var etiqueta := _cria_texto(pos, 11)
+	etiqueta.size = Vector2(largura, 16)
+	etiqueta.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	etiqueta.text = texto
+	etiqueta.modulate = Color(0.72, 0.72, 0.78)
+
+# Habilidade: canto de baixo à esquerda, sozinha.
 func _monta_habilidade(tela: Vector2) -> void:
-	var lado := 64.0
-	# A conta tem que sair do TAMANHO da lista de itens: com "4" chumbado, o
-	# slot da habilidade foi parar em cima do item 1 quando viraram 6.
-	var largura_dos_itens := ITENS.size() * lado + (ITENS.size() - 1) * 10.0
-	var x := (tela.x - largura_dos_itens) / 2.0 - lado - 22.0
-	var y := tela.y - 88.0
+	var largura_painel := 232.0
+	var px := 16.0
+	var py := tela.y - 124.0
+	_painel(Vector2(px, py), Vector2(largura_painel, ALTURA_DO_PAINEL))
+	_titulo_do_painel(Vector2(px, py + 5.0), largura_painel, "HABILIDADE")
+
+	var x := px + 12.0
+	var y := py + 26.0
 
 	var borda := ColorRect.new()
-	borda.size = Vector2(lado + 6, lado + 6)
+	borda.size = Vector2(LADO_DO_SLOT + 6, LADO_DO_SLOT + 6)
 	borda.position = Vector2(x - 3, y - 3)
 	_camada_jogo.add_child(borda)
 
 	var fundo := ColorRect.new()
-	fundo.size = Vector2(lado, lado)
+	fundo.size = Vector2(LADO_DO_SLOT, LADO_DO_SLOT)
 	fundo.position = Vector2(x, y)
 	_camada_jogo.add_child(fundo)
 
 	var letra := _cria_texto(Vector2(x, y + 8), 30)
-	letra.size = Vector2(lado, 40)
+	letra.size = Vector2(LADO_DO_SLOT, 40)
 	letra.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	letra.text = Controles.tecla_de("habilidade")
 
 	# Cortina da recarga: fica em cima do slot e vai encolhendo.
 	var cortina := ColorRect.new()
 	cortina.color = Color(0, 0, 0, 0.68)
-	cortina.size = Vector2(lado, lado)
+	cortina.size = Vector2(LADO_DO_SLOT, LADO_DO_SLOT)
 	cortina.position = Vector2(x, y)
 	_camada_jogo.add_child(cortina)
 
-	var segundos := _cria_texto(Vector2(x, y + lado - 26), 17)
-	segundos.size = Vector2(lado, 22)
+	var segundos := _cria_texto(Vector2(x, y + LADO_DO_SLOT - 26), 17)
+	segundos.size = Vector2(LADO_DO_SLOT, 22)
 	segundos.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
-	# y-50, e nao y-26: a linha do item escolhido fica em y-30 e as duas se
-	# sobrepunham no meio da tela.
-	var nome := _cria_texto(Vector2(x - 40, y - 50), 14)
-	nome.size = Vector2(lado + 80, 20)
-	nome.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# Nome ao LADO do slot, dentro do painel: sobrava espaco a direita e assim
+	# ele nao briga com a linha de texto do inventario, que e centralizada.
+	var nome := _cria_texto(Vector2(x + LADO_DO_SLOT + 10.0, y + 20.0), 14)
+	nome.size = Vector2(largura_painel - LADO_DO_SLOT - 34.0, 40)
+	nome.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
 	_slot_hab = {"borda": borda, "fundo": fundo, "letra": letra,
-		"cortina": cortina, "segundos": segundos, "nome": nome, "lado": lado, "y": y}
+		"cortina": cortina, "segundos": segundos, "nome": nome, "lado": LADO_DO_SLOT, "y": y}
 
+# Inventário: centralizado embaixo, no seu próprio painel.
 func _monta_inventario(tela: Vector2) -> void:
-	var lado := 64.0
-	var vao := 10.0
-	var largura_total := ITENS.size() * lado + (ITENS.size() - 1) * vao
-	var x0 := (tela.x - largura_total) / 2.0
-	var y := tela.y - 88.0
+	var largura_dos_slots := ITENS.size() * LADO_DO_SLOT + (ITENS.size() - 1) * VAO_ENTRE_SLOTS
+	var largura_painel := largura_dos_slots + 24.0
+	var px := (tela.x - largura_painel) / 2.0
+	var py := tela.y - 124.0
+	_painel(Vector2(px, py), Vector2(largura_painel, ALTURA_DO_PAINEL))
+	_titulo_do_painel(Vector2(px, py + 5.0), largura_painel, "INVENTÁRIO")
 
-	_hud_item = _cria_texto(Vector2(0, y - 30.0), 16)
-	_hud_item.size = Vector2(tela.x, 24)
+	var x0 := px + 12.0
+	var y := py + 26.0
+
+	# A descrição do item fica ACIMA do painel, para não apertar os slots.
+	_hud_item = _cria_texto(Vector2(0, py - 24.0), 16)
+	_hud_item.size = Vector2(tela.x, 22)
 	_hud_item.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	for i in ITENS.size():
-		var x := x0 + i * (lado + vao)
+		var x := x0 + i * (LADO_DO_SLOT + VAO_ENTRE_SLOTS)
 
 		var borda := ColorRect.new()
 		borda.color = Color(1, 0.85, 0.3, 0.9)
-		borda.size = Vector2(lado + 6, lado + 6)
+		borda.size = Vector2(LADO_DO_SLOT + 6, LADO_DO_SLOT + 6)
 		borda.position = Vector2(x - 3, y - 3)
 		_camada_jogo.add_child(borda)
 
 		var fundo := ColorRect.new()
-		fundo.size = Vector2(lado, lado)
+		fundo.size = Vector2(LADO_DO_SLOT, LADO_DO_SLOT)
 		fundo.position = Vector2(x, y)
 		_camada_jogo.add_child(fundo)
 
 		var icone := TextureRect.new()
 		icone.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icone.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		icone.size = Vector2(lado - 12, lado - 12)
+		icone.size = Vector2(LADO_DO_SLOT - 12, LADO_DO_SLOT - 12)
 		icone.position = Vector2(x + 6, y + 6)
 		var tipo: String = ITENS[i]["tipo"]
 		if tipo != "":
@@ -773,8 +806,8 @@ func _monta_inventario(tela: Vector2) -> void:
 		var tecla := _cria_texto(Vector2(x + 4, y + 1), 13)
 		tecla.text = Controles.tecla_de("item_%d" % (i + 1))
 
-		var conta := _cria_texto(Vector2(x, y + lado - 24), 16)
-		conta.size = Vector2(lado - 6, 20)
+		var conta := _cria_texto(Vector2(x, y + LADO_DO_SLOT - 24), 16)
+		conta.size = Vector2(LADO_DO_SLOT - 6, 20)
 		conta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 
 		_slots.append({"fundo": fundo, "borda": borda, "icone": icone, "conta": conta, "tecla": tecla})

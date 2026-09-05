@@ -1,5 +1,5 @@
 {
-  "versao": "0.5.0",
+  "versao": "0.5.1",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Atalhos configuraveis (F1), inventario de 6 slots com 3 itens novos e icones em pixel art."
+  "notas": "Barra de habilidade e inventario agora sao dois paineis separados, cada um com seu titulo."
 }
