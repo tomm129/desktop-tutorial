@@ -1,16 +1,624 @@
 extends Node2D
-# Cena principal: monta a arena e cria o jogador.
-# Por enquanto é tudo local (um jogador). O online vem numa próxima etapa.
+# Cena principal. Tem dois momentos:
+#   1) ESCOLHA  — você escolhe a sua classe e a do aliado (teclas 1 a 7)
+#   2) JOGO     — arena, ondas de inimigos, HUD, inventário e habilidade
+#
+# A party é de dois e sai toda do mesmo Personagem.gd: o que muda entre você e
+# o aliado é só "por_ia", e o que muda entre as classes vem de Classes.gd.
+# O online (dois PCs em rede) é outra etapa, ainda não feita.
+
+const INIMIGOS_DA_PRIMEIRA_ONDA := 3
+const INIMIGOS_A_MAIS_POR_ONDA := 2
+const PAUSA_ENTRE_ONDAS := 2.5
+const MARGEM_DE_SPAWN := 40.0
+const LONGE_DA_PARTY := 200.0
+
+# Começa com os inimigos neutros: dá para ver o jogo rodando sem morrer.
+# A tecla N liga e desliga.
+const COMECA_COM_INIMIGOS_NEUTROS := true
+
+const LADO_DO_TILE := 32.0
+const LADO_DO_QUADRO := 128       # quadro das folhas de sprite, para o retrato
+
+# Os quatro slots do inventário, na ordem em que aparecem na tela.
+# O último é vazio de propósito, para mostrar como fica um slot sem nada.
+const ITENS := [
+	{"tipo": "kit",     "nome": "Kit médico (cura 40)"},
+	{"tipo": "frasco",  "nome": "Escudo (4s sem levar dano)"},
+	{"tipo": "pilhas",  "nome": "Turbo (6s atacando o dobro)"},
+	{"tipo": "",        "nome": "slot vazio"},
+]
+
+var _chao: Node2D          # tiles de grama, sem ordenação
+var _arena: Node2D         # tudo que "pisa" no chão, ordenado por Y
+var _barras: Node2D        # desenha as barras de vida por cima de tudo
+var _jogador: CharacterBody2D
+var _aliado: CharacterBody2D
+
+var _estado := "escolha_sua"    # escolha_sua | escolha_aliado | jogando
+var _classe_sua := ""
+var _classe_aliado := ""
+
+var _onda := 0
+var _vivos := 0
+var _tempo_ate_proxima_onda := PAUSA_ENTRE_ONDAS
+var _fim_de_jogo := false
+var _inimigos_neutros := COMECA_COM_INIMIGOS_NEUTROS
+var _slot_escolhido := 0
+var _mirando_no_aliado := false
+
+var _camada_jogo: CanvasLayer
+var _camada_escolha: CanvasLayer
+var _titulo_escolha: Label
+var _rodape_escolha: Label   # versao e recado do atualizador
+var _hud_vida: Label
+var _hud_aliado: Label
+var _hud_onda: Label
+var _hud_inimigos: Label
+var _hud_hab: Label
+var _hud_aviso: Label
+var _fundo_aviso: ColorRect
+var _hud_item: Label
+var _hud_flash: Label       # avisa qual habilidade acabou de sair
+var _tempo_flash := 0.0
+var _slots := []
+var _slot_hab := {}         # o slot da habilidade (tecla Q)
 
 func _ready() -> void:
-	# --- Fundo da arena ---
-	var fundo := ColorRect.new()
-	fundo.color = Color(0.12, 0.14, 0.18)   # cinza-azulado escuro
-	fundo.size = Vector2(1152, 648)
-	add_child(fundo)                          # adicionado primeiro = fica atrás de tudo
+	# Continua processando mesmo com a árvore pausada (é assim que o "R" para
+	# recomeçar funciona depois do fim de jogo).
+	process_mode = Node.PROCESS_MODE_ALWAYS
 
-	# --- Cria o jogador no centro da tela ---
-	var Player := load("res://Player.gd")
-	var jogador: CharacterBody2D = Player.new()
-	jogador.global_position = Vector2(576, 324)
-	add_child(jogador)
+	var tela := get_viewport_rect().size
+
+	# Duas camadas separadas de propósito:
+	#  _chao  -> os tiles, na ordem em que foram criados
+	#  _arena -> party, inimigos, tiros e itens, com y_sort_enabled
+	# Y-sort ordena os filhos pela posição Y, então quem está mais "à frente"
+	# (mais embaixo na tela) desenha por cima. Se os tiles ficassem junto,
+	# um tile lá de baixo passaria na frente de um personagem lá de cima.
+	_chao = Node2D.new()
+	add_child(_chao)
+	_monta_piso(tela)
+
+	_arena = Node2D.new()
+	_arena.y_sort_enabled = true
+	add_child(_arena)
+
+	# Camada das barras de vida: entra DEPOIS da arena, entao desenha por
+	# cima de todos os personagens. E de la que sai o empilhamento.
+	_barras = load("res://BarrasNaTela.gd").new()
+	add_child(_barras)
+
+	_monta_hud(tela)
+	_monta_escolha(tela)
+	_camada_jogo.visible = false
+	_talvez_pular_escolha()
+
+# Atalho para testar/tirar print sem passar pela tela de escolha:
+#   Godot.exe --path . -- mago clerigo
+# O primeiro nome é a sua classe, o segundo é a do aliado.
+func _talvez_pular_escolha() -> void:
+	var args := OS.get_cmdline_user_args()
+	if args.size() < 2:
+		return
+	var sua := Classes.ORDEM.find(args[0])
+	var aliado := Classes.ORDEM.find(args[1])
+	if sua < 0 or aliado < 0:
+		push_warning("Classe desconhecida na linha de comando: %s" % str(args))
+		return
+	# "hostil" como terceiro argumento ja comeca com os inimigos batendo,
+	# util para testar o que so aparece quando a vida cai.
+	if args.size() >= 3 and args[2] == "hostil":
+		_inimigos_neutros = false
+	_escolhe_classe(sua)
+	_escolhe_classe(aliado)
+
+func _monta_piso(tela: Vector2) -> void:
+	var textura := load("res://arte/piso2/grama.png")
+	var colunas := int(ceil(tela.x / LADO_DO_TILE))
+	var linhas := int(ceil(tela.y / LADO_DO_TILE))
+	for lin in linhas:
+		for col in colunas:
+			var chao := Sprite2D.new()
+			chao.texture = textura
+			chao.centered = false
+			chao.position = Vector2(col * LADO_DO_TILE, lin * LADO_DO_TILE)
+			# NADA de variacao de brilho por tile: este tile e uma cor chapada,
+			# e mesmo 1,5% de diferenca ja aparece como xadrez na tela. Fica so
+			# um escurecido igual para todos, que faz os personagens saltarem
+			# do fundo.
+			chao.modulate = Color(0.78, 0.78, 0.78)
+			_chao.add_child(chao)
+
+# --- Escolha de classe ------------------------------------------------------
+
+func _monta_escolha(tela: Vector2) -> void:
+	_camada_escolha = CanvasLayer.new()
+	_camada_escolha.layer = 20
+	add_child(_camada_escolha)
+
+	var veu := ColorRect.new()
+	veu.color = Color(0, 0, 0, 0.72)
+	veu.size = tela
+	_camada_escolha.add_child(veu)
+
+	_titulo_escolha = Label.new()
+	_titulo_escolha.position = Vector2(0, 56)
+	_titulo_escolha.size = Vector2(tela.x, 40)
+	_titulo_escolha.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_titulo_escolha.add_theme_font_size_override("font_size", 30)
+	_camada_escolha.add_child(_titulo_escolha)
+
+	var largura := 150.0
+	var vao := 8.0
+	var total := Classes.ORDEM.size() * largura + (Classes.ORDEM.size() - 1) * vao
+	var x0 := (tela.x - total) / 2.0
+	var y := 140.0
+
+	for i in Classes.ORDEM.size():
+		var classe: String = Classes.ORDEM[i]
+		var dados := Classes.dados(classe)
+		var x := x0 + i * (largura + vao)
+
+		var caixa := ColorRect.new()
+		caixa.color = Color(0.10, 0.12, 0.16, 0.95)
+		caixa.size = Vector2(largura, 320)
+		caixa.position = Vector2(x, y)
+		_camada_escolha.add_child(caixa)
+
+		var faixa := ColorRect.new()   # faixa na cor da classe, no topo do card
+		faixa.color = dados["cor"]
+		faixa.size = Vector2(largura, 6)
+		faixa.position = Vector2(x, y)
+		_camada_escolha.add_child(faixa)
+
+		# Retrato: primeiro quadro da folha "parado" (linha 0 = olhando para nós)
+		var retrato := TextureRect.new()
+		var atlas := AtlasTexture.new()
+		atlas.atlas = load("res://arte/classes/%s/parado.png" % classe)
+		atlas.region = Rect2(0, 0, LADO_DO_QUADRO, LADO_DO_QUADRO)
+		retrato.texture = atlas
+		retrato.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		retrato.size = Vector2(largura, 110)
+		retrato.position = Vector2(x, y + 12)
+		_camada_escolha.add_child(retrato)
+
+		var tecla := Label.new()
+		tecla.position = Vector2(x + 8, y + 8)
+		tecla.text = str(i + 1)
+		tecla.add_theme_font_size_override("font_size", 20)
+		tecla.modulate = dados["cor"]
+		_camada_escolha.add_child(tecla)
+
+		var nome := Label.new()
+		nome.position = Vector2(x, y + 122)
+		nome.size = Vector2(largura, 24)
+		nome.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		nome.add_theme_font_size_override("font_size", 19)
+		nome.text = dados["nome"]
+		_camada_escolha.add_child(nome)
+
+		var ficha := Label.new()
+		ficha.position = Vector2(x + 8, y + 148)
+		ficha.size = Vector2(largura - 16, 160)
+		ficha.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		ficha.add_theme_font_size_override("font_size", 12)
+		ficha.text = "%s\n\nVida %d · %s\nQ: %s" % [
+			dados["resumo"], dados["vida"], _nome_do_ataque(dados["ataque"]), dados["hab_nome"]]
+		_camada_escolha.add_child(ficha)
+
+	# Rodape com a versao: os testadores precisam saber em qual estao quando
+	# forem relatar alguma coisa.
+	_rodape_escolha = Label.new()
+	_rodape_escolha.position = Vector2(0, tela.y - 46.0)
+	_rodape_escolha.size = Vector2(tela.x, 24)
+	_rodape_escolha.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_rodape_escolha.add_theme_font_size_override("font_size", 14)
+	_rodape_escolha.modulate = Color(0.75, 0.75, 0.8)
+	_rodape_escolha.text = "versão %s" % Atualizador.versao_em_uso
+	_camada_escolha.add_child(_rodape_escolha)
+
+	Atualizador.aviso.connect(_ao_falar_o_atualizador)
+	Atualizador.atualizacao_baixada.connect(_ao_baixar_atualizacao)
+
+	_atualiza_titulo_escolha()
+
+func _ao_falar_o_atualizador(texto: String) -> void:
+	if _rodape_escolha != null:
+		_rodape_escolha.text = "versão %s — %s" % [Atualizador.versao_em_uso, texto]
+
+func _ao_baixar_atualizacao(nova: String) -> void:
+	if _rodape_escolha == null:
+		return
+	_rodape_escolha.text = "Versão %s baixada! Feche e abra o jogo para aplicar." % nova
+	_rodape_escolha.modulate = Color(0.5, 1.0, 0.6)
+
+func _nome_do_ataque(tipo: String) -> String:
+	match tipo:
+		"arco": return "corpo a corpo"
+		"explosivo": return "tiro que estoura"
+		"gelado": return "tiro que congela"
+		_: return "tiro reto"
+
+func _atualiza_titulo_escolha() -> void:
+	if _estado == "escolha_sua":
+		_titulo_escolha.text = "ESCOLHA A SUA CLASSE   (teclas 1 a 7)"
+		_titulo_escolha.modulate = Color.WHITE
+	else:
+		_titulo_escolha.text = "Você é %s.   AGORA ESCOLHA A CLASSE DO ALIADO" % \
+			Classes.dados(_classe_sua)["nome"]
+		_titulo_escolha.modulate = Classes.dados(_classe_sua)["cor"]
+
+func _escolhe_classe(indice: int) -> void:
+	if indice < 0 or indice >= Classes.ORDEM.size():
+		return
+	if _estado == "escolha_sua":
+		_classe_sua = Classes.ORDEM[indice]
+		_estado = "escolha_aliado"
+		_atualiza_titulo_escolha()
+	elif _estado == "escolha_aliado":
+		_classe_aliado = Classes.ORDEM[indice]
+		_comeca_o_jogo()
+
+func _comeca_o_jogo() -> void:
+	_estado = "jogando"
+	_camada_escolha.visible = false
+	_camada_jogo.visible = true
+	_monta_party(get_viewport_rect().size)
+	_atualiza_hud()
+	_atualiza_inventario()
+
+# --- Party ------------------------------------------------------------------
+
+# Os dois membros saem do mesmo script. Classe e "por_ia" PRECISAM ser
+# definidos antes do add_child, porque é no _ready que a folha de sprite e a
+# vida da classe são carregadas.
+func _monta_party(tela: Vector2) -> void:
+	var Personagem := load("res://Personagem.gd")
+
+	_jogador = Personagem.new()
+	_jogador.classe = _classe_sua
+	_jogador.global_position = tela / 2.0
+	_arena.add_child(_jogador)
+	_jogador.vida_mudou.connect(_ao_mudar_vida)
+	_jogador.inventario_mudou.connect(_atualiza_inventario)
+	_jogador.morreu.connect(_ao_morrer_jogador)
+	_jogador.habilidade_usada.connect(_ao_usar_habilidade.bind("Você"))
+
+	_aliado = Personagem.new()
+	_aliado.classe = _classe_aliado
+	_aliado.por_ia = true
+	_aliado.lider = _jogador
+	_aliado.global_position = tela / 2.0 + Vector2(90, 40)
+	_arena.add_child(_aliado)
+	_aliado.vida_mudou.connect(_ao_mudar_vida)
+	_aliado.morreu.connect(_ao_cair_aliado)
+	_aliado.habilidade_usada.connect(_ao_usar_habilidade.bind("Aliado"))
+
+# --- Laço e teclas ----------------------------------------------------------
+
+func _process(delta: float) -> void:
+	if _estado != "jogando":
+		return
+	_atualiza_habilidade()
+	_conta_o_flash(delta)
+	if _fim_de_jogo:
+		return
+
+	if _vivos == 0:
+		_tempo_ate_proxima_onda -= delta
+		if _tempo_ate_proxima_onda <= 0.0:
+			_comeca_onda()
+		else:
+			_mostra_aviso("Onda %d em %d..." % [_onda + 1, ceili(_tempo_ate_proxima_onda)])
+
+func _input(evento: InputEvent) -> void:
+	if not (evento is InputEventKey) or not evento.pressed or evento.echo:
+		return
+
+	if _estado != "jogando":
+		match evento.physical_keycode:
+			KEY_1: _escolhe_classe(0)
+			KEY_2: _escolhe_classe(1)
+			KEY_3: _escolhe_classe(2)
+			KEY_4: _escolhe_classe(3)
+			KEY_5: _escolhe_classe(4)
+			KEY_6: _escolhe_classe(5)
+			KEY_7: _escolhe_classe(6)
+		return
+
+	match evento.physical_keycode:
+		KEY_1: _escolhe_slot(0)
+		KEY_2: _escolhe_slot(1)
+		KEY_3: _escolhe_slot(2)
+		KEY_4: _escolhe_slot(3)
+		KEY_T: _troca_alvo()
+		KEY_E: _usa_slot_escolhido()
+		KEY_Q: _jogador.ativar_habilidade()
+		KEY_N: _alterna_neutros()
+		KEY_R:
+			if _fim_de_jogo:
+				get_tree().paused = false
+				get_tree().call_deferred("reload_current_scene")
+
+# --- Ondas ------------------------------------------------------------------
+
+func _comeca_onda() -> void:
+	_onda += 1
+	_mostra_aviso("")
+	var quantidade := INIMIGOS_DA_PRIMEIRA_ONDA + (_onda - 1) * INIMIGOS_A_MAIS_POR_ONDA
+	for i in quantidade:
+		var inimigo: CharacterBody2D = load("res://Inimigo.gd").new()
+		inimigo.global_position = _posicao_de_spawn()
+		inimigo.neutro = _inimigos_neutros
+		inimigo.morreu.connect(_ao_morrer_inimigo)
+		_arena.add_child(inimigo)
+		_vivos += 1
+	_atualiza_hud()
+
+func _posicao_de_spawn() -> Vector2:
+	var tela := get_viewport_rect().size
+	var pos := Vector2.ZERO
+	for tentativa in 8:
+		match randi() % 4:
+			0: pos = Vector2(randf_range(MARGEM_DE_SPAWN, tela.x - MARGEM_DE_SPAWN), MARGEM_DE_SPAWN)
+			1: pos = Vector2(randf_range(MARGEM_DE_SPAWN, tela.x - MARGEM_DE_SPAWN), tela.y - MARGEM_DE_SPAWN)
+			2: pos = Vector2(MARGEM_DE_SPAWN, randf_range(MARGEM_DE_SPAWN, tela.y - MARGEM_DE_SPAWN))
+			_: pos = Vector2(tela.x - MARGEM_DE_SPAWN, randf_range(MARGEM_DE_SPAWN, tela.y - MARGEM_DE_SPAWN))
+		if pos.distance_to(_jogador.global_position) >= LONGE_DA_PARTY:
+			break
+	return pos
+
+func _ao_morrer_inimigo(_inimigo: Node) -> void:
+	_vivos = max(0, _vivos - 1)
+	_atualiza_hud()
+	if _vivos == 0 and not _fim_de_jogo:
+		_tempo_ate_proxima_onda = PAUSA_ENTRE_ONDAS
+
+func _alterna_neutros() -> void:
+	_inimigos_neutros = not _inimigos_neutros
+	for inimigo in get_tree().get_nodes_in_group("inimigos"):
+		inimigo.neutro = _inimigos_neutros
+	_atualiza_hud()
+
+# --- Inventário e habilidade ------------------------------------------------
+
+func _escolhe_slot(indice: int) -> void:
+	_slot_escolhido = indice
+	_atualiza_inventario()
+
+func _troca_alvo() -> void:
+	_mirando_no_aliado = not _mirando_no_aliado
+	_atualiza_inventario()
+
+func _usa_slot_escolhido() -> void:
+	var tipo: String = ITENS[_slot_escolhido]["tipo"]
+	if tipo == "":
+		return
+	# Com o aliado caído o item volta para você, senão sumiria à toa.
+	var alvo: Node = _jogador
+	if _mirando_no_aliado and _aliado.vida > 0:
+		alvo = _aliado
+	_jogador.usar_item(tipo, alvo)
+	_atualiza_inventario()
+
+func _atualiza_inventario() -> void:
+	if _jogador == null:
+		return
+	for i in _slots.size():
+		var slot: Dictionary = _slots[i]
+		var tipo: String = ITENS[i]["tipo"]
+		var quantos: int = _jogador.estoque.get(tipo, 0) if tipo != "" else 0
+		var escolhido := i == _slot_escolhido
+		slot["fundo"].color = Color(1, 0.85, 0.3, 0.30) if escolhido else Color(0, 0, 0, 0.45)
+		slot["borda"].visible = escolhido
+		slot["conta"].text = "x%d" % quantos if tipo != "" else ""
+		slot["icone"].modulate = Color(1, 1, 1, 1.0 if quantos > 0 else 0.25)
+
+	var em_quem := "no ALIADO" if _mirando_no_aliado else "em VOCÊ"
+	_hud_item.text = "[%d] %s   —   E usa %s   (T troca o alvo)" % [
+		_slot_escolhido + 1, ITENS[_slot_escolhido]["nome"], em_quem]
+	_hud_item.modulate = Color(0.6, 0.85, 1.0) if _mirando_no_aliado else Color.WHITE
+
+# Aviso curto de que uma habilidade saiu -- o anel no chao dura meio segundo
+# e passa batido, ainda mais se voce estiver olhando para outro canto.
+func _ao_usar_habilidade(nome_da_hab: String, de_quem: String) -> void:
+	_hud_flash.text = "%s: %s!" % [de_quem, nome_da_hab]
+	_hud_flash.modulate = _jogador.cor_da_classe() if de_quem == "Você" else _aliado.cor_da_classe()
+	_tempo_flash = 1.6
+
+func _conta_o_flash(delta: float) -> void:
+	_tempo_flash = max(0.0, _tempo_flash - delta)
+	if _tempo_flash <= 0.0:
+		_hud_flash.text = ""
+
+func _atualiza_habilidade() -> void:
+	if _jogador == null:
+		return
+	var nome: String = _jogador.nome_da_habilidade()
+	var cor: Color = _jogador.cor_da_classe()
+	var pronta: bool = _jogador.habilidade_pronta()
+	var restante: float = _jogador.recarga_restante()
+	var total: float = max(_jogador.recarga_total(), 0.001)
+
+	# Linha de texto no canto (a mesma de antes)
+	if _jogador.aura_ativa():
+		_hud_hab.text = "Q  %s: ATIVA" % nome
+		_hud_hab.modulate = Color(0.45, 1.0, 0.55)
+	elif pronta:
+		_hud_hab.text = "Q  %s: pronta" % nome
+		_hud_hab.modulate = cor
+	else:
+		_hud_hab.text = "Q  %s: %ds" % [nome, ceili(restante)]
+		_hud_hab.modulate = Color(0.65, 0.65, 0.65)
+
+	# Slot da habilidade, ao lado dos itens
+	if _slot_hab.is_empty():
+		return
+	var lado: float = _slot_hab["lado"]
+	_slot_hab["nome"].text = nome
+	_slot_hab["nome"].modulate = cor if pronta else Color(0.7, 0.7, 0.7)
+	_slot_hab["fundo"].color = Color(cor.r, cor.g, cor.b, 0.85 if pronta else 0.35)
+	_slot_hab["borda"].color = Color(1, 0.9, 0.4, 0.95) if pronta else Color(0.25, 0.25, 0.3, 0.9)
+	_slot_hab["letra"].modulate = Color.WHITE if pronta else Color(0.75, 0.75, 0.8)
+
+	# A cortina escura cobre o quanto AINDA falta recarregar, e vai encolhendo.
+	var falta: float = 0.0 if pronta else clampf(restante / total, 0.0, 1.0)
+	_slot_hab["cortina"].size.y = lado * falta
+	_slot_hab["segundos"].text = "" if pronta else "%ds" % ceili(restante)
+
+# --- HUD --------------------------------------------------------------------
+
+func _monta_hud(tela: Vector2) -> void:
+	_camada_jogo = CanvasLayer.new()
+	_camada_jogo.layer = 10     # explícito: o HUD fica sempre por cima dos bonecos
+	add_child(_camada_jogo)
+
+	_fundo_aviso = ColorRect.new()
+	_fundo_aviso.color = Color(0, 0, 0, 0.55)
+	_fundo_aviso.size = Vector2(tela.x, 92)
+	_fundo_aviso.position = Vector2(0, tela.y * 0.16)
+	_fundo_aviso.visible = false
+	_camada_jogo.add_child(_fundo_aviso)
+
+	_hud_vida = _cria_texto(Vector2(16, 12), 20)
+	_hud_aliado = _cria_texto(Vector2(16, 38), 20)
+	_hud_onda = _cria_texto(Vector2(16, 64), 20)
+	_hud_inimigos = _cria_texto(Vector2(16, 90), 16)
+	_hud_hab = _cria_texto(Vector2(16, 112), 16)
+	_hud_flash = _cria_texto(Vector2(16, 136), 18)
+
+	_hud_aviso = _cria_texto(Vector2(0, tela.y * 0.16), 30)
+	_hud_aviso.size = Vector2(tela.x, 92)   # no alto: o meio é onde a briga acontece
+	_hud_aviso.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hud_aviso.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+
+	_monta_habilidade(tela)
+	_monta_inventario(tela)
+
+# Slot da habilidade, a esquerda dos itens. Nao tem icone de habilidade na
+# arte, entao o slot e a cor da classe com um Q grande -- e a recarga e uma
+# cortina escura que desce de cima para baixo conforme volta a ficar pronta.
+func _monta_habilidade(tela: Vector2) -> void:
+	var lado := 64.0
+	var x := (tela.x - (4 * lado + 3 * 10.0)) / 2.0 - lado - 22.0
+	var y := tela.y - 88.0
+
+	var borda := ColorRect.new()
+	borda.size = Vector2(lado + 6, lado + 6)
+	borda.position = Vector2(x - 3, y - 3)
+	_camada_jogo.add_child(borda)
+
+	var fundo := ColorRect.new()
+	fundo.size = Vector2(lado, lado)
+	fundo.position = Vector2(x, y)
+	_camada_jogo.add_child(fundo)
+
+	var letra := _cria_texto(Vector2(x, y + 8), 30)
+	letra.size = Vector2(lado, 40)
+	letra.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	letra.text = "Q"
+
+	# Cortina da recarga: fica em cima do slot e vai encolhendo.
+	var cortina := ColorRect.new()
+	cortina.color = Color(0, 0, 0, 0.68)
+	cortina.size = Vector2(lado, lado)
+	cortina.position = Vector2(x, y)
+	_camada_jogo.add_child(cortina)
+
+	var segundos := _cria_texto(Vector2(x, y + lado - 26), 17)
+	segundos.size = Vector2(lado, 22)
+	segundos.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+	# y-50, e nao y-26: a linha do item escolhido fica em y-30 e as duas se
+	# sobrepunham no meio da tela.
+	var nome := _cria_texto(Vector2(x - 40, y - 50), 14)
+	nome.size = Vector2(lado + 80, 20)
+	nome.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+	_slot_hab = {"borda": borda, "fundo": fundo, "letra": letra,
+		"cortina": cortina, "segundos": segundos, "nome": nome, "lado": lado, "y": y}
+
+func _monta_inventario(tela: Vector2) -> void:
+	var lado := 64.0
+	var vao := 10.0
+	var largura_total := ITENS.size() * lado + (ITENS.size() - 1) * vao
+	var x0 := (tela.x - largura_total) / 2.0
+	var y := tela.y - 88.0
+
+	_hud_item = _cria_texto(Vector2(0, y - 30.0), 16)
+	_hud_item.size = Vector2(tela.x, 24)
+	_hud_item.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+	for i in ITENS.size():
+		var x := x0 + i * (lado + vao)
+
+		var borda := ColorRect.new()
+		borda.color = Color(1, 0.85, 0.3, 0.9)
+		borda.size = Vector2(lado + 6, lado + 6)
+		borda.position = Vector2(x - 3, y - 3)
+		_camada_jogo.add_child(borda)
+
+		var fundo := ColorRect.new()
+		fundo.size = Vector2(lado, lado)
+		fundo.position = Vector2(x, y)
+		_camada_jogo.add_child(fundo)
+
+		var icone := TextureRect.new()
+		icone.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icone.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icone.size = Vector2(lado - 12, lado - 12)
+		icone.position = Vector2(x + 6, y + 6)
+		var tipo: String = ITENS[i]["tipo"]
+		if tipo != "":
+			icone.texture = load("res://arte/itens/%s.png" % tipo)
+		_camada_jogo.add_child(icone)
+
+		var tecla := _cria_texto(Vector2(x + 5, y + 1), 13)
+		tecla.text = str(i + 1)
+
+		var conta := _cria_texto(Vector2(x, y + lado - 24), 16)
+		conta.size = Vector2(lado - 6, 20)
+		conta.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+
+		_slots.append({"fundo": fundo, "borda": borda, "icone": icone, "conta": conta})
+
+func _cria_texto(pos: Vector2, tamanho: int) -> Label:
+	var etiqueta := Label.new()
+	etiqueta.position = pos
+	etiqueta.add_theme_font_size_override("font_size", tamanho)
+	_camada_jogo.add_child(etiqueta)
+	return etiqueta
+
+func _mostra_aviso(texto: String) -> void:
+	_hud_aviso.text = texto
+	_fundo_aviso.visible = texto != ""
+
+func _ao_mudar_vida(_vida_atual: int) -> void:
+	_atualiza_hud()
+
+# O aliado cair NÃO acaba o jogo — você continua sozinho.
+func _ao_cair_aliado() -> void:
+	_atualiza_hud()
+
+func _ao_morrer_jogador() -> void:
+	_fim_de_jogo = true
+	_mostra_aviso("FIM DE JOGO — chegou até a onda %d\nAperte R para recomeçar" % _onda)
+	_atualiza_hud()
+	get_tree().paused = true   # congela inimigos e tiros
+
+func _atualiza_hud() -> void:
+	if _jogador == null:
+		return
+	_hud_vida.text = "Você (%s): %d" % [_jogador.nome_da_classe(), _jogador.vida]
+	_hud_vida.modulate = _jogador.cor_da_classe()
+	if _aliado.vida > 0:
+		_hud_aliado.text = "Aliado (%s): %d" % [_aliado.nome_da_classe(), _aliado.vida]
+		_hud_aliado.modulate = _aliado.cor_da_classe()
+	else:
+		_hud_aliado.text = "Aliado (%s): caiu" % _aliado.nome_da_classe()
+		_hud_aliado.modulate = Color(0.7, 0.7, 0.7)
+	_hud_onda.text = "Onda: %d    Inimigos: %d" % [_onda, _vivos]
+	_hud_inimigos.text = "Inimigos: %s   (N alterna)" % ("NEUTROS" if _inimigos_neutros else "HOSTIS")
+	_hud_inimigos.modulate = Color(0.5, 0.9, 1.0) if _inimigos_neutros else Color(1.0, 0.6, 0.6)

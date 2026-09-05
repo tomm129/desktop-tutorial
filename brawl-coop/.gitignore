@@ -1,0 +1,6 @@
+# Godot cria esta pasta de cache ao abrir o projeto -- nao vai para o repositorio.
+.godot/
+*.tmp
+
+# Pacote exportado: vai para o GitHub Releases, nao para o repositorio
+dist/

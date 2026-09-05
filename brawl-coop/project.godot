@@ -9,8 +9,18 @@ config/name="Brawl Coop - Prototipo"
 run/main_scene="res://Main.tscn"
 config/features=PackedStringArray("4.3")
 
+[autoload]
+
+; Roda antes da cena principal: e ele que monta um patch ja baixado.
+Atualizador="*res://Atualizador.gd"
+
 [display]
 
 window/size/viewport_width=1152
 window/size/viewport_height=648
 window/stretch/mode="canvas_items"
+
+[rendering]
+
+; Pixel art: sem isso a Godot suaviza a textura e os sprites saem borrados.
+textures/canvas_textures/default_texture_filter=0

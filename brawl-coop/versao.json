@@ -1,0 +1,5 @@
+{
+  "versao": "0.4.0",
+  "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
+  "notas": "7 classes jogaveis, barra de vida overhead com empilhamento, barra de habilidade, aliado com IA."
+}
