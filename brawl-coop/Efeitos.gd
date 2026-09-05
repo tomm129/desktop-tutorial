@@ -100,6 +100,47 @@ class NumeroFlutuante extends Node2D:
 		draw_string(fonte, Vector2(-largura / 2.0, 0), texto,
 			HORIZONTAL_ALIGNMENT_LEFT, -1, tamanho, Color(cor.r, cor.g, cor.b, alfa))
 
+# --- Efeitos desenhados (arte/vfx) ------------------------------------------
+#
+# Sao imagens UNICAS de 200x200 do FreePixel, nao folhas de animacao. Quem
+# anima e este codigo: o efeito nasce pequeno, cresce ate o tamanho pedido e
+# some. Fica muito acima de bolinha de particula e nao custa arte nova.
+
+const TAMANHO_DA_ARTE := 200.0
+
+# diametro = tamanho final do efeito na tela, em pixels
+func desenhado(pai: Node, onde: Vector2, nome: String, diametro: float,
+		duracao := 0.45, giro := 0.0, cor := Color.WHITE, angulo := 0.0) -> void:
+	if pai == null or not is_instance_valid(pai):
+		return
+	var e := EfeitoDesenhado.new()
+	e.texture = load("res://arte/vfx/%s.png" % nome)
+	e.escala_final = diametro / TAMANHO_DA_ARTE
+	e.duracao = duracao
+	e.giro = giro
+	e.modulate = cor
+	e.rotation = angulo
+	e.global_position = onde
+	e.z_index = 5   # por cima dos bonecos: e um clarao, nao um objeto do chao
+	pai.add_child(e)
+
+class EfeitoDesenhado extends Sprite2D:
+	var escala_final := 1.0
+	var duracao := 0.45
+	var giro := 0.0
+	var _tempo := 0.0
+
+	func _process(delta: float) -> void:
+		_tempo += delta
+		var quanto: float = min(_tempo / duracao, 1.0)
+		# Cresce rapido e desacelera; some no fim.
+		var crescimento: float = 1.0 - pow(1.0 - quanto, 3.0)
+		scale = Vector2.ONE * escala_final * (0.35 + 0.65 * crescimento)
+		modulate.a = 1.0 - pow(quanto, 2.0)
+		rotation += giro * delta
+		if _tempo >= duracao:
+			queue_free()
+
 # --- Apoio ------------------------------------------------------------------
 
 func _apaga_depois(no: Node, segundos: float) -> void:

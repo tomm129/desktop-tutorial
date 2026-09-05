@@ -59,6 +59,7 @@ func _ao_acertar(corpo: Node2D) -> void:
 	if corpo.has_method("receber_dano"):
 		corpo.receber_dano(dano, global_position)
 		Efeitos.faisca(get_parent(), global_position, cor, 8, 120.0)
+		Efeitos.desenhado(get_parent(), global_position, "impacto", 46.0, 0.25, 0.0, cor)
 		if lentidao > 0.0 and corpo.has_method("aplicar_lentidao"):
 			corpo.aplicar_lentidao(lentidao, tempo_lentidao)
 

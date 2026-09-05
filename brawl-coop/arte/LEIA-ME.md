@@ -62,3 +62,22 @@ deixar de ser liso.
 `itens/` são os ícones 102 / 105 / 148 do pacote **Generic Items** do Kenney
 (https://kenney.nl/assets/generic-items), licença **CC0**. São vetoriais, não
 pixel art — destoam do resto e são candidatos a troca.
+
+## Efeitos — FreePixel
+
+`vfx/` são efeitos de magia da categoria *spell-effects* do FreePixel, mesma
+licença do resto. **São imagens únicas de 200x200, não folhas de animação**:
+quem anima é o `Efeitos.gd`, fazendo o efeito nascer pequeno, crescer e sumir.
+
+| Arquivo | Onde entra |
+|---|---|
+| `nova`    | Nova de fogo (mago) e Golpe giratório (guerreiro) |
+| `escudo`  | Escudo sagrado (paladino) |
+| `cura`    | Aura de cura (clérigo) |
+| `raizes`  | Raízes (druida) |
+| `corte`   | golpe corpo a corpo |
+| `estouro` | frasco explosivo |
+| `impacto` | acerto de projétil |
+
+`enfeites/` são vegetação e pedras espalhadas pelo chão, das categorias
+*foliage* e *rocks* do mesmo site.

@@ -268,6 +268,9 @@ func _golpe_em_arco() -> void:
 			inimigo.receber_dano(int(_d["dano"]), global_position)
 			Efeitos.faisca(get_parent(), inimigo.global_position + Vector2(0, -22),
 				Color(1, 0.9, 0.6), 8, 110.0)
+	# Corte desenhado na direcao da mira, no lugar do arco branco simples.
+	Efeitos.desenhado(get_parent(), global_position + _mira * (RAIO + 18.0), "corte",
+		float(_d.get("alcance", 70.0)) * 1.9, 0.28, 0.0, Color.WHITE, _mira.angle())
 	_tempo_golpe = TEMPO_DO_GOLPE
 
 func _dispara(direcao: Vector2) -> void:
@@ -302,6 +305,7 @@ func ativar_habilidade() -> bool:
 		"aura":
 			_tempo_aura = float(_d.get("hab_duracao", 4.0))
 			_cura_acumulada = 0.0
+			Efeitos.desenhado(get_parent(), global_position, "cura", raio * 1.6, 0.8, 0.6)
 		"giro", "nova":
 			for inimigo in get_tree().get_nodes_in_group("inimigos"):
 				if global_position.distance_to(inimigo.global_position) <= raio:
@@ -309,6 +313,10 @@ func ativar_habilidade() -> bool:
 					Efeitos.faisca(get_parent(), inimigo.global_position + Vector2(0, -24),
 						_d.get("cor", Color.WHITE), 14, 200.0)
 			Efeitos.poeira(get_parent(), global_position)
+			# Nova desenhada por cima do anel: e o que faz a habilidade parecer
+			# uma habilidade, e nao um circulo crescendo.
+			Efeitos.desenhado(get_parent(), global_position, "nova", raio * 2.0, 0.55,
+				3.0, _d.get("cor", Color.WHITE))
 			_mostra_efeito(raio)
 		"escudo":
 			for membro in get_tree().get_nodes_in_group("jogador"):
@@ -316,6 +324,8 @@ func ativar_habilidade() -> bool:
 					membro.aplicar_efeito("escudo")
 					Efeitos.faisca(get_parent(), membro.global_position + Vector2(0, -30),
 						Color(0.5, 0.85, 1.0), 12, 90.0)
+					Efeitos.desenhado(get_parent(), membro.global_position + Vector2(0, -22),
+						"escudo", 110.0, 0.7)
 			_mostra_efeito(raio)
 		"leque":
 			var tiros := int(_d.get("hab_tiros", 5))
@@ -330,6 +340,7 @@ func ativar_habilidade() -> bool:
 					Efeitos.poeira(get_parent(), inimigo.global_position)
 					Efeitos.faisca(get_parent(), inimigo.global_position,
 						Color(0.35, 0.55, 0.2), 10, 80.0)
+					Efeitos.desenhado(get_parent(), inimigo.global_position, "raizes", 90.0, 0.6, 1.2)
 			_mostra_efeito(raio)
 		"investida":
 			_tempo_investida = DURACAO_DA_INVESTIDA
@@ -436,6 +447,7 @@ func aplicar_efeito(tipo: String) -> void:
 					Efeitos.faisca(get_parent(), inimigo.global_position + Vector2(0, -24),
 						Color(1.0, 0.5, 0.2), 16, 210.0)
 			Efeitos.faisca(get_parent(), global_position, Color(1.0, 0.6, 0.2), 24, 260.0)
+			Efeitos.desenhado(get_parent(), global_position, "estouro", RAIO_DO_ESTOURO * 2.0, 0.5)
 			_mostra_efeito(RAIO_DO_ESTOURO)
 	queue_redraw()
 
