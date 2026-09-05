@@ -37,7 +37,7 @@ var _barras: Node2D        # desenha as barras de vida por cima de tudo
 var _jogador: CharacterBody2D
 var _aliado: CharacterBody2D
 
-var _estado := "escolha_sua"    # escolha_sua | escolha_aliado | jogando
+var _estado := "menu"   # menu | entrar_ip | lobby | escolha_sua | escolha_aliado | jogando
 var _classe_sua := ""
 var _classe_aliado := ""
 
@@ -52,6 +52,20 @@ var _mirando_no_aliado := false
 var _camada_jogo: CanvasLayer
 var _camada_escolha: CanvasLayer
 var _camada_controles: CanvasLayer
+var _camada_menu: CanvasLayer
+var _camada_lobby: CanvasLayer
+var _campo_ip: LineEdit
+var _texto_menu: Label
+var _lista_lobby: Label
+var _dica_lobby: Label
+var _sozinho := true   # true = partida local com aliado de IA
+# Sincronia da partida em rede
+const ENVIOS_DO_JOGADOR := 20.0     # pacotes por segundo do proprio boneco
+const ENVIOS_DOS_INIMIGOS := 15.0   # pacotes por segundo da horda (so o anfitriao)
+var _t_envio_jogador := 0.0
+var _t_envio_inimigos := 0.0
+var _proximo_id_inimigo := 1
+var _inimigos_por_id := {}          # id de rede -> no (usado nos clientes)
 var _linhas_de_controle := {}   # id da acao -> botao que mostra a tecla
 var _capturando := ""          # acao esperando o jogador apertar a tecla nova
 var _estado_antes_dos_controles := "escolha_sua"
@@ -75,6 +89,7 @@ func _ready() -> void:
 	# Continua processando mesmo com a árvore pausada (é assim que o "R" para
 	# recomeçar funciona depois do fim de jogo).
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	add_to_group("main")   # o Personagem e o Inimigo chegam aqui por este grupo
 
 	var tela := get_viewport_rect().size
 
@@ -99,8 +114,11 @@ func _ready() -> void:
 
 	_monta_hud(tela)
 	_monta_escolha(tela)
+	_monta_menu(tela)
+	_monta_lobby(tela)
 	_monta_controles(tela)
 	_camada_jogo.visible = false
+	_camada_escolha.visible = false
 	_talvez_pular_escolha()
 
 # Atalho para testar/tirar print sem passar pela tela de escolha:
@@ -108,6 +126,25 @@ func _ready() -> void:
 # O primeiro nome é a sua classe, o segundo é a do aliado.
 func _talvez_pular_escolha() -> void:
 	var args := OS.get_cmdline_user_args()
+
+	# Atalhos de rede, para testar duas instancias sem clicar em nada:
+	#   -- host              abre a sala
+	#   -- entrar <ip>       entra na sala de alguem
+	#   -- auto              (com host) comeca a partida sozinho depois de 4s
+	if args.has("host"):
+		var erro: String = Rede.hospedar(_meu_apelido())
+		print("[rede] hospedar: %s" % ("ok" if erro == "" else erro))
+		_abre_lobby()
+		if args.has("auto"):
+			get_tree().create_timer(4.0).timeout.connect(func(): Rede.comecar_partida())
+		return
+	var onde := args.find("entrar")
+	if onde >= 0 and onde + 1 < args.size():
+		var erro2: String = Rede.entrar(args[onde + 1], _meu_apelido())
+		print("[rede] entrar em %s: %s" % [args[onde + 1], "ok" if erro2 == "" else erro2])
+		_abre_lobby()
+		return
+
 	if args.size() < 2:
 		return
 	var sua := Classes.ORDEM.find(args[0])
@@ -284,6 +321,159 @@ func _comeca_o_jogo() -> void:
 	_atualiza_hud()
 	_atualiza_inventario()
 
+# --- Menu inicial e lobby ---------------------------------------------------
+
+func _monta_menu(tela: Vector2) -> void:
+	_camada_menu = CanvasLayer.new()
+	_camada_menu.layer = 25
+	add_child(_camada_menu)
+
+	var veu := ColorRect.new()
+	veu.color = Color(0.05, 0.06, 0.08, 0.97)
+	veu.size = tela
+	_camada_menu.add_child(veu)
+
+	var titulo := Label.new()
+	titulo.position = Vector2(0, tela.y * 0.22)
+	titulo.size = Vector2(tela.x, 50)
+	titulo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	titulo.add_theme_font_size_override("font_size", 40)
+	titulo.text = "BRAWL COOP"
+	_camada_menu.add_child(titulo)
+
+	_texto_menu = Label.new()
+	_texto_menu.position = Vector2(0, tela.y * 0.22 + 70)
+	_texto_menu.size = Vector2(tela.x, 160)
+	_texto_menu.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_texto_menu.add_theme_font_size_override("font_size", 20)
+	_camada_menu.add_child(_texto_menu)
+
+	# Campo de IP, usado só na opção de entrar
+	_campo_ip = LineEdit.new()
+	_campo_ip.position = Vector2(tela.x / 2.0 - 150, tela.y * 0.22 + 150)
+	_campo_ip.size = Vector2(300, 36)
+	_campo_ip.placeholder_text = "IP do anfitrião (ex: 10.147.20.5)"
+	_campo_ip.visible = false
+	_camada_menu.add_child(_campo_ip)
+
+	_mostra_menu_principal()
+
+func _mostra_menu_principal() -> void:
+	_estado = "menu"
+	_campo_ip.visible = false
+	_texto_menu.text = "[1]  Jogar sozinho (com aliado de computador)
+
+[2]  Hospedar uma partida
+
+[3]  Entrar na partida de alguém
+
+
+F1 configura os controles"
+
+func _mostra_entrar_ip() -> void:
+	_estado = "entrar_ip"
+	_campo_ip.visible = true
+	_campo_ip.grab_focus()
+	_texto_menu.text = "Digite o IP do anfitrião e aperte ENTER.
+
+Numa rede virtual (ZeroTier/Radmin) use o IP que ela
+mostra para a máquina do anfitrião.
+
+
+
+
+Esc volta"
+
+func _monta_lobby(tela: Vector2) -> void:
+	_camada_lobby = CanvasLayer.new()
+	_camada_lobby.layer = 26
+	_camada_lobby.visible = false
+	add_child(_camada_lobby)
+
+	var veu := ColorRect.new()
+	veu.color = Color(0.05, 0.06, 0.08, 0.97)
+	veu.size = tela
+	_camada_lobby.add_child(veu)
+
+	var titulo := Label.new()
+	titulo.position = Vector2(0, 50)
+	titulo.size = Vector2(tela.x, 40)
+	titulo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	titulo.add_theme_font_size_override("font_size", 30)
+	titulo.text = "SALA — até 4 jogadores"
+	_camada_lobby.add_child(titulo)
+
+	_lista_lobby = Label.new()
+	_lista_lobby.position = Vector2(tela.x / 2.0 - 300, 120)
+	_lista_lobby.size = Vector2(600, 220)
+	_lista_lobby.add_theme_font_size_override("font_size", 20)
+	_camada_lobby.add_child(_lista_lobby)
+
+	_dica_lobby = Label.new()
+	_dica_lobby.position = Vector2(0, tela.y - 130)
+	_dica_lobby.size = Vector2(tela.x, 90)
+	_dica_lobby.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_dica_lobby.add_theme_font_size_override("font_size", 17)
+	_camada_lobby.add_child(_dica_lobby)
+
+	Rede.lista_mudou.connect(_atualiza_lobby)
+	Rede.partida_comecou.connect(_ao_comecar_em_rede)
+	Rede.desconectado.connect(_ao_desconectar)
+
+func _abre_lobby() -> void:
+	_estado = "lobby"
+	_sozinho = false
+	_camada_menu.visible = false
+	_camada_lobby.visible = true
+	_atualiza_lobby()
+
+func _atualiza_lobby() -> void:
+	if _lista_lobby == null:
+		return
+	var linhas := []
+	var i := 1
+	for id in Rede.jogadores:
+		var j: Dictionary = Rede.jogadores[id]
+		var eu := " (você)" if id == Rede.meu_id() else ""
+		var dono := " — anfitrião" if id == 1 else ""
+		linhas.append("%d. %s%s%s   ·   %s" % [i, j.get("nome", "?"), eu, dono,
+			Classes.dados(j.get("classe", "guerreiro"))["nome"]])
+		i += 1
+	while linhas.size() < Rede.MAXIMO_DE_JOGADORES:
+		linhas.append("%d. (vaga livre — vira aliado de computador)" % (linhas.size() + 1))
+	_lista_lobby.text = "
+
+".join(linhas)
+	if OS.get_cmdline_user_args().has("log"):
+		print("[sala] %d jogador(es): %s" % [Rede.jogadores.size(), str(Rede.jogadores)])
+
+	var dica := "Teclas 1 a 7 escolhem a sua classe."
+	if Rede.sou_anfitriao:
+		dica += "
+ENTER começa a partida."
+	else:
+		dica += "
+Esperando o anfitrião começar..."
+	dica += "
+Esc sai da sala."
+	_dica_lobby.text = dica
+
+func _ao_comecar_em_rede() -> void:
+	if OS.get_cmdline_user_args().has("log"):
+		print("[partida] comecou com %d jogador(es); eu sou o id %d" % [Rede.jogadores.size(), Rede.meu_id()])
+	_camada_lobby.visible = false
+	_classe_sua = Rede.jogadores.get(Rede.meu_id(), {}).get("classe", "guerreiro")
+	_comeca_o_jogo()
+
+func _ao_desconectar(motivo: String) -> void:
+	_camada_lobby.visible = false
+	_camada_menu.visible = true
+	_mostra_menu_principal()
+	_texto_menu.text = "Conexão perdida: %s
+
+
+" % motivo + _texto_menu.text
+
 # --- Tela de controles ------------------------------------------------------
 
 func _monta_controles(tela: Vector2) -> void:
@@ -416,25 +606,58 @@ func _atualiza_rotulos_de_tecla() -> void:
 # vida da classe são carregadas.
 func _monta_party(tela: Vector2) -> void:
 	var Personagem := load("res://Personagem.gd")
+	var pontos := [Vector2(0, 0), Vector2(90, 40), Vector2(-90, 40), Vector2(0, 90)]
 
-	_jogador = Personagem.new()
-	_jogador.classe = _classe_sua
-	_jogador.global_position = tela / 2.0
-	_arena.add_child(_jogador)
-	_jogador.vida_mudou.connect(_ao_mudar_vida)
-	_jogador.inventario_mudou.connect(_atualiza_inventario)
-	_jogador.morreu.connect(_ao_morrer_jogador)
-	_jogador.habilidade_usada.connect(_ao_usar_habilidade.bind("Você"))
+	if _sozinho:
+		# Partida local: você mais um aliado de computador.
+		_jogador = _cria_membro(Personagem, _classe_sua, tela / 2.0, false, false)
+		_aliado = _cria_membro(Personagem, _classe_aliado, tela / 2.0 + pontos[1], true, false)
+		_aliado.lider = _jogador
+		return
 
-	_aliado = Personagem.new()
-	_aliado.classe = _classe_aliado
-	_aliado.por_ia = true
-	_aliado.lider = _jogador
-	_aliado.global_position = tela / 2.0 + Vector2(90, 40)
-	_arena.add_child(_aliado)
-	_aliado.vida_mudou.connect(_ao_mudar_vida)
-	_aliado.morreu.connect(_ao_cair_aliado)
-	_aliado.habilidade_usada.connect(_ao_usar_habilidade.bind("Aliado"))
+	# Partida em rede: um personagem por jogador conectado, na ordem da lista.
+	var i := 0
+	for id in Rede.jogadores:
+		var dados: Dictionary = Rede.jogadores[id]
+		var sou_eu: bool = id == Rede.meu_id()
+		var membro = _cria_membro(Personagem, dados.get("classe", "guerreiro"),
+			tela / 2.0 + pontos[i % pontos.size()], false, not sou_eu)
+		membro.id_de_rede = id
+		if sou_eu:
+			_jogador = membro
+		elif _aliado == null:
+			_aliado = membro
+		i += 1
+
+	# Vagas que sobraram viram aliados de computador, para a party ficar cheia.
+	# As vagas viram aliados de computador. Eles sao do ANFITRIAO: se cada
+	# maquina rodasse a IA por conta, o mesmo aliado apareceria em lugares
+	# diferentes em cada tela.
+	while i < Rede.MAXIMO_DE_JOGADORES:
+		var bot = _cria_membro(Personagem, Classes.ORDEM[i % Classes.ORDEM.size()],
+			tela / 2.0 + pontos[i % pontos.size()], Rede.sou_anfitriao, not Rede.sou_anfitriao)
+		bot.id_de_rede = -(i + 1)   # negativo = aliado de computador
+		bot.lider = _jogador
+		if _aliado == null:
+			_aliado = bot
+		i += 1
+
+func _cria_membro(Personagem, classe: String, onde: Vector2, ia: bool, remoto: bool):
+	var membro = Personagem.new()
+	membro.classe = classe
+	membro.por_ia = ia
+	membro.remoto = remoto
+	membro.global_position = onde
+	_arena.add_child(membro)
+	membro.vida_mudou.connect(_ao_mudar_vida)
+	if not ia and not remoto:
+		membro.inventario_mudou.connect(_atualiza_inventario)
+		membro.morreu.connect(_ao_morrer_jogador)
+		membro.habilidade_usada.connect(_ao_usar_habilidade.bind("Você"))
+	else:
+		membro.morreu.connect(_ao_cair_aliado)
+		membro.habilidade_usada.connect(_ao_usar_habilidade.bind("Aliado"))
+	return membro
 
 # --- Laço e teclas ----------------------------------------------------------
 
@@ -445,6 +668,12 @@ func _process(delta: float) -> void:
 	_conta_o_flash(delta)
 	if _fim_de_jogo:
 		return
+
+	# Em rede, quem cria as ondas e o anfitriao; o cliente so mostra o que chega.
+	if Rede.esta_em_rede():
+		_sincroniza(delta)
+		if not Rede.sou_anfitriao:
+			return
 
 	if _vivos == 0:
 		_tempo_ate_proxima_onda -= delta
@@ -463,6 +692,10 @@ func _input(evento: InputEvent) -> void:
 	# ser justamente a que o jogador acabou de mapear para outra coisa.
 	if evento is InputEventKey and evento.pressed and not evento.echo 		and evento.physical_keycode == KEY_F1:
 		_abre_controles()
+		return
+
+	if _estado == "menu" or _estado == "entrar_ip" or _estado == "lobby":
+		_input_das_telas_de_rede(evento)
 		return
 
 	# Na tela de escolha as teclas sao fixas (1 a 7): menu nao entra no
@@ -490,6 +723,62 @@ func _input(evento: InputEvent) -> void:
 	elif evento.is_action_pressed("recomecar") and _fim_de_jogo:
 		get_tree().paused = false
 		get_tree().call_deferred("reload_current_scene")
+
+func _input_das_telas_de_rede(evento: InputEvent) -> void:
+	if not (evento is InputEventKey) or not evento.pressed or evento.echo:
+		return
+	var codigo: int = evento.physical_keycode
+
+	match _estado:
+		"menu":
+			match codigo:
+				KEY_1:
+					# Sozinho: segue o fluxo antigo, escolhendo as duas classes.
+					_sozinho = true
+					_camada_menu.visible = false
+					_camada_escolha.visible = true
+					_estado = "escolha_sua"
+					_atualiza_titulo_escolha()
+				KEY_2:
+					var erro: String = Rede.hospedar(_meu_apelido())
+					if erro == "":
+						_abre_lobby()
+					else:
+						_texto_menu.text = "Não deu para hospedar: %s
+
+" % erro + _texto_menu.text
+				KEY_3:
+					_mostra_entrar_ip()
+		"entrar_ip":
+			if codigo == KEY_ESCAPE:
+				_mostra_menu_principal()
+			elif codigo == KEY_ENTER or codigo == KEY_KP_ENTER:
+				var ip := _campo_ip.text.strip_edges()
+				if ip == "":
+					return
+				var erro: String = Rede.entrar(ip, _meu_apelido())
+				if erro == "":
+					_abre_lobby()
+				else:
+					_texto_menu.text = "Não deu para entrar: %s" % erro
+		"lobby":
+			if codigo == KEY_ESCAPE:
+				Rede.sair()
+				_camada_lobby.visible = false
+				_camada_menu.visible = true
+				_mostra_menu_principal()
+			elif codigo == KEY_ENTER or codigo == KEY_KP_ENTER:
+				if Rede.sou_anfitriao:
+					Rede.comecar_partida()
+			else:
+				var n: int = codigo - KEY_1
+				if n >= 0 and n < Classes.ORDEM.size():
+					Rede.escolher_classe(Classes.ORDEM[n])
+
+# Nome curto para aparecer na lista da sala.
+func _meu_apelido() -> String:
+	var nome := OS.get_environment("USERNAME")
+	return nome if nome != "" else "jogador"
 
 func _input_dos_controles(evento: InputEvent) -> void:
 	if not evento.is_pressed() or evento.is_echo():
@@ -537,6 +826,8 @@ func _comeca_onda() -> void:
 	var quantidade := INIMIGOS_DA_PRIMEIRA_ONDA + (_onda - 1) * INIMIGOS_A_MAIS_POR_ONDA
 	for i in quantidade:
 		var inimigo: CharacterBody2D = load("res://Inimigo.gd").new()
+		inimigo.id_rede = _proximo_id_inimigo
+		_proximo_id_inimigo += 1
 		inimigo.global_position = _posicao_de_spawn()
 		inimigo.neutro = _inimigos_neutros
 		inimigo.morreu.connect(_ao_morrer_inimigo)
@@ -568,6 +859,136 @@ func _alterna_neutros() -> void:
 	for inimigo in get_tree().get_nodes_in_group("inimigos"):
 		inimigo.neutro = _inimigos_neutros
 	_atualiza_hud()
+
+# --- Sincronia da partida em rede -------------------------------------------
+#
+# Cada maquina manda o proprio boneco; o anfitriao manda a horda. Os pacotes vao
+# como "unreliable": perder um nao importa, o proximo chega logo -- e esperar
+# confirmacao de cada um travaria o movimento.
+
+func _sincroniza(delta: float) -> void:
+	_relata(delta)
+	_t_envio_jogador += delta
+	if _t_envio_jogador >= 1.0 / ENVIOS_DO_JOGADOR and _jogador != null:
+		_t_envio_jogador = 0.0
+		_estado_do_jogador.rpc(_jogador.global_position, _jogador.mira(), _jogador.vida)
+
+	if Rede.sou_anfitriao:
+		_t_envio_inimigos += delta
+		if _t_envio_inimigos >= 1.0 / ENVIOS_DOS_INIMIGOS:
+			_t_envio_inimigos = 0.0
+			_estado_dos_inimigos.rpc(_foto_dos_inimigos(), _onda)
+			_estado_dos_aliados.rpc(_foto_dos_aliados())
+
+# Relatorio periodico no console, so com o argumento "log". Serve para conferir
+# a sincronia entre duas maquinas sem precisar olhar as duas telas.
+var _t_relato := 0.0
+func _relata(delta: float) -> void:
+	if not OS.get_cmdline_user_args().has("log"):
+		return
+	_t_relato += delta
+	if _t_relato < 2.0:
+		return
+	_t_relato = 0.0
+	var party := get_tree().get_nodes_in_group("jogador")
+	var posicoes := []
+	for m in party:
+		posicoes.append("id%d%s@%s" % [m.id_de_rede, ("(eu)" if m == _jogador else ""),
+			str(m.global_position.round())])
+	var inimigos := get_tree().get_nodes_in_group("inimigos")
+	var primeiro := "-"
+	if inimigos.size() > 0:
+		primeiro = "id%d@%s vida=%d" % [inimigos[0].id_rede,
+			str(inimigos[0].global_position.round()), inimigos[0].vida]
+	print("[%s] party: %s | inimigos: %d | 1o: %s | onda %d"
+		% ["ANFITRIAO" if Rede.sou_anfitriao else "CLIENTE", ", ".join(posicoes),
+		   inimigos.size(), primeiro, _onda])
+
+# Aliados de computador: mesma ideia da horda, mas eles tem mira, que importa
+# para a animacao de qual lado o boneco esta olhando.
+func _foto_dos_aliados() -> Array:
+	var foto := []
+	for m in get_tree().get_nodes_in_group("jogador"):
+		if m.id_de_rede >= 0:
+			continue
+		foto.append([m.id_de_rede, m.global_position.x, m.global_position.y,
+			m.mira().x, m.mira().y, m.vida])
+	return foto
+
+@rpc("authority", "unreliable_ordered")
+func _estado_dos_aliados(foto: Array) -> void:
+	for e in foto:
+		for m in get_tree().get_nodes_in_group("jogador"):
+			if m.id_de_rede == e[0]:
+				m.aplica_estado_remoto(Vector2(e[1], e[2]), Vector2(e[3], e[4]), e[5])
+				break
+
+func _foto_dos_inimigos() -> Array:
+	var foto := []
+	for i in get_tree().get_nodes_in_group("inimigos"):
+		foto.append([i.id_rede, i.global_position.x, i.global_position.y, i.vida,
+			i._tempo_preso > 0.0, i._tempo_lentidao > 0.0])
+	return foto
+
+@rpc("any_peer", "unreliable_ordered")
+func _estado_do_jogador(pos: Vector2, mira: Vector2, vida: int) -> void:
+	var id := multiplayer.get_remote_sender_id()
+	for membro in get_tree().get_nodes_in_group("jogador"):
+		if membro.id_de_rede == id:
+			membro.aplica_estado_remoto(pos, mira, vida)
+			return
+
+@rpc("authority", "unreliable_ordered")
+func _estado_dos_inimigos(foto: Array, onda: int) -> void:
+	_onda = onda
+	var vistos := {}
+	for e in foto:
+		var id: int = e[0]
+		vistos[id] = true
+		var no = _inimigos_por_id.get(id)
+		if no == null or not is_instance_valid(no):
+			no = load("res://Inimigo.gd").new()
+			no.remoto = true
+			no.id_rede = id
+			no.global_position = Vector2(e[1], e[2])
+			_arena.add_child(no)
+			_inimigos_por_id[id] = no
+		no.aplica_estado_remoto(Vector2(e[1], e[2]), e[3], e[4], e[5])
+
+	# Quem sumiu da foto morreu (ou nunca existiu para este cliente).
+	for id in _inimigos_por_id.keys():
+		if not vistos.has(id):
+			var no = _inimigos_por_id[id]
+			if is_instance_valid(no):
+				no.queue_free()
+			_inimigos_por_id.erase(id)
+
+	_vivos = foto.size()
+	_atualiza_hud()
+
+# Chamado pelo Inimigo de um cliente: quem aplica o dano e o anfitriao.
+func pede_dano_em_inimigo(id: int, dano: int) -> void:
+	if Rede.esta_em_rede():
+		_dano_em_inimigo.rpc_id(1, id, dano)
+
+@rpc("any_peer", "reliable")
+func _dano_em_inimigo(id: int, dano: int) -> void:
+	if not Rede.sou_anfitriao:
+		return
+	for i in get_tree().get_nodes_in_group("inimigos"):
+		if i.id_rede == id:
+			i.receber_dano(dano)
+			return
+
+# Chamado quando um inimigo do anfitriao encosta num jogador de outra maquina.
+func avisa_dano_em_jogador(id: int, dano: int) -> void:
+	if Rede.esta_em_rede():
+		_dano_em_jogador.rpc_id(id, dano)
+
+@rpc("any_peer", "reliable")
+func _dano_em_jogador(dano: int) -> void:
+	if _jogador != null:
+		_jogador.receber_dano(dano)
 
 # --- Inventário e habilidade ------------------------------------------------
 

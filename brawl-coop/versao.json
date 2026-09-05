@@ -1,5 +1,5 @@
 {
-  "versao": "0.6.0",
+  "versao": "0.7.0",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Tela de escolha com retratos emoldurados das 7 classes."
+  "notas": "Multiplayer ate 4 jogadores por conexao direta, com menu e sala de espera."
 }

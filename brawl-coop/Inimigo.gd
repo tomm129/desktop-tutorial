@@ -31,6 +31,10 @@ const ITENS_QUE_LARGA := ["kit", "escudo", "turbo", "estouro", "veloz", "foco"]
 
 var vida := VIDA_MAXIMA
 var neutro := false : set = _define_neutro
+# Numa partida em rede, so o anfitriao simula inimigo. Nos clientes eles ficam
+# "remoto = true": nao andam sozinhos nem causam dano, so mostram o que chega.
+@export var remoto := false
+var id_rede := 0
 
 var _sprite: AnimatedSprite2D
 var _morto := false
@@ -70,6 +74,13 @@ func _define_neutro(valor: bool) -> void:
 		_atualiza_sprite(Vector2.RIGHT, false)
 
 func _physics_process(delta: float) -> void:
+	if remoto:
+		_tempo_machucado = max(0.0, _tempo_machucado - delta)
+		_atualiza_sprite(velocity if velocity.length() > 1.0 else Vector2.RIGHT,
+			velocity.length() > 1.0)
+		queue_redraw()
+		return
+
 	# --- Já morreu: só termina de sumir ---
 	if _morto:
 		_tempo_sumindo -= delta
@@ -153,11 +164,29 @@ func _atualiza_sprite(para_o_alvo: Vector2, andando: bool) -> void:
 func receber_dano(quantidade: int) -> void:
 	if _morto:
 		return
+	# Cliente nao mexe na vida de inimigo: pede para o anfitriao, que e quem
+	# manda neles, e recebe o resultado no proximo pacote de estado.
+	if remoto:
+		var principal := get_tree().get_first_node_in_group("main")
+		if principal != null:
+			principal.pede_dano_em_inimigo(id_rede, quantidade)
+		return
 	vida -= quantidade
 	_tempo_machucado = TEMPO_MACHUCADO
 	queue_redraw()
 	if vida <= 0:
 		_morrer()
+
+# Estado que chega do anfitriao a cada pacote.
+func aplica_estado_remoto(pos: Vector2, vida_dele: int, preso: bool, lento: bool) -> void:
+	velocity = (pos - global_position) * 10.0
+	global_position = pos
+	if vida_dele < vida:
+		_tempo_machucado = TEMPO_MACHUCADO
+	vida = vida_dele
+	_tempo_preso = 0.2 if preso else 0.0
+	_tempo_lentidao = 0.2 if lento else 0.0
+	queue_redraw()
 
 func aplicar_lentidao(fator: float, tempo: float) -> void:
 	if _morto:

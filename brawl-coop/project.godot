@@ -13,6 +13,7 @@ config/features=PackedStringArray("4.3")
 
 ; Roda antes da cena principal: e ele que monta um patch ja baixado.
 Controles="*res://Controles.gd"
+Rede="*res://Rede.gd"
 Atualizador="*res://Atualizador.gd"
 
 [display]

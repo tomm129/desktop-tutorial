@@ -23,7 +23,8 @@ Godot_v4.3-stable_win64.exe --path . -- mago clerigo
 
 | Ação                    | Tecla padrão                  |
 |-------------------------|-------------------------------|
-| Escolher classe         | **1 a 7** (na tela inicial)   |
+| Menu inicial            | **1** sozinho · **2** hospedar · **3** entrar |
+| Escolher classe         | **1 a 7**                     |
 | Andar                   | **W A S D**                   |
 | Mirar                   | mover o **mouse**             |
 | Atacar                  | **botão esquerdo** do mouse   |
@@ -64,6 +65,45 @@ Duas regras de propósito:
 O **T** troca o alvo entre você e o aliado, e vale para todos: dá para curar o
 parceiro, blindá-lo, ou jogar o frasco explosivo nele para limpar a volta dele.
 Os inimigos largam qualquer um dos seis.
+
+## Jogar com os amigos (até 4)
+
+O jogo tem multiplayer por **conexão direta**, como uma LAN. Para jogar pela
+internet sem mexer em roteador (e sem esbarrar no CGNAT, que impede abrir porta
+na maioria das operadoras daqui), todos entram numa **rede virtual**.
+
+### Uma vez só, para montar a rede
+
+1. Todos instalam o [ZeroTier](https://www.zerotier.com/download/) (gratuito).
+2. Uma pessoa cria uma rede em https://my.zerotier.com e passa o **Network ID**
+   para os outros.
+3. Cada um entra pelo ZeroTier com esse ID, e quem criou **autoriza** cada um no
+   painel (é uma caixinha de "Auth" na lista de membros).
+4. Pronto: cada máquina ganha um IP tipo `10.147.20.x`. É esse IP que o jogo usa.
+
+### Toda partida
+
+- **Anfitrião**: aperta **2** no menu e deixa a sala aberta. Na primeira vez o
+  Windows pergunta se libera a rede — tem que clicar em **Permitir**, senão
+  ninguém consegue entrar.
+- **Os outros**: apertam **3**, digitam o IP ZeroTier do anfitrião e dão ENTER.
+- Na sala, cada um escolhe a classe com **1 a 7**. O anfitrião aperta **ENTER**
+  para começar.
+- Vagas que sobrarem viram **aliados de computador**, então dá para jogar em 2,
+  3 ou 4.
+
+### Quem manda no quê
+
+É o que mantém as telas iguais em todas as máquinas:
+
+- **Cada jogador manda no próprio boneco** — posição, mira e vida saem da
+  máquina dele. É o que dá a sensação de controle imediato.
+- **O anfitrião manda nos inimigos e nos aliados de computador** — ele decide
+  onde estão e quando causam dano. Se cada máquina simulasse a IA por conta,
+  cada uma veria uma partida diferente (aconteceu no meio do desenvolvimento: o
+  mesmo aliado aparecia em lugares distintos em cada tela).
+- **Dano em inimigo é pedido ao anfitrião**, que aplica e devolve no próximo
+  pacote. O estado dos inimigos vai 15 vezes por segundo; o do seu boneco, 20.
 
 ## As 7 classes
 

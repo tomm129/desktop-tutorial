@@ -44,6 +44,10 @@ const IA_VIDA_PARA_HABILIDADE := 0.6
 
 @export var classe := "guerreiro"
 @export var por_ia := false
+# Personagem de OUTRA maquina: nao decide nada aqui, a posicao dele chega pela
+# rede. Sem isso o seu teclado moveria todos os bonecos da tela.
+@export var remoto := false
+var id_de_rede := 0
 var lider: Node2D                # a IA anda perto de quem está aqui
 
 var vida := 100
@@ -97,6 +101,21 @@ func _ready() -> void:
 	_sprite.play("parado_0")
 	add_child(_sprite)   # filho desenha DEPOIS do _draw(), ou seja, por cima da sombra
 
+# Chamado quando chega pela rede o estado do dono deste personagem.
+func aplica_estado_remoto(pos: Vector2, mira: Vector2, vida_dele: int) -> void:
+	# A diferenca de posicao vira "velocidade" so para escolher entre a
+	# animacao de parado e a de andando.
+	velocity = (pos - global_position) * 10.0
+	global_position = pos
+	_mira = mira
+	if vida_dele != vida:
+		vida = vida_dele
+		vida_mudou.emit(vida)
+	queue_redraw()
+
+func mira() -> Vector2:
+	return _mira
+
 func cor_da_classe() -> Color:
 	return _d.get("cor", Color.WHITE)
 
@@ -117,6 +136,11 @@ func _physics_process(delta: float) -> void:
 		return   # caído não anda nem ataca
 
 	var direcao := Vector2.ZERO
+	if remoto:
+		# Quem manda nele e a outra maquina; aqui so mostramos o que chegou.
+		_atualiza_sprite(velocity)
+		queue_redraw()
+		return
 	if _tempo_investida > 0.0:
 		direcao = _corre_investida()
 	else:
@@ -411,6 +435,14 @@ func tem_velocidade() -> bool:
 # --- Dano e desenho ---------------------------------------------------------
 
 func receber_dano(quantidade: int) -> void:
+	# Quem decide a vida de um personagem e a maquina do DONO dele. Se este
+	# aqui e de outra pessoa, avisamos ela em vez de mexer na vida por conta --
+	# senao cada maquina teria uma versao diferente da mesma vida.
+	if remoto and id_de_rede != 0:
+		var principal := get_tree().get_first_node_in_group("main")
+		if principal != null:
+			principal.avisa_dano_em_jogador(id_de_rede, quantidade)
+		return
 	if vida <= 0 or _tempo_invulneravel > 0.0 or _tempo_escudo > 0.0:
 		return
 	vida = max(0, vida - quantidade)
