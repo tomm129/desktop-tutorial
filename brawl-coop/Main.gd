@@ -161,49 +161,64 @@ func _monta_escolha(tela: Vector2) -> void:
 	_titulo_escolha.add_theme_font_size_override("font_size", 30)
 	_camada_escolha.add_child(_titulo_escolha)
 
-	var largura := 150.0
-	var vao := 8.0
+	# Cards com o RETRATO EMOLDURADO de cada classe (arte/retratos). A moldura
+	# ja da o enquadramento, entao o card nao precisa de caixa em volta -- so de
+	# um fundo atras do texto, para ele nao brigar com o veu.
+	var largura := 156.0
+	var vao := 6.0
 	var total := Classes.ORDEM.size() * largura + (Classes.ORDEM.size() - 1) * vao
 	var x0 := (tela.x - total) / 2.0
-	var y := 140.0
+	var y := 104.0
+	var altura_retrato := 189.0
 
 	for i in Classes.ORDEM.size():
 		var classe: String = Classes.ORDEM[i]
 		var dados := Classes.dados(classe)
 		var x := x0 + i * (largura + vao)
 
-		var caixa := ColorRect.new()
-		caixa.color = Color(0.10, 0.12, 0.16, 0.95)
-		caixa.size = Vector2(largura, 320)
-		caixa.position = Vector2(x, y)
-		_camada_escolha.add_child(caixa)
-
-		var faixa := ColorRect.new()   # faixa na cor da classe, no topo do card
-		faixa.color = dados["cor"]
-		faixa.size = Vector2(largura, 6)
-		faixa.position = Vector2(x, y)
-		_camada_escolha.add_child(faixa)
-
-		# Retrato: primeiro quadro da folha "parado" (linha 0 = olhando para nós)
 		var retrato := TextureRect.new()
-		var atlas := AtlasTexture.new()
-		atlas.atlas = load("res://arte/classes/%s/parado.png" % classe)
-		atlas.region = Rect2(0, 0, LADO_DO_QUADRO, LADO_DO_QUADRO)
-		retrato.texture = atlas
+		retrato.texture = load("res://arte/retratos/%s.png" % classe)
+		# EXPAND_IGNORE_SIZE e obrigatorio: sem ele o TextureRect desenha no
+		# tamanho original da imagem (310px) e transborda o card, cortando o
+		# retrato no meio.
+		retrato.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		retrato.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		retrato.size = Vector2(largura, 110)
-		retrato.position = Vector2(x, y + 12)
+		retrato.size = Vector2(largura, altura_retrato)
+		retrato.position = Vector2(x, y)
 		_camada_escolha.add_child(retrato)
 
+		# Numero da tecla, num selo escuro sobre o canto do retrato
+		var selo := ColorRect.new()
+		selo.color = Color(0, 0, 0, 0.7)
+		selo.size = Vector2(26, 24)
+		selo.position = Vector2(x + 4, y + 4)
+		_camada_escolha.add_child(selo)
 		var tecla := Label.new()
-		tecla.position = Vector2(x + 8, y + 8)
+		tecla.position = Vector2(x + 4, y + 2)
+		tecla.size = Vector2(26, 24)
+		tecla.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tecla.add_theme_font_size_override("font_size", 18)
 		tecla.text = str(i + 1)
-		tecla.add_theme_font_size_override("font_size", 20)
 		tecla.modulate = dados["cor"]
 		_camada_escolha.add_child(tecla)
 
+		var fundo_texto := ColorRect.new()
+		fundo_texto.color = Color(0.08, 0.09, 0.12, 0.92)
+		# 200 e nao 150: a ficha do druida, que e a mais longa, vazava para fora
+		# do fundo escuro e ficava ilegivel sobre o veu.
+		fundo_texto.size = Vector2(largura, 200)
+		fundo_texto.position = Vector2(x, y + altura_retrato)
+		_camada_escolha.add_child(fundo_texto)
+
+		# Faixa na cor da classe, ligando o retrato ao texto
+		var faixa := ColorRect.new()
+		faixa.color = dados["cor"]
+		faixa.size = Vector2(largura, 4)
+		faixa.position = Vector2(x, y + altura_retrato)
+		_camada_escolha.add_child(faixa)
+
 		var nome := Label.new()
-		nome.position = Vector2(x, y + 122)
+		nome.position = Vector2(x, y + altura_retrato + 8)
 		nome.size = Vector2(largura, 24)
 		nome.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		nome.add_theme_font_size_override("font_size", 19)
@@ -211,27 +226,16 @@ func _monta_escolha(tela: Vector2) -> void:
 		_camada_escolha.add_child(nome)
 
 		var ficha := Label.new()
-		ficha.position = Vector2(x + 8, y + 148)
+		ficha.position = Vector2(x + 8, y + altura_retrato + 34)
 		ficha.size = Vector2(largura - 16, 160)
 		ficha.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		ficha.add_theme_font_size_override("font_size", 12)
-		ficha.text = "%s\n\nVida %d · %s\nQ: %s" % [
+		ficha.text = "%s
+
+Vida %d · %s
+Q: %s" % [
 			dados["resumo"], dados["vida"], _nome_do_ataque(dados["ataque"]), dados["hab_nome"]]
 		_camada_escolha.add_child(ficha)
-
-	# Rodape com a versao: os testadores precisam saber em qual estao quando
-	# forem relatar alguma coisa.
-	_rodape_escolha = Label.new()
-	_rodape_escolha.position = Vector2(0, tela.y - 46.0)
-	_rodape_escolha.size = Vector2(tela.x, 24)
-	_rodape_escolha.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_rodape_escolha.add_theme_font_size_override("font_size", 14)
-	_rodape_escolha.modulate = Color(0.75, 0.75, 0.8)
-	_rodape_escolha.text = "versão %s   ·   F1 configura os controles" % Atualizador.versao_em_uso
-	_camada_escolha.add_child(_rodape_escolha)
-
-	Atualizador.aviso.connect(_ao_falar_o_atualizador)
-	Atualizador.atualizacao_baixada.connect(_ao_baixar_atualizacao)
 
 	_atualiza_titulo_escolha()
 

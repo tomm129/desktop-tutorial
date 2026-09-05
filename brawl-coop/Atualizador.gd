@@ -26,7 +26,7 @@ signal atualizacao_baixada(versao: String)
 signal aviso(texto: String)
 
 # Sobe a cada release. É comparada com a do servidor.
-const VERSAO := "0.5.1"
+const VERSAO := "0.6.0"
 
 # Arquivo de texto com {"versao": "...", "pck": "url", "notas": "..."}
 # "releases/latest/download" e resolvido pelo proprio GitHub para a release

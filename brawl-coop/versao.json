@@ -1,5 +1,5 @@
 {
-  "versao": "0.5.1",
+  "versao": "0.6.0",
   "pck": "https://github.com/tomm129/desktop-tutorial/releases/latest/download/BrawlCoop.pck",
-  "notas": "Barra de habilidade e inventario agora sao dois paineis separados, cada um com seu titulo."
+  "notas": "Tela de escolha com retratos emoldurados das 7 classes."
 }
