@@ -8,11 +8,12 @@ aparecer numa tela só.
 
     monitoramento/<DEVICE_ID>/inversor
 
-⚠️  NÃO VALIDADO EM HARDWARE. Escrito a partir da documentação oficial
-    (Programming Guide FC 301/302 e o manual do Modbus TCP), sem nenhum
-    Danfoss à mão. Rode primeiro com DANFOSS_LOG_BRUTO=1 e confira valor
-    por valor contra o display do drive antes de confiar. Os pontos de
-    dúvida estão marcados com "VERIFICAR" ao longo do arquivo.
+⚠️  NÃO VALIDADO EM HARDWARE — mas conferido contra os guias oficiais:
+    mapeamento de registrador (FC 51 Design Guide, §8.9.1), tipo e índice
+    de conversão de cada parâmetro (FC 301/302 Programming Guide, lista de
+    parâmetros) e o mapa de bits da palavra de alarme (idem, tabela da
+    Alarm Word). Rode primeiro com --bancada e confira contra o display.
+    O que o manual não resolveu está marcado com "VERIFICAR".
 
 Configuração por variável de ambiente (veja config.example.env):
 
@@ -84,29 +85,62 @@ def _escala(nome, padrao):
     return float(os.getenv(f"DANFOSS_ESCALA_{nome}", padrao))
 
 
+class Param:
+    """Um parâmetro do grupo 16: onde está, como se lê e como se converte.
+
+    A LARGURA não é detalhe. Na Danfoss um parâmetro de 16 bits ocupa UM
+    registrador e um de 32 bits ocupa DOIS (FC 51 Design Guide, §8.9.1).
+    A primeira versão deste arquivo lia tudo como 32 bits: pedir 2
+    registradores de um parâmetro de 16 bits junta o valor com a palavra
+    seguinte, e 380 V saía como ~24 milhões. Sem erro nenhum -- só um
+    número absurdo, que numa tabela de corrente passa despercebido.
+    """
+    __slots__ = ("pnu", "escala", "casas", "bits", "sinal")
+
+    def __init__(self, pnu, escala, casas, bits, sinal=False):
+        assert bits in (16, 32)
+        self.pnu, self.escala, self.casas = pnu, escala, casas
+        self.bits, self.sinal = bits, sinal
+
+    def __iter__(self):          # compatível com o desempacotamento antigo
+        return iter((self.pnu, self.escala, self.casas))
+
+
 # O grupo 16 NÃO é o mesmo em toda a linha FC, e a diferença quebra código.
 #
-# Conferido nos guias de programação de cada família: o FC 51 Micro Drive
-# NÃO tem 16-16 Torque nem 16-17 Speed [RPM] -- eles existem só no
-# FC 301/302. Tentar lê-los num FC 51 devolve exceção de Modbus e derruba a
-# leitura inteira, levando junto os parâmetros que existiam.
-#
-# Daí os perfis por família. E, como rede de segurança, qualquer parâmetro
-# que falhe na leitura é abandonado em vez de derrubar o ciclo (ver
-# ler_inversor) -- isso cobre também as famílias que ninguém testou.
+# O FC 51 Micro Drive NÃO tem 16-16 Torque nem 16-17 Speed [RPM] -- eles
+# existem só no FC 301/302. Tentar lê-los num FC 51 devolve exceção de
+# Modbus. Daí os perfis por família; e, como rede de segurança, qualquer
+# parâmetro não essencial que falhe é abandonado em vez de derrubar o
+# ciclo (ver ler_inversor).
 FAMILIA = os.getenv("DANFOSS_FAMILIA", "fc302").lower()
 
-# campo no JSON        PNU    escala                     casas
+# Tipos e índices de conversão: lista de parâmetros do FC 301/302
+# Programming Guide (M0013101). Duas leituras da tabela que enganam:
+#
+#  * Índice >= 67 NÃO é escala do número, é o DESIGNADOR DA UNIDADE; o
+#    "fator" que a tabela dá ao lado é a conversão dessa unidade para o SI
+#    (67 = 1/min -> 1/60 s^-1; 100 = °C). O inteiro chega na unidade do
+#    display: 16-17 em rpm, 16-34 em °C. Escala 1.
+#  * O índice é relativo à unidade-base: 16-10 tem índice 1 = x10 W, ou
+#    seja 0,01 kW por unidade -- não "x10 kW".
+#
+# No FC 51 o guia que obtive não tabela os tipos, mas dá a FAIXA de cada
+# parâmetro, e a faixa decide a largura: 16-14 vai até 1856,00 A = 185600
+# brutos, que não cabe em 16 bits; 16-13 vai até 400,0 Hz = 4000, que
+# cabe. As larguras batem com as do FC 301/302.
+#
+# campo no JSON           PNU   escala                       casas bits sinal
 _COMUNS = {
-    "frequencia_hz": (1613, _escala("FREQ", "0.1"), 2),
-    "corrente_a":    (1614, _escala("CORRENTE", "0.01"), 2),
-    "tensao_v":      (1612, _escala("TENSAO", "0.1"), 1),
-    "dc_bus_v":      (1630, _escala("DCBUS", "1.0"), 1),
-    "potencia_kw":   (1610, _escala("POTENCIA", "0.01"), 2),
-    "motor_termico_pct": (1618, _escala("TERMICO", "1.0"), 0),
-    "dissipador_c":  (1634, _escala("DISSIPADOR", "1.0"), 0),
-    "status_bruto":  (1603, 1.0, 0),
-    "alarme_palavra": (1690, 1.0, 0),
+    "frequencia_hz":  Param(1613, _escala("FREQ", "0.1"),        2, 16),        # Uint16, -1
+    "corrente_a":     Param(1614, _escala("CORRENTE", "0.01"),   2, 32, True),  # Int32,  -2
+    "tensao_v":       Param(1612, _escala("TENSAO", "0.1"),      1, 16),        # Uint16, -1
+    "dc_bus_v":       Param(1630, _escala("DCBUS", "1.0"),       1, 16),        # Uint16,  0
+    "potencia_kw":    Param(1610, _escala("POTENCIA", "0.01"),   2, 32, True),  # Int32,   1 (x10 W)
+    "motor_termico_pct": Param(1618, _escala("TERMICO", "1.0"),  0, 16),        # Uint8,   0
+    "dissipador_c":   Param(1634, _escala("DISSIPADOR", "1.0"),  0, 16),        # Uint8, 100 (°C)
+    "status_bruto":   Param(1603, 1.0,                           0, 16),        # V2
+    "alarme_palavra": Param(1690, 1.0,                           0, 32),        # Uint32
 }
 
 PERFIS = {
@@ -116,58 +150,64 @@ PERFIS = {
         # escorregamento é medido em vez de estimado da plaqueta, e a
         # frequência 2·s·f que a sonda de MCSA procura deixa de ser
         # palpite (ver tools/mcsa_sonda.py).
-        "rpm":       (1617, _escala("RPM", "1.0"), 0),
-        "torque_nm": (1616, _escala("TORQUE", "0.1"), 1),
+        "rpm":       Param(1617, _escala("RPM", "1.0"),     0, 32, True),  # Int32, 67 (rpm)
+        # Int16 COM SINAL: torque negativo é frenagem, não número gigante.
+        "torque_nm": Param(1616, _escala("TORQUE", "0.1"),  1, 16, True),  # Int16, -1
     }),
     # FC 51 Micro Drive: sem 16-16 e sem 16-17.
+    # VERIFICAR na bancada: a escala da 16-10 (o guia do FC 51 só dá a
+    # faixa 0–99 kW, sem casas decimais).
     "fc51": dict(_COMUNS),
 }
 PERFIS["fc301"] = PERFIS["fc302"]
 
 PARAMETROS = PERFIS.get(FAMILIA, PERFIS["fc302"])
 
-# Alarmes do FC 301/302. A palavra 16-90 é um CAMPO DE BITS de 32 bits, e
-# não um número de falha como no PowerFlex — vários alarmes podem estar
-# ativos ao mesmo tempo. Índice = número do bit.
+# Palavra de alarme 16-90: CAMPO DE BITS de 32 bits, e não um número de
+# falha como no PowerFlex -- vários alarmes convivem.
 #
-# VERIFICAR: a numeração muda entre famílias. Esta é a do FC 301/302.
+# ATENÇÃO: o número do BIT não é o número do ALARME. A primeira versão
+# deste arquivo confundia os dois e mostrava o bit 13 (falha de inrush)
+# como "Sobrecorrente" -- que é o bit 5. Uma sobrecorrente real teria
+# aparecido no painel com o nome de outro alarme.
+#
+# Tabela transcrita do FC 301/302 Programming Guide (Alarm Word). O número
+# entre parênteses é o do alarme, o mesmo que o display do drive mostra.
+# VERIFICAR no FC 51: os números de alarme são os mesmos da família, mas o
+# guia dele não publica o mapa de bits.
 ALARMES = {
-    1:  "Falha de tensão de alimentação",
-    2:  "Erro de tensão auxiliar",
-    3:  "Sem motor",
-    4:  "Falta de fase da rede",
-    5:  "Tensão do barramento CC alta",
-    6:  "Tensão do barramento CC baixa",
-    7:  "Sobretensão do barramento CC",
-    8:  "Subtensão do barramento CC",
-    9:  "Sobrecarga do inversor",
-    10: "Sobretemperatura do motor (ETR)",
-    11: "Sobretemperatura do termistor do motor",
-    12: "Limite de torque",
-    13: "Sobrecorrente",
-    14: "Falha de aterramento",
-    15: "Falha de hardware",
-    16: "Curto-circuito",
-    17: "Timeout da palavra de controle",
-    22: "Freio de içamento",
-    25: "Resistor de frenagem em curto",
-    26: "Limite de potência do resistor de frenagem",
-    27: "Falha do chopper de frenagem",
-    28: "Falha na verificação do freio",
-    29: "Sobretemperatura do dissipador",
-    30: "Falta da fase U do motor",
-    31: "Falta da fase V do motor",
-    32: "Falta da fase W do motor",
-    33: "Falha de inrush",
-    38: "Falha interna",
-    47: "Falha na alimentação de 24 V",
-    48: "Falha na alimentação de 1,8 V",
-    50: "Falha de calibração do AMA",
-    51: "Verificação Unom/Inom do AMA",
-    59: "Limite de corrente",
-    64: "Limite de tensão",
-    69: "Sobretemperatura da placa de potência",
-    80: "Drive inicializado no padrão",
+    0:  "Verificação do freio (A28)",
+    1:  "Sobretemperatura da placa de potência (A69)",
+    2:  "Falha de aterramento (A14)",
+    3:  "Sobretemperatura da placa de controle (A65)",
+    4:  "Timeout da palavra de controle (A17)",
+    5:  "Sobrecorrente (A13)",
+    6:  "Limite de torque (A12)",
+    7:  "Sobretemperatura do motor — termistor (A11)",
+    8:  "Sobretemperatura do motor — ETR (A10)",
+    9:  "Sobrecarga do inversor (A9)",
+    10: "Subtensão do barramento CC (A8)",
+    11: "Sobretensão do barramento CC (A7)",
+    12: "Curto-circuito (A16)",
+    13: "Falha de inrush (A33)",
+    14: "Falta de fase da rede (A4)",
+    15: "AMA não concluído (A50)",
+    16: "Erro de zero vivo — entrada analógica (A2)",
+    17: "Falha interna (A38)",
+    18: "Sobrecarga do freio (A26)",
+    19: "Falta da fase U do motor (A30)",
+    20: "Falta da fase V do motor (A31)",
+    21: "Falta da fase W do motor (A32)",
+    22: "Falha de fieldbus (A34)",
+    23: "Alimentação de 24 V baixa (A47)",
+    24: "Falha de rede elétrica (A36)",
+    25: "Alimentação de 1,8 V baixa (A48)",
+    26: "Resistor de frenagem (A25)",
+    27: "IGBT do freio (A27)",
+    28: "Troca de opcional (A67)",
+    29: "Drive inicializado no padrão (A80)",
+    30: "Parada segura — Safe Stop (A68)",
+    31: "Freio mecânico baixo (A63)",
 }
 
 logging.basicConfig(level=logging.INFO,
@@ -181,21 +221,18 @@ log = logging.getLogger("danfoss")
 def endereco_de(pnu: int) -> int:
     """Converte número de parâmetro Danfoss (PNU) em endereço Modbus.
 
-    A regra da Danfoss é: cada parâmetro ocupa DOIS registradores de 16 bits
-    (os valores são de 32 bits, big-endian), e o endereço do primeiro é
+        endereço = (PNU × 10) − 1
 
-        registrador = (PNU × 10) − 1
+    Confirmado no FC 51 Design Guide, §8.9.1: "the parameter number is
+    translated to Modbus as (10 x parameter number)", com o exemplo do
+    3-12 no holding register 3120. E o mesmo guia diz que o telegrama
+    endereça a partir de ZERO ("holding register 40001 is addressed as
+    register 0000") -- daí o −1.
 
-    Exemplo: 16-14 Motor current -> PNU 1614 -> registrador 16139, lendo 2.
+    Exemplo: 16-14 Motor current -> PNU 1614 -> endereço 16139.
 
-    VERIFICAR NA BANCADA. Não consegui confirmar esta fórmula no PDF oficial
-    que baixei (era o manual da placa Modbus TCP, que trata do mecanismo PCD
-    e não do acesso direto a parâmetro). Ela é a regra citada nos manuais de
-    Modbus RTU da linha VLT, mas há famílias — a FC 51 Micro Drive em
-    particular — que usam mapeamento próprio.
-
-    Se os valores saírem sem sentido, use o modo 'pcd' (ver ler_pcd) ou o
-    utilitário de descoberta: python danfoss_mqtt.py --varrer 1614
+    Se ainda assim a leitura sair sem sentido num drive específico, o
+    utilitário de descoberta acha o offset: --varrer 1614
     """
     return pnu * 10 - 1
 
@@ -242,19 +279,36 @@ def _ler_registradores(cli, endereco, quantidade):
     raise RuntimeError(f"pymodbus incompativel: {ultimo_erro}")
 
 
-def ler_parametro(cli, pnu: int) -> int:
-    """Lê um parâmetro de 32 bits (2 registradores, big-endian)."""
-    r = _ler_registradores(cli, endereco_de(pnu), 2)
-    if r is None or (hasattr(r, "isError") and r.isError()):
-        raise IOError(f"erro lendo PNU {pnu}")
-    alto, baixo = r.registers[0], r.registers[1]
-    valor = (alto << 16) | baixo
-    # Complemento de dois: torque e velocidade são com sinal (motor pode
-    # girar ao contrário ou frenar). Ler sem sinal transformaria −5 Nm num
-    # número gigante e o painel mostraria torque absurdo em vez de negativo.
-    if valor >= 0x80000000:
-        valor -= 0x100000000
+def montar_valor(registros, bits: int, sinal: bool) -> int:
+    """Junta os registradores lidos num inteiro, na largura e sinal certos.
+
+    Separado de ler_parametro para poder ser testado sem drive nenhum.
+    32 bits: palavra alta primeiro (big-endian), como no exemplo do 3-14.
+    """
+    if bits == 16:
+        valor = registros[0] & 0xFFFF
+        limite, volta = 0x8000, 0x10000
+    else:
+        valor = ((registros[0] & 0xFFFF) << 16) | (registros[1] & 0xFFFF)
+        limite, volta = 0x80000000, 0x100000000
+    # Complemento de dois SÓ onde o tipo é com sinal (Int16/Int32): torque
+    # e velocidade ficam negativos quando o motor freia ou inverte. Aplicar
+    # em tipo sem sinal seria o erro oposto: a palavra de alarme com o bit
+    # 31 ligado (freio mecânico baixo) viraria um número negativo.
+    if sinal and valor >= limite:
+        valor -= volta
     return valor
+
+
+def ler_parametro(cli, p) -> int:
+    """Lê um parâmetro respeitando a largura: 1 registrador (16 bits) ou 2."""
+    if isinstance(p, int):                      # chamada antiga, por PNU
+        p = Param(p, 1.0, 0, 32, True)
+    n = 1 if p.bits == 16 else 2
+    r = _ler_registradores(cli, endereco_de(p.pnu), n)
+    if r is None or (hasattr(r, "isError") and r.isError()):
+        raise IOError(f"erro lendo PNU {p.pnu}")
+    return montar_valor(r.registers, p.bits, p.sinal)
 
 
 def ler_pcd(cli) -> list:
@@ -312,11 +366,12 @@ ESSENCIAIS = {"frequencia_hz", "corrente_a"}
 def ler_inversor(cli) -> dict:
     bruto = {}
     dados = {}
-    for campo, (pnu, escala, casas) in PARAMETROS.items():
+    for campo, p in PARAMETROS.items():
+        pnu, escala, casas = p
         if campo in _indisponiveis:
             continue
         try:
-            v = ler_parametro(cli, pnu)
+            v = ler_parametro(cli, p)
         except Exception as e:
             if campo in ESSENCIAIS:
                 raise
@@ -418,19 +473,21 @@ def bancada() -> None:
     print(f"\nfamília configurada: {FAMILIA}")
     print(f"parâmetros do perfil: {len(PARAMETROS)}\n")
     cli = abrir_cliente()
-    print(f"{'campo':<22} {'PNU':>6} {'registrador':>12} "
-          f"{'bruto':>12} {'com escala':>12}")
-    print("-" * 68)
-    for campo, (pnu, escala, casas) in PARAMETROS.items():
+    print(f"{'campo':<20} {'par.':>6} {'endereço':>9} {'tipo':>6} "
+          f"{'bruto':>11} {'com escala':>11}")
+    print("-" * 70)
+    for campo, p in PARAMETROS.items():
+        pnu, escala, casas = p
         grupo = f"{pnu // 100}-{pnu % 100:02d}"
+        tipo = f"{'I' if p.sinal else 'U'}{p.bits}"
         try:
-            v = ler_parametro(cli, pnu)
+            v = ler_parametro(cli, p)
             escalado = round(v * escala, casas) if casas else int(v)
-            print(f"{campo:<22} {grupo:>6} {endereco_de(pnu):>12} "
-                  f"{v:>12} {escalado:>12}")
+            print(f"{campo:<20} {grupo:>6} {endereco_de(pnu):>9} {tipo:>6} "
+                  f"{v:>11} {escalado:>11}")
         except Exception as e:
-            print(f"{campo:<22} {grupo:>6} {endereco_de(pnu):>12} "
-                  f"{'ERRO':>12}   {e}")
+            print(f"{campo:<20} {grupo:>6} {endereco_de(pnu):>9} {tipo:>6} "
+                  f"{'ERRO':>11}   {e}")
     cli.close()
     print("\nConfira cada linha contra o display do drive.")
     print("Se o BRUTO for 1230 e o display marcar 12,3 A -> escala 0.01 (ok).")

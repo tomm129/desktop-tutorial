@@ -55,6 +55,14 @@ for s in mosquitto nodered postgresql; do
     fi
 done
 
+# Nome na rede: sem o avahi o painel so e achado pelo IP. Nao reprova --
+# o sistema funciona --, mas numa rede nova vira caca ao IP no roteador.
+if systemctl is-active --quiet avahi-daemon 2>/dev/null; then
+    ok "nome na rede: http://$(hostname).local:1880/dashboard/"
+else
+    aviso "avahi-daemon inativo -- o painel so e acessivel pelo IP"
+fi
+
 # ---------------------------------------------------------------------
 secao "Mosquitto"
 if ss -ltn 2>/dev/null | grep -q ':1883'; then

@@ -249,6 +249,11 @@ const a = ativos[id] || { id: id };
 // inversor e drive. A tela de Cadastro usa isso para nao oferecer um
 // inversor onde se espera um ESP32.
 a.tipo = 'esp32';
+// De proposito ANTES do desvio do backfill: 'visto_em' e prova de VIDA,
+// nao de dado fresco. Um ESP32 que acabou de reconectar e esta despejando
+// o buffer esta vivo -- se o backfill nao atualizasse isto, o painel o
+// marcaria como MUDO justamente enquanto ele se recupera. O que o
+// backfill nao pode tocar sao os VALORES ao vivo (ver eh_buffer abaixo).
 a.visto_em = Date.now();
 
 // Validacao simples: descarta valores absurdos que so podem ser ruido/erro.
@@ -4078,7 +4083,13 @@ no(id="mqtt_cmd", type="mqtt out", z="flow_monitor", name="comando -> ESP32",
 
 # =====================================================================
 if __name__ == "__main__":
-    destino = sys.argv[1] if len(sys.argv) > 1 else "flows.json"
+    # Padrao: AO LADO deste arquivo (nodered/flows.json), e nao na pasta de
+    # onde se roda. Com o padrao antigo ("flows.json" relativo), rodar da
+    # raiz do repo gravava um flows.json na RAIZ e deixava o nodered/flows.json
+    # -- o que o setup_orangepi.sh leva para o gateway -- velho, sem aviso.
+    destino = (sys.argv[1] if len(sys.argv) > 1 else
+               os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "flows.json"))
 
     # Injeta a logo no codigo do no de funcao. Fica so aqui: o corpo da
     # funcao acima usa um marcador, para o gerador seguir legivel.

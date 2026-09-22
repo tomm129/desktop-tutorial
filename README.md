@@ -29,21 +29,30 @@ O projeto combina dois lados:
 
 ## Estrutura do repositório
 
-| Pasta                 | Descrição                                                        |
-|-----------------------|------------------------------------------------------------------|
-| `firmware/esp32-campo`| Firmware do ESP32 (PlatformIO) — temperatura + vibração via MQTT |
-| `nodered/`            | Fluxo do Node-RED para o Orange Pi (dashboard + alarmes)         |
-| `integracoes/`        | Integrações externas — corrente do PowerFlex 525 (EtherNet/IP)   |
-| `docs/`               | Documentação de arquitetura e hardware                           |
+| Pasta | Descrição |
+|---|---|
+| `firmware/esp32-campo` | Firmware do sensor (PlatformIO) — temperatura + vibração via MQTT |
+| `firmware/ixnode-provisionamento` | Provisionamento do IX Node (ESP-IDF, ESP32-C6): portal Wi-Fi e identidade |
+| `nodered/` | Painel — o `flows.json` é **gerado** por `gera_flow.py`; edite o gerador |
+| `integracoes/powerflex525` | Corrente do Allen-Bradley PowerFlex 525 (EtherNet/IP) |
+| `integracoes/danfoss_vlt` | Danfoss FC 51 / FC 301 / FC 302 (Modbus RTU/TCP) |
+| `scripts/` | Instalação do gateway (`setup_orangepi.sh`) e conferência (`verifica_instalacao.sh`) |
+| `sql/` | Esquema do histórico (PostgreSQL + TimescaleDB) |
+| `tools/` | Simulador de campo, gerador de planta de teste, sonda de MCSA e as suítes de teste |
+| `docs/` | Arquitetura, comissionamento, investidor, concorrentes, revisões |
 
 ## Primeiros passos
 
-1. **Painel (Orange Pi):** instale o broker MQTT e o Node-RED, importe o
-   fluxo — veja [`nodered/README.md`](nodered/README.md).
+1. **Gateway (Orange Pi):** siga [`docs/comissionamento.md`](docs/comissionamento.md)
+   — do cartão em branco ao painel no ar, com as armadilhas já resolvidas.
 2. **Campo (ESP32):** configure `firmware/esp32-campo/include/config.h` e
    grave o firmware — veja [`firmware/esp32-campo/README.md`](firmware/esp32-campo/README.md).
 3. Consulte a arquitetura e os tópicos MQTT em
    [`docs/arquitetura.md`](docs/arquitetura.md).
+
+**Para abrir o painel:** qualquer navegador na mesma rede do gateway, em
+`http://insightx.local:1880/dashboard/` (ou pelo IP). O que muda em cada tipo
+de rede está em [`docs/comissionamento.md`](docs/comissionamento.md#como-acessar-o-painel).
 
 ## Documentação
 
@@ -64,14 +73,39 @@ O projeto combina dois lados:
 
 ## Status
 
-🚧 Em desenvolvimento. Definições atuais:
+🚧 **Protótipo com gateway rodando em hardware real, ainda sem instalação em
+planta.** O quadro honesto, com o que falta, está em
+[`docs/INVESTIDOR.md`](docs/INVESTIDOR.md#3-onde-estamos-de-verdade).
+
+| Parte | Estado |
+|---|---|
+| Gateway (Orange Pi 3 LTS) | ✅ comissionado; verificador **30/30** na placa |
+| Painel | ✅ operacional; testado com 77 dispositivos simulados |
+| Histórico (TimescaleDB) | ✅ esquema aplicado no gateway · ⬜ nenhuma medição real ainda |
+| Firmware do sensor | 🔶 matemática validada e compilada · ⬜ firmware inteiro nunca gravado |
+| Provisionamento IX Node (C6) | 🔶 compila · ⬜ teste em placa |
+| Sidecar PowerFlex 525 | 🔶 escrito · ⬜ inversor real |
+| Sidecar Danfoss FC 51/301/302 | 🔶 conferido nos manuais, testado contra drive simulado · ⬜ bancada |
+| Testes sem hardware | ✅ 146 verificações em 6 suítes |
+
+**Próximos passos, na ordem que mais destrava:**
+
+1. **Bancada do Danfoss FC 51** — roteiro no
+   [README do sidecar](integracoes/danfoss_vlt/README.md). Roda do PC, sem
+   gateway.
+2. **Gravar um ESP32** apontando para o gateway — é o que faz a primeira
+   medição real entrar no banco.
+3. **Piloto num motor da fábrica** — a única linha do
+   [`INVESTIDOR.md`](docs/INVESTIDOR.md) que muda a conversa.
+
+**Definições de hardware:**
 
 - **Temperatura (campo):** sensor infravermelho **sem contato MLX90614**
   (I²C), no mesmo barramento do ADXL345. Firmware também suporta DS18B20 e
   DHT22 por configuração.
 - **Corrente (painel) — opcional:** onde o ativo tem inversor na rede, a
   corrente é lida direto dele — **PowerFlex 525** por EtherNet/IP ou
-  **Danfoss VLT** por Modbus. Sem inversor, o ativo é monitorado por
-  vibração e temperatura como qualquer outro.
+  **Danfoss FC 51/301/302** por Modbus. Sem inversor, o ativo é monitorado
+  por vibração e temperatura como qualquer outro.
 
 Veja [`docs/hardware.md`](docs/hardware.md) para ligações e parâmetros.

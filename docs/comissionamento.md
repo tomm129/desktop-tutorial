@@ -98,6 +98,74 @@ como concluídos.
 
 ---
 
+## Como acessar o painel
+
+O painel é uma **página web servida pelo próprio gateway**. Não há nuvem nem
+aplicativo: qualquer navegador **na mesma rede** abre
+
+```
+http://insightx.local:1880/dashboard/      ← pelo nome (mDNS)
+http://<ip do gateway>:1880/dashboard/     ← pelo IP, sempre funciona
+```
+
+O nome `insightx.local` é anunciado pelo `avahi-daemon`, que o
+`setup_orangepi.sh` instala. Windows 10/11, macOS, iOS e Linux o resolvem
+sozinhos; em Android depende da versão, e aí se usa o IP.
+
+### O que acontece ao ligar o gateway numa rede nova
+
+| Situação | Acesso | O que fazer |
+|---|---|---|
+| **Cabo** numa rede com DHCP | ✅ funciona | abra `insightx.local` — nada a configurar |
+| **Wi-Fi** de outra rede | ❌ **não conecta** | o gateway só conhece o Wi-Fi em que foi configurado |
+| Rede que isola dispositivos (Wi-Fi de visitante, VLAN) | ❌ não enxerga | peça à TI uma porta na mesma rede, ou use cabo direto |
+| De fora da fábrica | ❌ por projeto | ver "Acesso remoto" abaixo |
+
+**Use cabo.** Além de funcionar em qualquer rede com DHCP, é exigência do
+PowerFlex (EtherNet/IP não passa por Wi-Fi) e é mais estável num painel
+elétrico, onde a caixa metálica atenua o sinal.
+
+Se precisar mesmo de Wi-Fi numa rede nova, configure **antes** de levar o
+gateway, ou com um monitor e teclado ligados nele:
+
+```bash
+sudo nmtui        # "Activate a connection" -> escolha a rede
+```
+
+### Fixe o IP na rede do cliente
+
+O `.local` resolve o problema de *achar* o gateway. Mas os **ESP32 apontam
+para o gateway por IP** (`MQTT_HOST` no `config.h`), e se o DHCP der outro
+endereço depois de uma queda de energia, todos os sensores passam a falar
+com o vazio.
+
+Peça à TI uma **reserva de DHCP** para o MAC do gateway. É o jeito certo
+numa rede que não é sua: quem administra a rede continua sabendo quem usa
+qual endereço.
+
+### Acesso remoto (de fora da rede)
+
+Não existe hoje. Há uma decisão de produto em aberto aqui: o
+`diferenciais.md` usa "o dado não sai da fábrica" como argumento de venda,
+enquanto o `objetivo.md` prevê nuvem num degrau futuro.
+
+Enquanto isso não se decide, se um cliente pedir acesso de fora, o caminho
+é uma VPN sob controle dele — **nunca** abrir a porta 1880 no roteador, que
+exporia o editor sem senha para a internet.
+
+### ⚠️ O editor do Node-RED está sem senha
+
+`http://insightx.local:1880/` abre o **editor**, e hoje qualquer pessoa na
+rede consegue alterar ou apagar o fluxo. Numa bancada não importa; numa
+rede de fábrica, sim.
+
+O Node-RED resolve isso com `adminAuth` no `settings.js`, que pede usuário
+e senha para o editor. O **dashboard continua aberto para leitura**. Ainda
+não está no script porque precisa de uma senha escolhida por você no
+comissionamento — está na lista de pendências.
+
+---
+
 ## Armadilhas já resolvidas
 
 Todas vieram do mesmo lugar: o script foi escrito supondo Ubuntu e nunca havia

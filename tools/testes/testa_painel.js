@@ -91,8 +91,17 @@ console.log('\n=== 3. Backfill nao encosta no estado ao vivo ===');
     }}, ctx);
 
     ok(saida === null, 'backfill nao emite mensagem para grafico ao vivo');
-    ok(JSON.stringify(ctx.store.ativos['esp-01']) === vivoAntes,
-       'estado ao vivo intacto (valor critico antigo NAO alarma agora)');
+    // Compara tudo MENOS 'visto_em'. A versao anterior comparava o objeto
+    // inteiro e falhava de forma INTERMITENTE: 'visto_em' e Date.now(), e o
+    // teste so passava quando as duas mensagens caiam no mesmo
+    // milissegundo. E o backfill atualizar 'visto_em' e correto -- e prova
+    // de vida do dispositivo (ver o comentario no gera_flow.py).
+    const semVisto = (o) => { const c = Object.assign({}, o); delete c.visto_em;
+                              return JSON.stringify(c); };
+    ok(semVisto(ctx.store.ativos['esp-01']) === semVisto(JSON.parse(vivoAntes)),
+       'valores ao vivo intactos (valor critico antigo NAO alarma agora)');
+    ok(ctx.store.ativos['esp-01'].visto_em >= JSON.parse(vivoAntes).visto_em,
+       'backfill conta como sinal de vida (nao marca o dispositivo como mudo)');
 
     const fila = ctx.store.backfill;
     ok(fila && fila.length === 1, 'amostra foi para a fila de backfill');

@@ -346,8 +346,9 @@ resumo() {
     azul "Pronto"
     cat <<EOF
 
-  Dashboard ao vivo   http://${ip}:1880/dashboard
-  Editor do Node-RED  http://${ip}:1880
+  Dashboard ao vivo   http://${GATEWAY_NOME}.local:1880/dashboard/
+                      http://${ip}:1880/dashboard/   (pelo IP, se o .local falhar)
+  Editor do Node-RED  http://${GATEWAY_NOME}.local:1880
   Broker MQTT         ${ip}:1883  (usuario: ${MQTT_USER})
 
   FALTA FAZER, nesta ordem:
@@ -467,6 +468,48 @@ instalar_banco() {
     aviso "a senha do banco precisa ser preenchida no no 'InsightX' do editor"
 }
 
+# =====================================================================
+#  Nome na rede (mDNS)
+# =====================================================================
+# Sem isto, ligar o gateway numa rede nova obriga a caçar o IP no
+# roteador -- que na fábrica quase nunca é seu. Com o avahi o painel
+# responde por NOME em qualquer rede:
+#
+#     http://insightx.local:1880/dashboard/
+#
+# Windows 10/11, macOS, iOS e Linux resolvem .local sozinhos. Android
+# depende da versão -- lá, o IP continua valendo.
+#
+# Mais de um gateway no mesmo cliente? Rode com GATEWAY_NOME=insightx-linha2
+# para os nomes não colidirem.
+GATEWAY_NOME="${GATEWAY_NOME:-insightx}"
+
+configurar_nome_na_rede() {
+    azul "Nome na rede: ${GATEWAY_NOME}.local"
+
+    if [[ "$(hostname)" != "$GATEWAY_NOME" ]]; then
+        local antigo; antigo="$(hostname)"
+        sudo hostnamectl set-hostname "$GATEWAY_NOME"
+        # O /etc/hosts do Debian aponta 127.0.1.1 para o nome antigo; sem
+        # trocar, o sudo passa a demorar segundos esperando resolver o
+        # próprio nome.
+        sudo sed -i "s/^127\.0\.1\.1[[:space:]].*/127.0.1.1\t${GATEWAY_NOME}/" /etc/hosts
+        grep -q "^127\.0\.1\.1" /etc/hosts \
+            || echo -e "127.0.1.1\t${GATEWAY_NOME}" | sudo tee -a /etc/hosts >/dev/null
+        ok "hostname: ${antigo} -> ${GATEWAY_NOME}"
+    else
+        ok "hostname ja e ${GATEWAY_NOME}"
+    fi
+
+    sudo apt-get install -y -qq avahi-daemon
+    sudo systemctl enable --now avahi-daemon
+    # Reinicia para anunciar o nome NOVO -- o avahi lê o hostname ao subir.
+    sudo systemctl restart avahi-daemon
+    systemctl is-active --quiet avahi-daemon \
+        && ok "avahi ativo: http://${GATEWAY_NOME}.local:1880/dashboard/" \
+        || aviso "avahi nao subiu -- o painel continua acessivel pelo IP"
+}
+
 main() {
     verificar_ambiente
     pedir_credenciais
@@ -474,6 +517,7 @@ main() {
     instalar_nodered
     instalar_powerflex
     instalar_banco
+    configurar_nome_na_rede
     resumo
 }
 

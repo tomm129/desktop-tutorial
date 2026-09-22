@@ -60,19 +60,55 @@ if danfoss:
     cod, txt = danfoss.decodificar_alarmes(0)
     ok(cod == 0 and txt is None, "palavra zero = sem alarme")
 
+    # Mapa de bits conferido na tabela "Alarm Word" do FC 301/302
+    # Programming Guide. A versao anterior deste teste exigia bit 13 =
+    # Sobrecorrente -- o teste tinha sido escrito junto com o codigo, a
+    # partir da mesma premissa errada, e por isso os dois concordavam.
+    # O NUMERO DO BIT nao e o NUMERO DO ALARME.
+    cod, txt = danfoss.decodificar_alarmes(1 << 5)
+    ok(cod == 5 and "Sobrecorrente (A13)" in txt,
+       "bit 5 = Sobrecorrente (A13)", f"-> {txt}")
     cod, txt = danfoss.decodificar_alarmes(1 << 13)
-    ok(cod == 13, "bit 13 -> codigo 13", f"-> {cod}")
-    ok(txt and "Sobrecorrente" in txt, "bit 13 traduz para Sobrecorrente",
-       f"-> {txt}")
+    ok("inrush (A33)" in txt and "Sobrecorrente" not in txt,
+       "bit 13 = falha de inrush, NAO sobrecorrente", f"-> {txt}")
+    for bit, alarme in ((0, "A28"), (11, "A7"), (14, "A4"), (29, "A80"),
+                        (31, "A63")):
+        _, txt = danfoss.decodificar_alarmes(1 << bit)
+        ok(alarme in txt, f"bit {bit} -> alarme {alarme}", f"-> {txt}")
+    ok(len(danfoss.ALARMES) == 32, "os 32 bits da palavra estao mapeados")
 
     # Dois alarmes juntos: nenhum pode ficar escondido.
     cod, txt = danfoss.decodificar_alarmes((1 << 9) | (1 << 29))
     ok(cod == 9, "com dois alarmes, o codigo e o menor bit", f"-> {cod}")
     ok(txt.count("|") == 1, "os dois textos aparecem", f"-> {txt}")
 
-    cod, txt = danfoss.decodificar_alarmes(1 << 21)
-    ok(cod == 21 and "ver manual" in txt,
-       "bit desconhecido nao vira 'sem falha'", f"-> {txt}")
+    print("\n=== 2b. Danfoss: largura e sinal de cada parametro ===")
+    mv = danfoss.montar_valor
+    # 16 bits ocupam UM registrador. Ler dois juntava a palavra seguinte:
+    # 380 V saia como ~24 milhoes, sem erro nenhum.
+    ok(mv([3800], 16, False) == 3800, "16 bits usa so o primeiro registrador")
+    ok(mv([3800, 1234], 16, False) == 3800,
+       "16 bits ignora o registrador seguinte")
+    ok(mv([0x0002, 0xD500], 32, True) == 185600,
+       "32 bits: palavra alta primeiro (1856,00 A)")
+    ok(mv([0xFFFF, 0xFFCE], 32, True) == -50, "Int32 negativo")
+    ok(mv([0xFFCE], 16, True) == -50, "Int16 negativo (torque frenando)")
+    ok(mv([0x8000, 0x0000], 32, False) == 0x80000000,
+       "Uint32 com bit 31 NAO vira negativo (alarme A63)")
+
+    p = danfoss.PERFIS["fc302"]
+    esperado = {  # campo: (bits, sinal) -- lista de parametros FC 301/302
+        "frequencia_hz": (16, False), "tensao_v": (16, False),
+        "dc_bus_v": (16, False), "motor_termico_pct": (16, False),
+        "dissipador_c": (16, False), "status_bruto": (16, False),
+        "corrente_a": (32, True), "potencia_kw": (32, True),
+        "alarme_palavra": (32, False), "rpm": (32, True),
+        "torque_nm": (16, True),
+    }
+    for campo, (bits, sinal) in esperado.items():
+        ok((p[campo].bits, p[campo].sinal) == (bits, sinal),
+           f"{campo}: {'Int' if sinal else 'Uint'}{bits}",
+           f"-> {'Int' if p[campo].sinal else 'Uint'}{p[campo].bits}")
 
     print("\n=== 3. Danfoss: perfis por familia ===")
     # O grupo 16 difere entre familias, e ler um parametro inexistente

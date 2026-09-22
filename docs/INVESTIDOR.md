@@ -123,27 +123,38 @@ Sendo explícito, porque é o que dá credibilidade ao resto.
 
 ### O que existe e funciona
 
+- **Gateway comissionado em hardware real** (Orange Pi 3 LTS, Armbian
+  Debian 13): broker autenticado, painel, PostgreSQL 17 + TimescaleDB 2.29
+  com o esquema aplicado. Um verificador automático confere o estado real
+  item por item — **30 de 30** na placa. O primeiro comissionamento expôs
+  sete falhas no script de instalação, todas corrigidas e documentadas
+  (`docs/comissionamento.md`).
 - **Painel completo e operacional**: hierarquia ativo → parte → grandeza,
   alarmes com histerese, linha do tempo de eventos, cadastro de
-  dispositivos, dados de placa e sobressalentes, tema escuro.
+  dispositivos, dados de placa, tema escuro. Testado com 77 dispositivos
+  simulados (`docs/teste-de-escala.md`).
 - **Firmware ESP32** com RMS de vibração por eixo, **velocidade em mm/s com
   zonas ISO 20816** derivadas da plaqueta, **fator de crista**, e buffer
   offline com decimação (não perde dado durante queda de rede).
 - **Dois sidecars de inversor**: Allen-Bradley PowerFlex 525 (EtherNet/IP) e
-  Danfoss VLT série FC (Modbus TCP/RTU), publicando o **mesmo contrato JSON**
-  — o painel não sabe a marca.
+  Danfoss VLT FC 51 / FC 301 / FC 302 (Modbus RTU/TCP), publicando o **mesmo
+  contrato JSON** — o painel não sabe a marca. O do Danfoss foi conferido
+  contra os guias oficiais (endereçamento, tipo de cada parâmetro, mapa de
+  alarmes) e testado contra um drive simulado por Modbus de verdade.
 - **Histórico em PostgreSQL + TimescaleDB** na borda, com agregados
   contínuos, compressão e retenção.
-- **Suíte de testes sem hardware**: 91 verificações automatizadas.
+- **Suíte de testes sem hardware**: 146 verificações em 6 suítes, mais a
+  checagem de compilação da matemática do firmware.
 
 ### O que NÃO existe
 
 | | Situação |
 |---|---|
 | Instalação em planta real | **nenhuma** |
-| Firmware gravado em placa | **não** — nunca compilado inteiro (sem PlatformIO na máquina de desenvolvimento) |
-| Sidecar testado em inversor real | **não** — nem o PowerFlex nem o Danfoss |
-| Escrita real no PostgreSQL | **não** — o SQL foi inspecionado, não executado |
+| Firmware de campo (sensores) em placa | **não** — só a matemática de vibração é compilada; o firmware inteiro nunca foi (sem PlatformIO na máquina de desenvolvimento) |
+| Firmware de provisionamento (ESP32-C6) | compila e tem script de gravação; **teste em placa não registrado** |
+| Sidecar testado em inversor real | **não** — nem o PowerFlex nem o Danfoss (o Danfoss só contra drive simulado) |
+| Medição real gravada no banco | **não** — o esquema roda no gateway, mas nenhum sensor publicou ainda |
 | Análise espectral (FFT) | **não** — é o degrau 3 do roadmap |
 | Certificação Ex / área classificada | **não** |
 | Invólucro e grau de proteção | **não definido** |
