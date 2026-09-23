@@ -9,6 +9,11 @@ guarda o histórico de falhas; aproveitar isso sai de graça.
 PowerFlex 525 ──EtherNet/IP──> powerflex_mqtt.py ──MQTT──> Node-RED
 ```
 
+> **Estado:** conferido contra os manuais oficiais (520-UM001 e
+> 520COM-UM001) e testado contra um drive simulado por EtherNet/IP de
+> verdade. **Ainda não rodou num drive real.** Rode a `--bancada` antes de
+> ligar em produção.
+
 Publica em `monitoramento/<DEVICE_ID>/inversor`:
 
 ```json
@@ -20,9 +25,46 @@ Publica em `monitoramento/<DEVICE_ID>/inversor`:
   "frequencia_hz": 60.0,
   "rodando": true,
   "falha": { "codigo": 0, "texto": null },
+  "ultima_falha": { "codigo": 7, "texto": "Sobrecarga do motor" },
   "status_bruto": 3
 }
 ```
+
+`falha` é a falha **ativa agora**; `ultima_falha` é o histórico (`b007`).
+A diferença é o motivo da seção seguinte.
+
+## O que a conferência com os manuais corrigiu
+
+Cinco problemas da primeira versão, nenhum visível sem drive na mão:
+
+| # | Problema | Efeito no painel | Fonte |
+|---|---|---|---|
+| 1 | **`b007` publicado como falha atual.** Ele guarda a falha *mais recente* e continua com ela depois do rearme | uma falha da semana passada deixava o ativo **em CRÍTICO para sempre** | 520-UM001, b007 |
+| 2 | **`b005` com escala 0,1.** O barramento é em **volts inteiros** (0–1200 V DC) | 311 V aparecia como **31,1 V** | 520-UM001, b005 |
+| 3 | **Classe 0x93 lendo o atributo 1.** Na DPI o valor fica no **atributo 9**; o 1 é a senha de proteção | trocar de classe, como o próprio README sugeria, passava a ler **outro dado, sem erro** | 520COM-UM001, Ap. C |
+| 4 | **Quatro traduções de falha erradas** (F3, F42, F43, F63) e oito códigos ausentes | F42/F43 com as fases **trocadas**; F3 (perda de alimentação) descrito como outra coisa | 520-UM001, *Drive Error Codes* |
+| 5 | **Unconnected Send fixo.** O manual não esclarece se o adaptador aceita o envelope | se o drive recusar, **nenhuma leitura** funciona | — |
+
+**Como a falha ativa é lida agora:** pelo *DPI Fault Object* (classe
+`0x97`), atributo de classe 4, *Fault Trip Instance* — "fault that tripped
+the device". Diferente de zero enquanto o drive está desarmado; aí a falha
+que o desarmou é a mais recente, `b007`.
+
+Se o drive não responder a esse objeto, o sidecar **não afirma falha
+nenhuma**: um alarme falso permanente é pior que nenhum, e a última falha
+continua visível em `ultima_falha`. Houve uma alternativa descartada — o
+bit *Faulted* da *Logic Status Word* (Assembly `0x04`) —, porque o manual
+põe essa palavra na posição 0 **ou** 2 dependendo do perfil usado no CLP, e
+numa leitura avulsa a posição fica ambígua.
+
+**Sobre o item 5:** em `PF525_UNCONNECTED_SEND=auto` (padrão) o sidecar
+tenta com o envelope e, se o drive recusar, sem ele — e guarda o que
+funcionou. A `--bancada` mostra qual foi.
+
+> ⚠️ **Se o seu `config.env` foi copiado de uma versão anterior do
+> `config.example.env`, corrija a linha `PF525_ESCALA_DCBUS=0.1` para
+> `1.0`.** Variável de ambiente vence o padrão do código: corrigir só o
+> script não resolve.
 
 ## Duas decisões que valem explicar
 
@@ -64,41 +106,52 @@ própria instância CIP**. Lidos a cada ciclo:
 | b004      | Tensão de saída (V)      | leitura de referência              |
 | b005      | Tensão do barramento CC  | leitura de referência              |
 | b006      | Status do drive          | publicado cru (`status_bruto`)     |
-| b007      | Código da falha          | falha ativa → ativo em **CRÍTICO** |
+| b007      | Falha **mais recente**   | `ultima_falha` (histórico)         |
+| DPI Fault `0x97` | Falha **ativa**   | `falha` → ativo em **CRÍTICO**     |
 
-> `b007` é a falha mais recente; `b008` e `b009` guardam as duas
-> anteriores. O sidecar lê só a `b007` — histórico de falha é trabalho do
-> banco, não do polling.
+Escalas (campo *Display* de cada parâmetro no 520-UM001): b001 `0,01 Hz`,
+b003 `0,01 A`, b004 `0,1 V`, **b005 `1 V`**.
 
 **Acesso CIP:** Parameter Object (classe `0x0F`), `instância = número do
-parâmetro`, `atributo 1 = valor`, serviço `Get_Attribute_Single (0x0E)`. O
-valor volta como **inteiro 16 bits** com escala implícita.
+parâmetro`, `atributo 1 = valor`, serviço `Get_Attribute_Single (0x0E)` —
+confirmado no Apêndice C do 520COM-UM001. Na alternativa, DPI Parameter
+Object (`0x93`), o valor está no **atributo 9**; o código escolhe sozinho
+conforme `PF525_CLASSE`.
 
 **Mensageria desconectada (UCMM).** O `generic_message()` do pycomm3 assume
 `connected=True` por padrão, o que dispara um **Forward Open** antes da
-requisição — comportamento certo para um rack Logix, mas o adaptador embarcado
-do PowerFlex costuma recusar a abertura de conexão. Por isso a leitura aqui usa
-`connected=False, unconnected_send=True`. O sintoma de esquecer esse detalhe é
-falhar na *abertura da conexão*, não na leitura do parâmetro — o que manda você
-investigar o lado errado.
+requisição — comportamento certo para um rack Logix, mas o adaptador
+embarcado não é orientado a tags. Leitura pontual de parâmetro é o caso de
+uso de UCMM, e é o que se usa aqui.
 
-> **Fallback:** em alguns firmwares o acesso é pelo **DPI Parameter Object
-> (classe `0x93`)**, mesma lógica de instância/atributo. Se a classe `0x0F` não
-> responder, ajuste `PF525_CLASSE=0x93` no `config.env` — não precisa mexer no
-> código.
+## Bancada — antes de ligar em produção
 
-## ⚠️ Os dois ajustes que você provavelmente vai precisar fazer
+Não precisa de broker. Do Orange Pi ou de qualquer PC na rede do drive:
 
-1. **As escalas.** O valor bruto é inteiro; cada grandeza tem sua escala,
-   e elas **variam com a faixa de potência do drive**. Os padrões
-   (`PF525_ESCALA_FREQ`, `_CORRENTE`, `_TENSAO`, `_DCBUS`) são os típicos
-   da família 520.
+```bash
+PF525_IP=192.168.1.10 python powerflex_mqtt.py --bancada
+```
 
-   Para calibrar: ligue `PF525_LOG_BRUTO=1`, ponha o teclado no parâmetro e
-   confira se `bruto × escala` bate com o display. Ex.: bruto `1234` e
-   display `12,34 A` ⇒ escala `0.01`.
-2. **Classe do objeto (`PF525_CLASSE`).** `0x0F` ou `0x93` — veja o fallback
-   acima.
+Mostra cada parâmetro com valor bruto e com escala, se o drive respondeu
+ao objeto de falha e qual modo de envio funcionou. Compare com o teclado:
+o **b005** é o mais fácil, porque com o motor parado ele não flutua.
+
+Se a classe `0x0F` não responder, repita com `PF525_CLASSE=0x93`.
+
+## Testes
+
+```bash
+python tools/testes/testa_powerflex_cip.py
+```
+
+Sobe um drive **simulado** — um servidor EtherNet/IP mínimo que responde ao
+que o pycomm3 realmente manda — e lê dele pelo sidecar. Cobre drive sem
+falha e desarmado, drive que aceita e que recusa o envelope Unconnected
+Send, as duas classes de parâmetro e o drive sem objeto de falha.
+Reintroduzindo qualquer um dos bugs 1, 2 ou 3 acima, ele reprova.
+
+Não substitui a bancada: o simulador e o sidecar partem da mesma leitura
+do manual.
 
 > ⚠️ **No `config.env`, comentário só em linha própria.** O `EnvironmentFile=`
 > do systemd não corta comentário no fim da linha: `PF525_ESCALA=0.01  # ...`

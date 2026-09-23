@@ -294,6 +294,17 @@ instalar_powerflex() {
     local cfg="${destino}/config.env"
     if [[ -f "${cfg}" ]]; then
         aviso "config.env ja existe — mantido como esta"
+        # Migracao de um erro CONHECIDO, e so dele: versoes antigas do
+        # config.example.env traziam PF525_ESCALA_DCBUS=0.1, mas o b005 e
+        # em volts inteiros (520-UM001). Como a variavel de ambiente vence o
+        # padrao do codigo, corrigir so o script nao bastava -- 311 V
+        # continuariam aparecendo como 31,1 V. Qualquer OUTRO valor foi
+        # escolha de alguem e fica como esta.
+        if grep -qE '^PF525_ESCALA_DCBUS=0\.1[[:space:]]*$' "${cfg}"; then
+            backup "${cfg}"
+            sed -i -E 's/^PF525_ESCALA_DCBUS=0\.1[[:space:]]*$/PF525_ESCALA_DCBUS=1.0/' "${cfg}"
+            ok "config.env: PF525_ESCALA_DCBUS corrigido de 0.1 para 1.0 (b005 e em volts)"
+        fi
     else
         cp "${destino}/config.example.env" "${cfg}"
         # Comentario so em linha propria: o EnvironmentFile do systemd nao

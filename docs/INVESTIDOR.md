@@ -138,12 +138,14 @@ Sendo explícito, porque é o que dá credibilidade ao resto.
   offline com decimação (não perde dado durante queda de rede).
 - **Dois sidecars de inversor**: Allen-Bradley PowerFlex 525 (EtherNet/IP) e
   Danfoss VLT FC 51 / FC 301 / FC 302 (Modbus RTU/TCP), publicando o **mesmo
-  contrato JSON** — o painel não sabe a marca. O do Danfoss foi conferido
-  contra os guias oficiais (endereçamento, tipo de cada parâmetro, mapa de
-  alarmes) e testado contra um drive simulado por Modbus de verdade.
+  contrato JSON** — o painel não sabe a marca. Os dois foram conferidos
+  contra os manuais oficiais e testados contra drives simulados falando o
+  protocolo de verdade (Modbus e EtherNet/IP). A conferência achou oito
+  erros que só apareceriam com o drive na mão — entre eles, uma falha já
+  rearmada que deixaria o ativo em alarme para sempre.
 - **Histórico em PostgreSQL + TimescaleDB** na borda, com agregados
   contínuos, compressão e retenção.
-- **Suíte de testes sem hardware**: 146 verificações em 6 suítes, mais a
+- **Suíte de testes sem hardware**: 177 verificações em 7 suítes, mais a
   checagem de compilação da matemática do firmware.
 
 ### O que NÃO existe
@@ -153,7 +155,7 @@ Sendo explícito, porque é o que dá credibilidade ao resto.
 | Instalação em planta real | **nenhuma** |
 | Firmware de campo (sensores) em placa | **não** — só a matemática de vibração é compilada; o firmware inteiro nunca foi (sem PlatformIO na máquina de desenvolvimento) |
 | Firmware de provisionamento (ESP32-C6) | compila e tem script de gravação; **teste em placa não registrado** |
-| Sidecar testado em inversor real | **não** — nem o PowerFlex nem o Danfoss (o Danfoss só contra drive simulado) |
+| Sidecar testado em inversor real | **não** — nem o PowerFlex nem o Danfoss (os dois só contra drive simulado) |
 | Medição real gravada no banco | **não** — o esquema roda no gateway, mas nenhum sensor publicou ainda |
 | Análise espectral (FFT) | **não** — é o degrau 3 do roadmap |
 | Certificação Ex / área classificada | **não** |

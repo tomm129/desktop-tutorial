@@ -131,6 +131,24 @@ else
 fi
 
 # ---------------------------------------------------------------------
+secao "Sidecar do PowerFlex"
+PF_CFG=/opt/iot/integracoes/powerflex525/config.env
+if [[ -f "$PF_CFG" ]]; then
+    # b005 e em volts inteiros; 0.1 veio de um config.example.env antigo e
+    # faz 311 V aparecerem como 31,1 V. O setup corrige, mas so se rodar.
+    if grep -qE '^PF525_ESCALA_DCBUS=0\.1[[:space:]]*$' "$PF_CFG"; then
+        falha "PF525_ESCALA_DCBUS=0.1 no config.env -- o b005 e em volts; use 1.0"
+    else
+        ok "escala do barramento CC (b005) coerente"
+    fi
+    if grep -qE '^PF525_IP=192\.168\.1\.10[[:space:]]*$' "$PF_CFG"; then
+        aviso "PF525_IP ainda no valor de exemplo"
+    fi
+else
+    aviso "sidecar do PowerFlex nao instalado"
+fi
+
+# ---------------------------------------------------------------------
 secao "PostgreSQL + TimescaleDB"
 psqlq()  { sudo -u postgres psql -tAc "$1" 2>/dev/null; }
 psqlqd() { sudo -u postgres psql -d insightx -tAc "$1" 2>/dev/null; }
