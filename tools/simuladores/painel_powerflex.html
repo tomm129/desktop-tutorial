@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PowerFlex 525 · simulador</title>
+<style>
+  :root {
+    --bg: #0e1116; --surface: #161b22; --surface-2: #1c232c; --border: #2a323c;
+    --text: #e6edf3; --muted: #8b98a5; --faint: #5c6773;
+    --accent: #2f81f7; --accent-soft: rgba(47,129,247,.14);
+    --serie: #58a6ff;
+    --ok: #3fb950; --ok-soft: rgba(63,185,80,.13);
+    --warn: #d29922; --warn-soft: rgba(210,153,34,.14);
+    --crit: #f85149; --crit-soft: rgba(248,81,73,.13);
+    --raio: 10px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .num { font-variant-numeric: tabular-nums; }
+  .mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; }
+  main { max-width: 1180px; margin: 0 auto; padding: 20px 20px 40px; }
+
+  /* ---------- cabeçalho ---------- */
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+           padding-bottom: 18px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+  .marca { display: flex; align-items: baseline; gap: 10px; }
+  .marca h1 { font-size: 20px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .08em;
+         color: var(--muted); border: 1px solid var(--border); border-radius: 999px;
+         padding: 2px 8px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; font-weight: 650;
+          font-size: 13px; letter-spacing: .04em; padding: 6px 12px; border-radius: 999px; }
+  .pill.ok   { background: var(--ok-soft);   color: var(--ok); }
+  .pill.off  { background: var(--surface-2); color: var(--muted); }
+  .pill.crit { background: var(--crit-soft); color: var(--crit); }
+  .meta { margin-left: auto; display: flex; gap: 18px; color: var(--muted); font-size: 13px; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .conexao { display: inline-flex; align-items: center; gap: 6px; }
+  .ponto { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .ponto.morto { background: var(--crit); }
+
+  /* ---------- cartões ---------- */
+  .grade { display: grid; gap: 14px; }
+  .g4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .g2 { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  @media (max-width: 900px) { .g4 { grid-template-columns: repeat(2, minmax(0,1fr)); }
+                               .g2 { grid-template-columns: minmax(0,1fr); } }
+  .cartao { background: var(--surface); border: 1px solid var(--border);
+            border-radius: var(--raio); padding: 16px; min-width: 0; }
+  .cartao h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 12px;
+               display: flex; align-items: center; gap: 8px; }
+  .cartao h2 .par { font-weight: 500; color: var(--faint); }
+  .secao { margin-top: 14px; }
+
+  /* ---------- valores ---------- */
+  .valor { font-size: 30px; font-weight: 650; letter-spacing: -.02em; line-height: 1.1; }
+  .valor small { font-size: 15px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+  .sub { color: var(--muted); font-size: 12px; margin-top: 6px; }
+
+  /* ---------- gráfico ---------- */
+  .grafico { position: relative; height: 170px; }
+  .grafico svg { width: 100%; height: 100%; display: block; overflow: visible; }
+  .grade-linha { stroke: var(--border); stroke-width: 1; }
+  .eixo-rot { fill: var(--faint); font-size: 11px; }
+  .serie { fill: none; stroke: var(--serie); stroke-width: 2; stroke-linejoin: round; }
+  .area { fill: url(#degrade); }
+  .mira { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+  .marcador { fill: var(--serie); stroke: var(--surface); stroke-width: 2; }
+  .dica { position: absolute; pointer-events: none; background: var(--surface-2);
+          border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px;
+          font-size: 12px; white-space: nowrap; transform: translate(-50%, -120%); }
+
+  /* ---------- falhas ---------- */
+  .falhas { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .caixa { border-radius: 8px; padding: 12px; background: var(--surface-2);
+           border: 1px solid var(--border); }
+  .caixa.crit { background: var(--crit-soft); border-color: rgba(248,81,73,.45); }
+  .caixa .rot { font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+  .caixa .cod { font-size: 22px; font-weight: 650; margin-top: 4px; }
+  .caixa.crit .cod { color: var(--crit); }
+  .caixa .txt { font-size: 13px; margin-top: 2px; min-height: 19px; }
+  .caixa .nota { font-size: 11.5px; color: var(--faint); margin-top: 8px; }
+  .linha-acao { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+  /* ---------- controles ---------- */
+  button, select { font: inherit; color: var(--text); background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; cursor: pointer; }
+  button:hover, select:hover { border-color: #3b4652; }
+  button:focus-visible, select:focus-visible, input:focus-visible {
+    outline: 2px solid var(--accent); outline-offset: 2px; }
+  button.primario { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.perigo { color: var(--crit); border-color: rgba(248,81,73,.45); }
+  select { flex: 1; min-width: 0; }
+
+  .cenarios { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; }
+  @media (max-width: 600px) { .cenarios { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  .cenario { text-align: left; padding: 10px 12px; }
+  .cenario b { display: block; font-size: 13.5px; }
+  .cenario span { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .cenario[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+
+  .deslizante { margin-top: 14px; }
+  .deslizante label { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
+  .deslizante label b { color: var(--text); font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--accent); margin-top: 6px; }
+
+  .opcao { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0;
+           border-top: 1px solid var(--border); }
+  .opcao:first-of-type { border-top: 0; padding-top: 0; }
+  .opcao .desc { flex: 1; }
+  .opcao .desc b { font-size: 13.5px; font-weight: 600; }
+  .opcao .desc p { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+  .chave { position: relative; width: 38px; height: 22px; flex: none; margin-top: 2px; }
+  .chave input { opacity: 0; width: 0; height: 0; }
+  .chave span { position: absolute; inset: 0; background: var(--surface-2); border: 1px solid var(--border);
+                border-radius: 999px; transition: .15s; cursor: pointer; }
+  .chave span::after { content: ""; position: absolute; left: 3px; top: 3px; width: 14px; height: 14px;
+                       border-radius: 50%; background: var(--muted); transition: .15s; }
+  .chave input:checked + span { background: var(--accent); border-color: var(--accent); }
+  .chave input:checked + span::after { left: 19px; background: #fff; }
+  .chave input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- registro ---------- */
+  .tabela { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .tabela th { text-align: left; font-weight: 500; color: var(--faint); padding: 0 8px 8px 0;
+               border-bottom: 1px solid var(--border); }
+  .tabela td { padding: 6px 8px 6px 0; border-bottom: 1px solid rgba(42,50,60,.55); vertical-align: top; }
+  .tabela tr:last-child td { border-bottom: 0; }
+  .via { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--surface-2); color: var(--muted); }
+  .erro { color: var(--warn); }
+  .rolagem { overflow-x: auto; }
+  .vazio { color: var(--faint); padding: 18px 0; text-align: center; }
+
+  .rodape { margin-top: 14px; }
+  pre { margin: 8px 0 0; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+        padding: 10px 12px; overflow-x: auto; font-size: 12.5px; color: #c9d1d9; }
+  .aviso { font-size: 12px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="marca">
+      <h1>PowerFlex 525</h1>
+      <span class="tag">simulador</span>
+    </div>
+    <span id="pill" class="pill off" role="status">—</span>
+    <div class="meta">
+      <span class="conexao"><span id="ponto" class="ponto"></span> EtherNet/IP <b id="end" class="mono">—</b></span>
+      <span><b id="leituras" class="num">0</b> leituras · <b id="taxa" class="num">0</b>/s</span>
+    </div>
+  </header>
+
+  <!-- valores ao vivo -->
+  <section class="grade g4" aria-label="Valores lidos pelo sidecar">
+    <div class="cartao"><h2>Frequência de saída <span class="par">b001</span></h2>
+      <div class="valor num"><span id="v-freq">—</span><small>Hz</small></div>
+      <div class="sub">0,01 Hz por unidade</div></div>
+    <div class="cartao"><h2>Corrente de saída <span class="par">b003</span></h2>
+      <div class="valor num"><span id="v-corr">—</span><small>A</small></div>
+      <div class="sub">0,01 A por unidade</div></div>
+    <div class="cartao"><h2>Tensão de saída <span class="par">b004</span></h2>
+      <div class="valor num"><span id="v-tens">—</span><small>V</small></div>
+      <div class="sub">0,1 V por unidade</div></div>
+    <div class="cartao"><h2>Barramento CC <span class="par">b005</span></h2>
+      <div class="valor num"><span id="v-dc">—</span><small>V</small></div>
+      <div class="sub">volts inteiros</div></div>
+  </section>
+
+  <section class="grade g2 secao">
+    <div class="cartao">
+      <h2>Corrente de saída — últimos 2 min</h2>
+      <div class="grafico" id="grafico">
+        <svg id="svg" role="img" aria-label="Gráfico da corrente de saída"></svg>
+        <div class="dica" id="dica" hidden></div>
+      </div>
+    </div>
+
+    <div class="cartao">
+      <h2>Falhas</h2>
+      <div class="falhas">
+        <div class="caixa" id="cx-ativa">
+          <div class="rot"><span id="ic-ativa">✓</span> Falha ativa <span class="par">0x97 · attr 4</span></div>
+          <div class="cod num" id="f-ativa">—</div>
+          <div class="txt" id="f-ativa-txt"></div>
+          <div class="nota">É o que acende o CRÍTICO no painel.</div>
+        </div>
+        <div class="caixa">
+          <div class="rot">Última falha <span class="par">b007</span></div>
+          <div class="cod num" id="f-ultima">—</div>
+          <div class="txt" id="f-ultima-txt"></div>
+          <div class="nota">Histórico: continua aqui depois do rearme.</div>
+        </div>
+      </div>
+      <div class="linha-acao">
+        <select id="sel-falha" aria-label="Código de falha para disparar"></select>
+        <button class="perigo" id="bt-disparar">Disparar falha</button>
+        <button id="bt-rearmar">Rearmar</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="grade g2 secao">
+    <div class="cartao">
+      <h2>Cenário</h2>
+      <div class="cenarios" role="group" aria-label="Cenários prontos">
+        <button class="cenario" data-c="normal"><b>Normal</b><span>motor girando a 45,6 Hz</span></button>
+        <button class="cenario" data-c="parado"><b>Parado</b><span>sem comando, sem falha</span></button>
+        <button class="cenario" data-c="falha"><b>Falha</b><span>desarmado por F13</span></button>
+        <button class="cenario" data-c="falha_antiga"><b>Falha antiga</b><span>F7 de ontem no b007</span></button>
+      </div>
+
+      <div class="deslizante">
+        <label for="r-freq">Frequência <b class="num" id="l-freq">—</b></label>
+        <input type="range" id="r-freq" min="0" max="60" step="0.1">
+      </div>
+      <div class="deslizante">
+        <label for="r-corr">Carga (corrente) <b class="num" id="l-corr">—</b></label>
+        <input type="range" id="r-corr" min="0" max="30" step="0.1">
+      </div>
+      <div class="aviso">A tensão acompanha a frequência (380 V em 60 Hz). Com frequência zero, o motor para.</div>
+    </div>
+
+    <div class="cartao">
+      <h2>Comportamento do drive</h2>
+      <div class="opcao">
+        <label class="chave"><input type="checkbox" id="o-ucmm"><span></span></label>
+        <div class="desc"><b>Aceita Unconnected Send</b>
+          <p>Desligado, imita um adaptador que não roteia: o sidecar tem de cair para envio direto.</p></div>
+      </div>
+      <div class="opcao">
+        <label class="chave"><input type="checkbox" id="o-falha"><span></span></label>
+        <div class="desc"><b>Oferece o objeto de falha (0x97)</b>
+          <p>Desligado, o sidecar não tem como saber se há falha ativa — e não pode inventar uma.</p></div>
+      </div>
+      <div class="opcao">
+        <div class="desc"><b>Alternar sozinho entre normal e falha</b>
+          <p>Bom para ver o painel reagindo sem ficar clicando.</p></div>
+        <select id="o-ciclo" aria-label="Intervalo de alternância" style="flex:none">
+          <option value="0">desligado</option><option value="15">a cada 15 s</option>
+          <option value="30">a cada 30 s</option><option value="60">a cada 60 s</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <section class="cartao secao">
+    <h2>O que o sidecar está pedindo</h2>
+    <div class="rolagem">
+      <table class="tabela">
+        <thead><tr><th>hora</th><th>pedido</th><th>objeto · instância · atributo</th><th>envio</th><th>resposta</th></tr></thead>
+        <tbody id="log"><tr><td colspan="5" class="vazio">Nenhum pedido ainda. Aponte o sidecar para este simulador.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="cartao rodape">
+    <h2>Como ligar o sidecar aqui</h2>
+    <pre class="mono" id="cmd"></pre>
+    <div class="aviso">Sem MQTT, só para conferir: troque o final por <span class="mono">--bancada</span>.</div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const fmt = (v, casas) => v.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+const PARAM = { 1: ["b001", "Frequência", v => fmt(v/100, 2) + " Hz"],
+                3: ["b003", "Corrente",   v => fmt(v/100, 2) + " A"],
+                4: ["b004", "Tensão",     v => fmt(v/10, 1) + " V"],
+                5: ["b005", "Barramento", v => fmt(v, 0) + " V"],
+                6: ["b006", "Status",     v => String(v)],
+                7: ["b007", "Última falha", v => v ? "F" + v : "0"] };
+let FALHAS = {}, arrastando = false, estado = null;
+
+async function api(caminho, corpo) {
+  const r = await fetch(caminho, corpo === undefined ? {} :
+    { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(corpo) });
+  return r.json();
+}
+const nomeFalha = (c) => c ? (FALHAS[c] || "código F" + c + " (ver manual)") : "";
+
+function pintar(e) {
+  estado = e;
+  $("end").textContent = e.endereco;
+  $("leituras").textContent = e.total.toLocaleString("pt-BR");
+  $("taxa").textContent = fmt(e.taxa, 1);
+
+  // estado do drive -- sempre ícone + texto, nunca só cor
+  const pill = $("pill");
+  if (e.trip) { pill.className = "pill crit"; pill.textContent = "⚠ DESARMADO · F" + e.ultima_falha; }
+  else if (e.freq_hz > 0) { pill.className = "pill ok"; pill.textContent = "▶ RODANDO"; }
+  else { pill.className = "pill off"; pill.textContent = "■ PARADO"; }
+
+  $("v-freq").textContent = fmt(e.freq_hz, 2);
+  $("v-corr").textContent = fmt(e.corrente_a, 2);
+  $("v-tens").textContent = fmt(e.tensao_v, 1);
+  $("v-dc").textContent   = fmt(e.dc_bus_v, 0);
+
+  const cx = $("cx-ativa");
+  if (!e.tem_obj_falha) {
+    cx.className = "caixa"; $("ic-ativa").textContent = "?";
+    $("f-ativa").textContent = "sem resposta";
+    $("f-ativa-txt").textContent = "objeto 0x97 desligado";
+  } else if (e.trip) {
+    cx.className = "caixa crit"; $("ic-ativa").textContent = "⚠";
+    $("f-ativa").textContent = "F" + e.ultima_falha;
+    $("f-ativa-txt").textContent = nomeFalha(e.ultima_falha);
+  } else {
+    cx.className = "caixa"; $("ic-ativa").textContent = "✓";
+    $("f-ativa").textContent = "nenhuma"; $("f-ativa-txt").textContent = "";
+  }
+  $("f-ultima").textContent = e.ultima_falha ? "F" + e.ultima_falha : "—";
+  $("f-ultima-txt").textContent = nomeFalha(e.ultima_falha);
+
+  document.querySelectorAll(".cenario").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.c === e.cenario)));
+  if (!arrastando) {
+    $("r-freq").value = e.base_freq_hz; $("r-corr").value = e.base_corrente_a;
+    $("l-freq").textContent = fmt(e.base_freq_hz, 1) + " Hz";
+    $("l-corr").textContent = fmt(e.base_corrente_a, 1) + " A";
+  }
+  $("o-ucmm").checked = e.aceita_ucmm_send;
+  $("o-falha").checked = e.tem_obj_falha;
+  if (document.activeElement !== $("o-ciclo")) $("o-ciclo").value = String(e.ciclo);
+
+  pintarLog(e.recentes);
+  desenhar(e.historico);
+}
+
+function pintarLog(itens) {
+  if (!itens.length) return;
+  const hora = (t) => new Date(t * 1000).toLocaleTimeString("pt-BR");
+  $("log").innerHTML = itens.map(p => {
+    let pedido, caminho, resp;
+    if (p.classe === null) {
+      pedido = "envelope 0x52"; caminho = "—";
+      resp = '<span class="erro">✕ recusado — o sidecar deve tentar direto</span>';
+    } else {
+      caminho = "0x" + p.classe.toString(16).padStart(2, "0").toUpperCase() + " · " + p.inst + " · " + p.atrib;
+      if (p.classe === 0x97) pedido = "Falha ativa (Fault Trip)";
+      else pedido = PARAM[p.inst] ? PARAM[p.inst][0] + " " + PARAM[p.inst][1] : "parâmetro " + p.inst;
+      if (p.status !== 0) resp = '<span class="erro">✕ ' + ({5:"caminho inválido",8:"serviço recusado",20:"atributo inexistente",22:"objeto inexistente"}[p.status] || "erro " + p.status) + "</span>";
+      else if (p.classe === 0x97) resp = p.valor ? "⚠ " + p.valor + " (desarmado)" : "0 (sem falha)";
+      else if (PARAM[p.inst] && (p.classe === 0x0F && p.atrib === 1 || p.classe === 0x93 && p.atrib === 9)) resp = PARAM[p.inst][2](p.valor);
+      else resp = '<span class="erro">' + p.valor + " — atributo errado para esta classe</span>";
+    }
+    return "<tr><td class='num'>" + hora(p.t) + "</td><td>" + pedido + "</td><td class='mono'>" + caminho +
+           "</td><td><span class='via'>" + (p.via ? "via 0x52" : "direto") + "</span></td><td class='num'>" + resp + "</td></tr>";
+  }).join("");
+}
+
+// ---------------- gráfico: uma série, um eixo, marcas finas ----------------
+function desenhar(h) {
+  const svg = $("svg"), W = svg.clientWidth, H = svg.clientHeight;
+  if (!W || !h.length) return;
+  const esq = 34, dir = 6, topo = 8, base = 20;
+  const agora = h[h.length - 1][0], janela = 120;
+  const pts = h.filter(p => p[0] >= agora - janela);
+  const maxV = Math.max(5, ...pts.map(p => p[1]));
+  const passo = maxV > 20 ? 10 : maxV > 10 ? 5 : 2;
+  const topoV = Math.ceil(maxV / passo) * passo;
+  const x = t => esq + (W - esq - dir) * (1 - (agora - t) / janela);
+  const y = v => topo + (H - topo - base) * (1 - v / topoV);
+  let s = '<defs><linearGradient id="degrade" x1="0" x2="0" y1="0" y2="1">' +
+          '<stop offset="0" stop-color="#58a6ff" stop-opacity=".22"/><stop offset="1" stop-color="#58a6ff" stop-opacity="0"/></linearGradient></defs>';
+  for (let v = 0; v <= topoV; v += passo) {
+    s += `<line class="grade-linha" x1="${esq}" x2="${W - dir}" y1="${y(v)}" y2="${y(v)}"/>` +
+         `<text class="eixo-rot" x="${esq - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  }
+  for (const seg of [120, 90, 60, 30, 0]) {
+    s += `<text class="eixo-rot" x="${x(agora - seg)}" y="${H - 4}" text-anchor="middle">${seg ? "−" + seg + " s" : "agora"}</text>`;
+  }
+  if (pts.length > 1) {
+    const d = pts.map((p, i) => (i ? "L" : "M") + x(p[0]).toFixed(1) + " " + y(p[1]).toFixed(1)).join(" ");
+    s += `<path class="area" d="${d} L${x(pts[pts.length-1][0]).toFixed(1)} ${y(0)} L${x(pts[0][0]).toFixed(1)} ${y(0)} Z"/>`;
+    s += `<path class="serie" d="${d}"/>`;
+    const u = pts[pts.length - 1];
+    s += `<circle class="marcador" r="4" cx="${x(u[0])}" cy="${y(u[1])}"/>`;
+  }
+  s += '<g id="mira"></g>';
+  svg.innerHTML = s;
+  svg._pts = pts; svg._x = x; svg._y = y; svg._alt = [topo, H - base];
+}
+$("grafico").addEventListener("mousemove", (ev) => {
+  const svg = $("svg"), pts = svg._pts; if (!pts || !pts.length) return;
+  const r = svg.getBoundingClientRect(), mx = ev.clientX - r.left;
+  let melhor = pts[0];
+  for (const p of pts) if (Math.abs(svg._x(p[0]) - mx) < Math.abs(svg._x(melhor[0]) - mx)) melhor = p;
+  const px = svg._x(melhor[0]), py = svg._y(melhor[1]);
+  svg.querySelector("#mira").innerHTML =
+    `<line class="mira" x1="${px}" x2="${px}" y1="${svg._alt[0]}" y2="${svg._alt[1]}"/><circle class="marcador" r="4" cx="${px}" cy="${py}"/>`;
+  const d = $("dica"); d.hidden = false;
+  d.style.left = px + "px"; d.style.top = py + "px";
+  d.textContent = fmt(melhor[1], 2) + " A · " + new Date(melhor[0] * 1000).toLocaleTimeString("pt-BR");
+});
+$("grafico").addEventListener("mouseleave", () => { $("dica").hidden = true; });
+
+// ---------------- controles ----------------
+document.querySelectorAll(".cenario").forEach(b =>
+  b.addEventListener("click", async () => pintar(await api("/api/cenario", { nome: b.dataset.c }))));
+$("bt-disparar").addEventListener("click", async () =>
+  pintar(await api("/api/disparar", { codigo: +$("sel-falha").value })));
+$("bt-rearmar").addEventListener("click", async () => pintar(await api("/api/rearmar", {})));
+
+for (const [id, rot, un, chave] of [["r-freq", "l-freq", " Hz", "freq_hz"], ["r-corr", "l-corr", " A", "corrente_a"]]) {
+  const r = $(id);
+  r.addEventListener("input", () => { arrastando = true; $(rot).textContent = fmt(+r.value, 1) + un; });
+  r.addEventListener("change", async () => {
+    arrastando = false; pintar(await api("/api/ajustar", { [chave]: +r.value }));
+  });
+}
+$("o-ucmm").addEventListener("change", async (e) => pintar(await api("/api/opcoes", { aceita_ucmm_send: e.target.checked })));
+$("o-falha").addEventListener("change", async (e) => pintar(await api("/api/opcoes", { tem_obj_falha: e.target.checked })));
+$("o-ciclo").addEventListener("change", async (e) => pintar(await api("/api/opcoes", { ciclo: +e.target.value })));
+
+async function laco() {
+  try { pintar(await api("/api/estado")); $("ponto").className = "ponto"; }
+  catch { $("ponto").className = "ponto morto"; $("pill").className = "pill off"; $("pill").textContent = "sem contato com o simulador"; }
+  setTimeout(laco, 500);
+}
+(async () => {
+  try {
+    FALHAS = await api("/api/falhas");
+    const comuns = [7, 13, 12, 64, 5, 4, 3, 21, 8, 73];
+    const ops = Object.keys(FALHAS).map(Number).sort((a, b) => (comuns.indexOf(a) + 1 || 99) - (comuns.indexOf(b) + 1 || 99) || a - b);
+    $("sel-falha").innerHTML = (ops.length ? ops : comuns).map(c =>
+      `<option value="${c}">F${c} — ${FALHAS[c] || "ver manual"}</option>`).join("");
+  } catch {}
+  const host = location.hostname === "localhost" ? "127.0.0.1" : location.hostname;
+  const e = await api("/api/estado");
+  const porta = e.endereco.split(":").pop();
+  $("cmd").textContent =
+    `# PowerShell\n$env:PF525_IP="${host}"; $env:PF525_PORTA="${porta}"\npython integracoes/powerflex525/powerflex_mqtt.py\n\n` +
+    `# Linux / Orange Pi\nPF525_IP=${host} PF525_PORTA=${porta} python3 integracoes/powerflex525/powerflex_mqtt.py`;
+  laco();
+})();
+</script>
+</body>
+</html>

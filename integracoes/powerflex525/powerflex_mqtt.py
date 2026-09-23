@@ -176,6 +176,11 @@ FALHAS = {
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("pf525")
+# O pycomm3 registra CADA mensagem em INFO ("Sending generic message",
+# "completed"): 14 linhas por ciclo de 1 s, mais de um milhão por dia no
+# journal -- num cartão SD, que é o ponto frágil do gateway. Erros de
+# verdade chegam a este sidecar como exceção e são logados aqui.
+logging.getLogger("pycomm3").setLevel(logging.WARNING)
 
 
 def traduzir_falha(codigo: int):
@@ -232,13 +237,24 @@ def _pedir(drive, classe, instancia, atributo, tipo, nome):
         modos = [True, False]
 
     erro = None
+    sondando = len(modos) > 1
     for us in modos:
-        resp = drive.generic_message(
-            service=Services.get_attribute_single,
-            class_code=classe, instance=instancia, attribute=atributo,
-            data_type=tipo, name=nome,
-            connected=False, unconnected_send=us,
-        )
+        # Na sondagem, a recusa do primeiro modo é ESPERADA -- o pycomm3 a
+        # loga como ERROR, e na bancada isso parece defeito. Silencia só
+        # durante a sondagem; o resultado final é logado abaixo.
+        lg = logging.getLogger("pycomm3")
+        nivel = lg.level
+        if sondando:
+            lg.setLevel(logging.CRITICAL)
+        try:
+            resp = drive.generic_message(
+                service=Services.get_attribute_single,
+                class_code=classe, instance=instancia, attribute=atributo,
+                data_type=tipo, name=nome,
+                connected=False, unconnected_send=us,
+            )
+        finally:
+            lg.setLevel(nivel)
         if resp:
             if _ucmm_escolhido is None:
                 _ucmm_escolhido = us
@@ -361,6 +377,7 @@ def bancada() -> None:
 
 
 def main() -> None:
+    global _ucmm_escolhido, _sem_objeto_falha
     if "--bancada" in sys.argv:
         bancada()
         return
@@ -393,6 +410,10 @@ def main() -> None:
                 raise
             except Exception as e:  # reconecta ao drive em qualquer erro EtherNet/IP
                 log.warning("Erro na leitura EtherNet/IP (%s). Retentando em 5 s...", e)
+                # Reconexão refaz a sondagem do modo de envio e do objeto de
+                # falha: se o drive foi trocado ou reconfigurado, o que valia
+                # antes pode não valer mais -- e ficar preso nele é silencioso.
+                _ucmm_escolhido, _sem_objeto_falha = None, False
                 time.sleep(5)
     except KeyboardInterrupt:
         log.info("Encerrando por solicitação do usuário.")

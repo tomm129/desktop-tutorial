@@ -38,7 +38,7 @@ O projeto combina dois lados:
 | `integracoes/danfoss_vlt` | Danfoss FC 51 / FC 301 / FC 302 (Modbus RTU/TCP) |
 | `scripts/` | Instalação do gateway (`setup_orangepi.sh`) e conferência (`verifica_instalacao.sh`) |
 | `sql/` | Esquema do histórico (PostgreSQL + TimescaleDB) |
-| `tools/` | Simulador de campo, gerador de planta de teste, sonda de MCSA e as suítes de teste |
+| `tools/` | **Drives simulados com painel no navegador** (PowerFlex e Danfoss), simulador de campo, gerador de planta de teste, sonda de MCSA e as suítes de teste — [índice](tools/README.md) |
 | `docs/` | Arquitetura, comissionamento, investidor, concorrentes, revisões |
 
 ## Primeiros passos

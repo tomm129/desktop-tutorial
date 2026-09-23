@@ -124,6 +124,13 @@ requisição — comportamento certo para um rack Logix, mas o adaptador
 embarcado não é orientado a tags. Leitura pontual de parâmetro é o caso de
 uso de UCMM, e é o que se usa aqui.
 
+## Sem drive na mão? Use o simulador
+
+`tools/simuladores/drive_powerflex.py` é um PowerFlex 525 de mentira que fala
+EtherNet/IP de verdade, com um painel no navegador para trocar de cenário,
+disparar falha e ver cada pedido deste sidecar. Manual em
+[`tools/simuladores/README.md`](../../tools/simuladores/README.md).
+
 ## Bancada — antes de ligar em produção
 
 Não precisa de broker. Do Orange Pi ou de qualquer PC na rede do drive:

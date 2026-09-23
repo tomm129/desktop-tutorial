@@ -21,7 +21,6 @@ prova que a leitura do manual esta certa.
 import importlib.util
 import os
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -39,28 +38,18 @@ def ok(cond, nome, extra=""):
 
 try:
     import pymodbus
-    from pymodbus.server import StartTcpServer, ServerStop
-    from pymodbus.datastore import ModbusServerContext, ModbusSparseDataBlock
-    try:
-        from pymodbus.datastore import ModbusDeviceContext as _Ctx   # >= 3.10
-    except ImportError:
-        from pymodbus.datastore import ModbusSlaveContext as _Ctx    # < 3.10
 except ImportError:
     sys.exit("PULADO: falta o pymodbus (pip install pymodbus)")
+
+# O drive simulado mora em tools/simuladores/ -- e a MESMA ferramenta que se
+# usa a mao. Uma versao so: o que o teste garante e o que voce roda.
+sys.path.insert(0, str(RAIZ / "tools" / "simuladores"))
+from drive_danfoss import DriveDanfoss, u16, u32  # noqa: E402
 
 
 # --- Estado do drive simulado -------------------------------------------
 # Um FC 302 rodando, freando (torque negativo), com dois alarmes ativos.
 # Valores BRUTOS, ja na forma que o manual diz que o drive transmite.
-def u32(v):
-    v &= 0xFFFFFFFF
-    return [v >> 16, v & 0xFFFF]
-
-
-def u16(v):
-    return [v & 0xFFFF]
-
-
 ALARMES_ATIVOS = (1 << 5) | (1 << 31)       # sobrecorrente + freio mecanico
 DRIVE = {
     1613: u16(456),          # 45,6 Hz        Uint16 -1
@@ -77,32 +66,9 @@ DRIVE = {
 }
 
 
-def montar_servidor(drive):
-    """Cada parametro ocupa SO os registradores do seu tipo, no endereco
-    (PNU x 10) - 1 do telegrama. O resto do mapa nao existe."""
-    regs = {}
-    for pnu, palavras in drive.items():
-        for i, w in enumerate(palavras):
-            regs[pnu * 10 - 1 + i] = w
-    bloco = ModbusSparseDataBlock(regs)
-    try:
-        dev = _Ctx(hr=bloco)
-    except TypeError:
-        dev = _Ctx(hr=bloco, zero_mode=True)
-    try:
-        return ModbusServerContext(devices=dev, single=True)
-    except TypeError:
-        return ModbusServerContext(slaves=dev, single=True)
-
-
-def subir(drive):
-    ctx = montar_servidor(drive)
-    t = threading.Thread(
-        target=lambda: StartTcpServer(context=ctx, address=("127.0.0.1", PORTA)),
-        daemon=True)
-    t.start()
-    time.sleep(1.5)
-    return t
+def subir(regs):
+    """Sobe o drive simulado com EXATAMENTE estes registradores."""
+    return DriveDanfoss(regs=regs).subir("127.0.0.1", PORTA)
 
 
 def carregar_sidecar(familia):
@@ -139,7 +105,7 @@ for kw in ("device_id", "slave", "unit"):
         continue
 c.close()
 if r is None or r.isError():
-    sys.exit("  simulador nao responde em 16139 -- ajuste o montar_servidor "
+    sys.exit("  simulador nao responde em 16139 -- ajuste o DriveDanfoss "
              "para esta versao do pymodbus antes de confiar no resto")
 ok(list(r.registers) == u32(1234), "16-14 esta em 16139..16140",
    f"-> {list(r.registers)}")
@@ -193,11 +159,6 @@ ok(dados.get("corrente_a") == 12.34,
 ok({"rpm", "torque_nm"} <= d_errado._indisponiveis,
    "familia errada: rpm e torque abandonados, nao derrubam o ciclo",
    f"-> {sorted(d_errado._indisponiveis)}")
-
-try:
-    ServerStop()
-except Exception:
-    pass
 
 print(f"\nRESULTADO: {'todas as verificacoes passaram.' if not falhas else f'{falhas} falha(s).'}")
 sys.exit(1 if falhas else 0)

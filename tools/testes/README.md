@@ -1,18 +1,39 @@
 # Testes
 
-Quatro verificações que rodam sem hardware, sem broker e sem banco. Existem
-porque os erros que este projeto já teve não eram erros de digitação — eram
-de **cálculo** e de **contagem**, o tipo que passa despercebido na leitura e
-só aparece em produção.
+Sete suítes que rodam sem hardware, sem broker e sem banco — 177
+verificações, mais a checagem de compilação do firmware. Existem porque os
+erros que este projeto já teve não eram erros de digitação — eram de
+**cálculo**, de **contagem** e de **leitura de manual**, o tipo que passa
+despercebido na leitura do código e só aparece em produção.
 
 ```bash
 python tools/testes/testa_vibracao.py            # matematica da vibracao
-python tools/testes/testa_inversores.py          # drivers de inversor + MCSA
+python tools/testes/testa_inversores.py          # logica dos sidecars + MCSA
+python tools/testes/testa_danfoss_modbus.py      # Danfoss contra drive simulado
+python tools/testes/testa_powerflex_cip.py       # PowerFlex contra drive simulado
 python tools/testes/checa_firmware.py            # o C++ compila limpo?
-python nodered/gera_flow.py nodered/flows.json   # (gera antes dos de baixo)
+python nodered/gera_flow.py                      # (gera antes dos de baixo)
 node   tools/testes/valida_flow.js  nodered/flows.json
 node   tools/testes/testa_painel.js nodered/flows.json
 ```
+
+Os dois testes de drive simulado precisam das bibliotecas dos **sidecars**
+(`pip install pycomm3 pymodbus`); os simuladores em si não precisam de nada.
+
+## `testa_danfoss_modbus.py` e `testa_powerflex_cip.py` — a conversa com o drive
+
+Sobem os drives simulados de `tools/simuladores/` — os **mesmos** que se
+usam à mão — e leem deles pelo sidecar, por Modbus TCP e EtherNet/IP de
+verdade. Cobrem o que a lógica pura não alcança: a chamada da biblioteca
+(o pymodbus trocou `unit=` por `slave=` e depois por `device_id=`), a
+quantidade de registradores pedida para cada tipo, o envelope CIP.
+
+Foram conferidos por **mutação**: reintroduzindo cada bug que a leitura dos
+manuais achou — parâmetro de 16 bits lido como 32, escala do barramento,
+falha histórica como ativa, atributo errado na classe DPI —, o teste
+reprova. Cenários do PowerFlex: drive normal e desarmado, drive que aceita e
+que recusa o envelope Unconnected Send, as duas classes de parâmetro e o
+drive sem objeto de falha.
 
 ## `testa_vibracao.py` — a matemática
 
@@ -91,14 +112,14 @@ Sendo explícito, para ninguém confundir "passou" com "funciona":
 
 - O firmware **nunca foi compilado inteiro** nem gravado — não há
   PlatformIO nesta máquina. Só a matemática foi compile-checada.
-- A escrita real no **PostgreSQL** não foi executada; o que se verifica é a
-  coerência do SQL montado.
-- O caminho **CIP/EtherNet-IP** do PowerFlex nunca tocou um inversor real.
-- O sidecar **Danfoss** também não. Em especial, a regra de conversão
-  PNU → registrador e as escalas de cada parâmetro **precisam ser
-  conferidas contra o display do drive** — o teste garante que o código
-  calcula o que diz calcular, não que a fórmula seja a certa para a família
-  em uso.
+- O **esquema** do PostgreSQL já rodou no gateway real, mas nenhuma
+  medição real foi gravada; aqui se verifica a coerência do SQL montado.
+- Os sidecars do **PowerFlex** e do **Danfoss** foram conferidos contra os
+  manuais oficiais e testados contra drives **simulados** — nunca contra um
+  drive real. O simulador e o sidecar partem da **mesma** leitura do
+  manual: o teste prova que o código faz o que o manual diz, não que o
+  drive se comporta como o manual diz. Isso só a bancada fecha (roteiros
+  nos READMEs de `integracoes/`).
 - A **sonda de MCSA** foi validada contra dado sintético. Se o filtro
   interno do drive apaga a modulação de 2·s·f, isso só se descobre num
   motor real.

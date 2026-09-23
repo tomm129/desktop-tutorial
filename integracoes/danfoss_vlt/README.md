@@ -121,6 +121,13 @@ Adaptador USB-RS485          Drive Danfoss
 > RS-485 não está sendo usada por outra coisa (MCT 10, IHM externa) antes
 > de trocar o protocolo.
 
+## Sem drive na mão? Use o simulador
+
+`tools/simuladores/drive_danfoss.py` é um FC 51 / FC 301 / FC 302 de mentira
+que fala Modbus TCP de verdade, com cenários de frenagem e de dois alarmes
+simultâneos. Manual em
+[`tools/simuladores/README.md`](../../tools/simuladores/README.md).
+
 ## Roteiro de bancada — o FC 51 que você tem em casa
 
 Tudo **do PC**, sem Orange Pi e sem broker. O sidecar só **lê** o drive:
