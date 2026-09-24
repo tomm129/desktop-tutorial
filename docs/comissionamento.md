@@ -63,7 +63,7 @@ cd ~/iot-monitoramento/scripts && ./setup_orangepi.sh
 ```
 
 Ele pede **usuário e senha do MQTT** logo no começo. Essa senha vai para três
-lugares — Mosquitto, `config.env` do PowerFlex e `config.h` do ESP32 — e ainda
+lugares — Mosquitto, `config.env` do serviço de inversores e `config.h` do ESP32 — e ainda
 vira a senha do usuário do PostgreSQL. Escolha uma **sem acentos e sem
 espaços**: ela é embutida numa string C no firmware.
 
@@ -88,9 +88,11 @@ O nó passa a mostrar **connected** em verde.
 ./scripts/verifica_instalacao.sh
 ```
 
-São 30 checagens: serviços ativos *e* habilitados no boot, autenticação do
+São cerca de 35 checagens: serviços ativos *e* habilitados no boot, autenticação do
 broker de fato recusando anônimo, fluxo sem nós faltando, rotas HTTP,
-TimescaleDB **carregado** (não apenas instalado) e as hypertables.
+TimescaleDB **carregado** (não apenas instalado), as hypertables e se o
+painel consegue gravar a lista de inversores. Instalado com `--sem-banco`,
+o banco vira aviso, não falha.
 
 Sai com `0` se passou tudo. **Rode sempre** — foi ele que expôs, no primeiro
 comissionamento real, dois problemas que o `setup_orangepi.sh` tinha declarado
@@ -181,6 +183,8 @@ reconhecer o sintoma se algo parecido voltar.
 | 5 | `CREATE EXTENSION` derruba a conexão | extensão instalada mas **não carregada**. Falta `timescaledb` em `shared_preload_libraries`, que quem põe é o `timescaledb-tune` — do pacote `timescaledb-tools` |
 | 6 | `psql: Permissão negada` no `.sql` | `psql -f` roda como `postgres`, que não atravessa `/home/<user>` (modo `0700`). Aplique por **stdin** |
 | 7 | Fotos de plaqueta não aparecem | patch do `httpStatic` rodava antes do primeiro start do Node-RED, quando o `settings.js` ainda não existe — falha silenciosa |
+| 8 | Setup para no passo 2 com `SyntaxError: unterminated string literal` | o Python embutido que faz o patch do `httpStatic` tinha quebras de linha reais dentro das strings. Achado na revisão de 24/09; o `testa_setup.py` agora compila e roda esse trecho |
+| 9 | Painel inteiro fora do ar depois de `--sem-banco`; `missing types` no log | o nó do PostgreSQL só era instalado no passo do banco — e com um tipo de nó faltando o Node-RED não inicia fluxo nenhum. Agora vai sempre, antes do primeiro start |
 
 **O padrão que se repete:** o script dizia "OK" em dois pontos onde nada
 funcionava. Terminar sem erro não é o mesmo que funcionar — é por isso que o

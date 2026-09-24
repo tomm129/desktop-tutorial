@@ -5,8 +5,9 @@
 #  Instala e configura, nesta ordem:
 #    1. Mosquitto  — broker MQTT COM autenticacao e escutando na rede
 #    2. Node-RED   — runtime + dashboard + o flows.json deste repositorio
-#    3. PowerFlex  — sidecar pycomm3 em /opt/iot, como servico systemd
-#    4. Historico   — PostgreSQL + TimescaleDB (opcional: --sem-banco pula)
+#    3. Inversores — servico unico (PowerFlex, Danfoss) em /opt/iot, systemd
+#    4. Historico  — PostgreSQL + TimescaleDB (opcional: --sem-banco pula)
+#    5. Nome na rede (insightx.local, via avahi)
 #
 #  Uso (no proprio Orange Pi, como usuario normal, NAO como root):
 #      cd <repo>/scripts
@@ -80,7 +81,7 @@ pedir_credenciais() {
     azul "Credenciais do MQTT"
     echo "    Estas credenciais serao usadas em TRES lugares:"
     echo "      - o broker Mosquitto (aqui)"
-    echo "      - o config.env do sidecar do PowerFlex (aqui)"
+    echo "      - o config.env do servico de inversores (aqui)"
     echo "      - o config.h do ESP32 (voce grava depois, no firmware)"
     echo
 
@@ -103,7 +104,7 @@ pedir_credenciais() {
 #  1. Mosquitto
 # =====================================================================
 instalar_mosquitto() {
-    azul "1/3  Mosquitto (broker MQTT)"
+    azul "1/5  Mosquitto (broker MQTT)"
 
     sudo apt-get update -qq
     sudo apt-get install -y -qq mosquitto mosquitto-clients
@@ -172,7 +173,7 @@ EOF
 #  2. Node-RED
 # =====================================================================
 instalar_nodered() {
-    azul "2/3  Node-RED + dashboard"
+    azul "2/5  Node-RED + dashboard"
 
     if command -v node-red >/dev/null; then
         ok "Node-RED ja instalado ($(node-red --version 2>/dev/null | head -1))"
@@ -190,6 +191,15 @@ instalar_nodered() {
     mkdir -p "$NODERED_DIR"
     ( cd "$NODERED_DIR" && npm install --no-fund --no-audit @flowfuse/node-red-dashboard )
     ok "Dashboard 2.0 instalado"
+
+    # O no do PostgreSQL vai SEMPRE, mesmo com --sem-banco: o flows.json tem
+    # nos 'postgresql', e com UM tipo de no faltando o Node-RED nao inicia
+    # fluxo nenhum -- o painel inteiro some. Sem banco, esses nos so ficam
+    # tentando conectar; o resto roda. E instalado AQUI, antes do primeiro
+    # start, porque um modulo instalado com o Node-RED no ar so carrega no
+    # proximo reinicio.
+    ( cd "$NODERED_DIR" && npm install --no-fund --no-audit node-red-contrib-postgresql )
+    ok "no do PostgreSQL instalado"
 
     # Para o servico antes de mexer no flows.json, senao ele reescreve por cima.
     sudo systemctl stop nodered 2>/dev/null || true
@@ -244,14 +254,10 @@ marca = "module.exports = {"
 import re
 ja = re.search(r"^\s*httpStatic\s*:", s, re.M)
 if marca in s and not ja:
-    bloco = (marca + "
-"
-             "    httpStatic: [
-"
-             "        { path: '%s', root: '/fotos/' }
-"
-             "    ],
-" % fotos)
+    bloco = (marca + "\n"
+             "    httpStatic: [\n"
+             "        { path: '%s', root: '/fotos/' }\n"
+             "    ],\n" % fotos)
     s = s.replace(marca, bloco, 1)
     io.open(caminho, "w", encoding="utf-8").write(s)
     print("httpStatic configurado")
@@ -271,10 +277,10 @@ PY
 }
 
 # =====================================================================
-#  3. Sidecar do PowerFlex 525
+#  3. Servico de inversores
 # =====================================================================
 instalar_inversores() {
-    azul "3/3  Servico de inversores (PowerFlex, Danfoss -> MQTT)"
+    azul "3/5  Servico de inversores (PowerFlex, Danfoss -> MQTT)"
 
     sudo apt-get install -y -qq python3 python3-venv python3-pip
     sudo mkdir -p "${DESTINO_IOT}"
@@ -345,6 +351,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=$(whoami)
+# O adaptador USB-RS485 (/dev/ttyUSB*) e do grupo dialout. Sem isto o
+# Danfoss por Modbus RTU falha com "Permission denied" na porta serial.
+SupplementaryGroups=dialout
 WorkingDirectory=${destino}
 EnvironmentFile=${cfg}
 ExecStart=${destino}/.venv/bin/python servico_inversores.py
@@ -407,7 +416,7 @@ EOF
 #  4. PostgreSQL + TimescaleDB
 # =====================================================================
 instalar_banco() {
-    azul "4/4  PostgreSQL + TimescaleDB (historico)"
+    azul "4/5  PostgreSQL + TimescaleDB (historico)"
 
     if [[ "${SEM_BANCO:-}" == "1" ]]; then
         aviso "pulado por --sem-banco"
@@ -418,15 +427,25 @@ instalar_banco() {
     ok "PostgreSQL instalado"
 
     # O TimescaleDB nao vem no repositorio padrao do Debian/Ubuntu.
-    if ! sudo -u postgres psql -tAc          "SELECT 1 FROM pg_available_extensions WHERE name='timescaledb'"          | grep -q 1; then
-        local codinome; codinome="$(lsb_release -cs)"
+    if ! sudo -u postgres psql -tAc \
+         "SELECT 1 FROM pg_available_extensions WHERE name='timescaledb'" \
+         | grep -q 1; then
+        # Do /etc/os-release, e nao do lsb_release: o pacote lsb-release
+        # nao vem garantido numa imagem minimal, e com 'set -e' a falta
+        # dele encerraria o script aqui.
+        local codinome
+        codinome="$( (. /etc/os-release && echo "${VERSION_CODENAME:-}") 2>/dev/null || true)"
+        [[ -n "$codinome" ]] || codinome="$(lsb_release -cs 2>/dev/null || true)"
+        [[ -n "$codinome" ]] || erro "Nao consegui descobrir o codinome da distro (VERSION_CODENAME)."
         # O caminho do repositorio segue a distro-BASE, nao o codinome:
         # a imagem Armbian pode ser Debian (trixie) ou Ubuntu (resolute),
         # e apontar /ubuntu/ num Debian devolve 404 no apt-get update.
         local distro; distro="$(. /etc/os-release 2>/dev/null && echo "${ID:-debian}")"
         [[ "$distro" == "debian" || "$distro" == "ubuntu" ]] || distro="debian"
-        echo "deb https://packagecloud.io/timescale/timescaledb/${distro}/ ${codinome} main"             | sudo tee /etc/apt/sources.list.d/timescaledb.list >/dev/null
-        curl -sL https://packagecloud.io/timescale/timescaledb/gpgkey             | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/timescaledb.gpg
+        echo "deb https://packagecloud.io/timescale/timescaledb/${distro}/ ${codinome} main" \
+            | sudo tee /etc/apt/sources.list.d/timescaledb.list >/dev/null
+        curl -sL https://packagecloud.io/timescale/timescaledb/gpgkey \
+            | sudo gpg --dearmor --yes -o /etc/apt/trusted.gpg.d/timescaledb.gpg
         sudo apt-get update -qq
         # A versao do pacote acompanha a do PostgreSQL instalado.
         local pgver; pgver="$(psql --version | grep -oE '[0-9]+' | head -1)"
@@ -472,7 +491,8 @@ instalar_banco() {
     # Por STDIN, nao com -f: o psql roda como o usuario "postgres", que nao
     # atravessa /home/<user> (modo 0700 no Debian) e devolveria "Permissao
     # negada" no arquivo. Aqui quem le e o shell, que ainda e o usuario dono.
-    if sudo -u postgres psql -d insightx -v ON_ERROR_STOP=1             < "${REPO_DIR}/sql/01-esquema.sql" >/dev/null; then
+    if sudo -u postgres psql -d insightx -v ON_ERROR_STOP=1 \
+            < "${REPO_DIR}/sql/01-esquema.sql" >/dev/null; then
         ok "esquema aplicado"
     else
         erro "falha ao aplicar sql/01-esquema.sql"
@@ -481,10 +501,8 @@ instalar_banco() {
     sudo -u postgres psql -d insightx -c "GRANT ALL ON ALL TABLES IN SCHEMA public TO insightx; GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO insightx;" >/dev/null
     ok "permissoes concedidas"
 
-    # No do Node-RED que fala com o banco.
-    ( cd "$NODERED_DIR" && npm install --no-fund --no-audit node-red-contrib-postgresql )
-    ok "node-red-contrib-postgresql instalado"
-
+    # O no do Node-RED que fala com o banco ja foi instalado no passo do
+    # Node-RED (ver o comentario la).
     aviso "a senha do banco precisa ser preenchida no no 'InsightX' do editor"
 }
 
@@ -505,7 +523,7 @@ instalar_banco() {
 GATEWAY_NOME="${GATEWAY_NOME:-insightx}"
 
 configurar_nome_na_rede() {
-    azul "Nome na rede: ${GATEWAY_NOME}.local"
+    azul "5/5  Nome na rede: ${GATEWAY_NOME}.local"
 
     if [[ "$(hostname)" != "$GATEWAY_NOME" ]]; then
         local antigo; antigo="$(hostname)"

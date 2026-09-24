@@ -29,6 +29,16 @@ checa() { local desc="$1"; shift; if "$@" >/dev/null 2>&1; then ok "$desc"; else
 
 NR_DIR="${HOME}/.node-red"
 
+# Instalado com --sem-banco? Entao o PostgreSQL nao e falha, e escolha.
+TEM_BANCO=1
+command -v psql >/dev/null 2>&1 || TEM_BANCO=0
+
+# Os logs do Node-RED contam so a partir do ULTIMO start: um problema ja
+# corrigido (credencial preenchida, modulo instalado) continuava no
+# journal por um dia e reprovava a conferencia mesmo resolvido.
+NR_DESDE=$(systemctl show nodered -p ActiveEnterTimestamp --value 2>/dev/null)
+[[ -n "$NR_DESDE" && "$NR_DESDE" != "n/a" ]] || NR_DESDE='-1 day'
+
 # ---------------------------------------------------------------------
 secao "Sistema"
 . /etc/os-release 2>/dev/null || true
@@ -42,7 +52,9 @@ fi
 
 # ---------------------------------------------------------------------
 secao "Servicos"
-for s in mosquitto nodered postgresql; do
+SERVICOS="mosquitto nodered"
+[[ $TEM_BANCO -eq 1 ]] && SERVICOS="$SERVICOS postgresql"
+for s in $SERVICOS; do
     if systemctl is-active --quiet "$s"; then
         ok "$s ativo"
     else
@@ -113,14 +125,14 @@ done
 
 # O fluxo so vale se nenhum tipo de no estiver faltando: com um unico
 # tipo ausente o Node-RED nao inicia fluxo NENHUM e o dashboard da 404.
-if journalctl -u nodered --since '-1 day' --no-pager 2>/dev/null | grep -q 'missing types'; then
+if journalctl -u nodered --since "$NR_DESDE" --no-pager 2>/dev/null | grep -q 'missing types'; then
     falha "ha tipos de no faltando (journalctl -u nodered | grep -A5 'missing types')"
 else
     ok "nenhum tipo de no faltando"
 fi
 
 # Estado MQTT: vale a ULTIMA mensagem, nao a existencia de falhas antigas.
-ult=$(journalctl -u nodered --since '-1 day' --no-pager 2>/dev/null \
+ult=$(journalctl -u nodered --since "$NR_DESDE" --no-pager 2>/dev/null \
       | grep -oE 'Connected to broker|Connection failed to broker' | tail -1)
 if [[ "$ult" == "Connected to broker" ]]; then
     ok "Node-RED conectado ao broker"
@@ -151,12 +163,22 @@ if [[ -f "$LISTA" ]]; then
     else
         falha "lista de inversores com erro: $(echo "$res" | tail -n +2 | head -3 | tr '\n' ' ')"
     fi
+    # O menu Inversores do painel GRAVA este arquivo. Se o Node-RED nao
+    # puder escrever, o "Salvar" da tela falha.
+    if [[ -w "$LISTA" && -w "$(dirname "$(readlink -f "$LISTA")")" ]]; then
+        ok "painel pode gravar a lista de inversores"
+    else
+        falha "sem permissao de escrita em $LISTA -- o menu Inversores nao consegue salvar"
+    fi
 else
     aviso "lista de inversores nao existe ($LISTA) -- rode o setup de novo"
 fi
 
 # ---------------------------------------------------------------------
 secao "PostgreSQL + TimescaleDB"
+if [[ $TEM_BANCO -eq 0 ]]; then
+    aviso "PostgreSQL nao instalado (setup com --sem-banco?) -- sem historico"
+else
 psqlq()  { sudo -u postgres psql -tAc "$1" 2>/dev/null; }
 psqlqd() { sudo -u postgres psql -d insightx -tAc "$1" 2>/dev/null; }
 
@@ -207,6 +229,7 @@ if [[ "${linhas:-0}" -gt 0 ]]; then
 else
     aviso "tabela 'medicoes' vazia -- nenhum dispositivo publicou ainda"
 fi
+fi   # TEM_BANCO
 
 # ---------------------------------------------------------------------
 printf '\n%s==> Resultado%s\n' "$azul" "$zero"

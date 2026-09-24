@@ -87,7 +87,7 @@ planta.** O quadro honesto, com o que falta, está em
 | Provisionamento IX Node (C6) | 🔶 compila · ⬜ teste em placa |
 | Sidecar PowerFlex 525 | 🔶 conferido nos manuais, testado contra drive simulado, **com Multi-Drive** (até 5 drives por nó) · ⬜ inversor real |
 | Sidecar Danfoss FC 51/301/302 | 🔶 conferido nos manuais, testado contra drive simulado · ⬜ bancada |
-| Testes sem hardware | ✅ mais de 240 verificações em 8 suítes, incluindo os dois inversores por protocolo real e o menu Inversores |
+| Testes sem hardware | ✅ mais de 270 verificações em 9 suítes, incluindo os dois inversores por protocolo real e o menu Inversores |
 
 **Próximos passos, na ordem que mais destrava:**
 

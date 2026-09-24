@@ -12,6 +12,7 @@ python tools/testes/testa_inversores.py          # logica dos sidecars + MCSA
 python tools/testes/testa_danfoss_modbus.py      # Danfoss contra drive simulado
 python tools/testes/testa_powerflex_cip.py       # PowerFlex contra drive simulado
 python tools/testes/testa_servico_inversores.py  # servico unico: as duas marcas + config ao vivo
+python tools/testes/testa_setup.py               # setup do gateway, sem precisar da placa
 python tools/testes/checa_firmware.py            # o C++ compila limpo?
 python nodered/gera_flow.py                      # (gera antes dos de baixo)
 node   tools/testes/valida_flow.js  nodered/flows.json
@@ -35,6 +36,24 @@ falha histórica como ativa, atributo errado na classe DPI —, o teste
 reprova. Cenários do PowerFlex: drive normal e desarmado, drive que aceita e
 que recusa o envelope Unconnected Send, as duas classes de parâmetro e o
 drive sem objeto de falha.
+
+## `testa_setup.py` — o setup do gateway, sem a placa
+
+O `setup_orangepi.sh` só roda de verdade num Orange Pi. Este teste pega
+aqui o que dá para pegar sem ele:
+
+- `bash -n` nos dois scripts e fim de linha LF;
+- **o Python embutido no setup** (heredoc `<<'PY'`), que o `bash -n` não
+  enxerga: compila e roda o patch do `settings.js` contra um arquivo no
+  formato do Node-RED, confere que continua carregável e que rodar de novo
+  não duplica nada;
+- **todo tipo de nó do `flows.json` tem o módulo instalado antes do
+  primeiro start** — com um único tipo faltando o Node-RED não inicia fluxo
+  nenhum;
+- o serviço de inversores entra no grupo `dialout` (porta serial do RS-485).
+
+Rodado contra a versão anterior do setup, acusa 8 falhas — é o teste que
+teria pego os dois bugs que pararam a instalação.
 
 ## `testa_vibracao.py` — a matemática
 
