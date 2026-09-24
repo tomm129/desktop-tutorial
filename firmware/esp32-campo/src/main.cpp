@@ -36,6 +36,22 @@
   #include <DHT.h>
   static DHT dht(PIN_TEMP, DHT22);
 #elif TEMP_SENSOR_TYPE == 3
+  // Endereco I2C do sensor, capturado ANTES de incluir a biblioteca.
+  //
+  // A Adafruit_MLX90614.h define MLX90614_ADDR como 0x2E -- um REGISTRADOR
+  // interno do sensor, nao o endereco no barramento. O config.h antigo usava
+  // esse mesmo nome para o endereco (0x5A); como a biblioteca vem depois, o
+  // valor dela vencia e o firmware procurava o sensor em 0x2E: "sensor nao
+  // encontrado" e temperatura sempre vazia. So apareceu como aviso de
+  // compilacao ("MLX90614_ADDR redefined"), no build de 24/09.
+  #if defined(MLX90614_I2C_ADDR)
+    static const uint8_t ENDERECO_MLX = MLX90614_I2C_ADDR;
+  #elif defined(MLX90614_ADDR)
+    static const uint8_t ENDERECO_MLX = MLX90614_ADDR;   // config.h antigo
+    #undef MLX90614_ADDR
+  #else
+    static const uint8_t ENDERECO_MLX = 0x5A;            // padrao de fabrica
+  #endif
   #include <Adafruit_MLX90614.h>
   static Adafruit_MLX90614 mlx = Adafruit_MLX90614();
 #else
@@ -223,7 +239,7 @@ static void iniciarSensorTemperatura() {
 #elif TEMP_SENSOR_TYPE == 2
   dht.begin();
 #elif TEMP_SENSOR_TYPE == 3
-  if (!mlx.begin(MLX90614_ADDR)) {
+  if (!mlx.begin(ENDERECO_MLX)) {
     Serial.println("[MLX90614] Sensor nao encontrado! Verifique a ligacao I2C.");
   } else {
     Serial.println("[MLX90614] Inicializado.");

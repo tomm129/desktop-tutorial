@@ -38,7 +38,7 @@
 #define TEMP_SENSOR_TYPE       3
 
 #define PIN_TEMP               4       // DATA do DS18B20/DHT22 (não usado no MLX90614)
-#define MLX90614_ADDR          0x5A    // endereço I²C padrão do MLX90614
+#define MLX90614_I2C_ADDR      0x5A    // endereço I²C padrão do MLX90614
 
 // ---------------------------------------------------------------------
 //  ADXL345 (vibração) — I²C
