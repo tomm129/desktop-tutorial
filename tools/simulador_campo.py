@@ -13,7 +13,7 @@ Uso:
     python tools/simulador_campo.py --cenario falha    # sensor de temp morto
     python tools/simulador_campo.py --cenario mudo     # para de publicar
 
-    python tools/simulador_campo.py --host 192.168.3.20 --user monitoramento --pass segredo
+    python tools/simulador_campo.py --host 192.168.3.20 --user monitoramento --senha segredo
 
 Ctrl-C encerra publicando 'offline' no status, como faria o LWT.
 """

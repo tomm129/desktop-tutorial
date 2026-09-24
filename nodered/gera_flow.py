@@ -234,9 +234,9 @@ no(id="parse_json", type="json", z="flow_monitor", name="", property="payload",
    action="obj", pretty=False, x=330, y=100, wires=[["reg_telemetria"]])
 
 no(id="reg_telemetria", type="function", z="flow_monitor",
-   name="registrar telemetria", outputs=2, timeout=0, noerr=0,
+   name="registrar telemetria", outputs=4, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=500, y=100,
-   wires=[["chart_temp", "tend_temp"], ["chart_vib", "tend_vib"]],
+   wires=[["tend_temp"], ["tend_vib"], ["chart_temp"], ["chart_vib"]],
    func=r"""
 // Guarda a ultima leitura de cada ativo num registro unico (flow context)
 // e repassa os valores para os graficos. Tambem mantem um cache curto para
@@ -467,12 +467,19 @@ marcar_amostra(id);
 // inofensivo, mas o ui-chart ACUMULA series: os 45 dispositivos que
 // passaram nesse instante ficam na legenda para sempre, mesmo depois de o
 // corte comecar a valer. Melhor o grafico ficar vazio por dois segundos.
-const eleitos = flow.get('devices_grafico');
-if (!eleitos || eleitos.indexOf(id) < 0) { return [null, null]; }
-
 const temp = (a.temperatura_c === null) ? null : { topic: id, payload: a.temperatura_c };
 const vib  = (a.vib_rms_g === null)     ? null : { topic: id, payload: a.vib_rms_g };
-return [temp, vib];
+
+// Saidas 1-2: pagina Tendencias (os eleitos da planta).
+const eleitos = flow.get('devices_grafico');
+const na_tend = !!eleitos && eleitos.indexOf(id) >= 0;
+// Saidas 3-4: graficos da tela de Detalhe -- SO as partes do ativo aberto.
+// Antes os dois recebiam o mesmo fluxo e o Detalhe da "Caldeira 01"
+// mostrava a planta inteira. 'devices_detalhe' e montado ao abrir o ativo.
+const det = flow.get('devices_detalhe');
+const no_det = !!det && det.indexOf(id) >= 0;
+return [na_tend ? temp : null, na_tend ? vib : null,
+        no_det ? temp : null, no_det ? vib : null];
 """)
 
 no(id="mqtt_corrente", type="mqtt in", z="flow_monitor",
@@ -481,9 +488,9 @@ no(id="mqtt_corrente", type="mqtt in", z="flow_monitor",
    rh=0, inputs=0, x=140, y=180, wires=[["reg_corrente"]])
 
 no(id="reg_corrente", type="function", z="flow_monitor",
-   name="registrar corrente", outputs=1, timeout=0, noerr=0,
+   name="registrar corrente", outputs=2, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=500, y=180,
-   wires=[["chart_corr", "tend_corr"]],
+   wires=[["tend_corr"], ["chart_corr"]],
    func=r"""
 // O sidecar pycomm3 publica a telemetria do drive: corrente, tensao,
 // barramento CC, frequencia, se esta rodando e o codigo de falha.
@@ -616,12 +623,14 @@ marcar_amostra(id, { rodando: a.rodando });
 // tela de Corrente voltava a ter uma serie por inversor -- 32 na planta de
 // teste -- com a paleta repetindo cor e a legenda ilegivel.
 // Estrita pelo mesmo motivo da telemetria: ver o comentario la.
-const eleitos = flow.get('devices_grafico');
-if (!eleitos || eleitos.indexOf(id) < 0) { return null; }
-
-return (typeof a.corrente_a === 'number')
+const corr = (typeof a.corrente_a === 'number')
     ? { topic: id, payload: Math.round(a.corrente_a * 100) / 100 }
     : null;
+// Saida 1: Tendencias; saida 2: Detalhe (ver registrar telemetria).
+const eleitos = flow.get('devices_grafico');
+const det = flow.get('devices_detalhe');
+return [(eleitos && eleitos.indexOf(id) >= 0) ? corr : null,
+        (det && det.indexOf(id) >= 0) ? corr : null];
 """)
 
 no(id="mqtt_status", type="mqtt in", z="flow_monitor",
@@ -1114,6 +1123,9 @@ function consolidar_pai(tag, cfg, partes) {
 // Quais ESP32 respondem por cada chave -- e o que o botao "Publicar agora"
 // precisa para saber a quem mandar o comando.
 const esp32_por_chave = {};
+// E quais inversores: junto com o de cima, e o que os graficos da tela de
+// Detalhe mostram (ver 'devices_detalhe').
+const inv_por_chave = {};
 
 function consolidar() {
     const tags = Object.keys(ATIVOS);
@@ -1136,6 +1148,7 @@ function consolidar() {
         // Ativo sem 'partes': trata como equipamento unico (um nivel so).
         if (!cfg.partes) {
             if (cfg.esp32) { esp32_por_chave[tag] = [cfg.esp32]; }
+            if (cfg.inversor) { inv_por_chave[tag] = [cfg.inversor]; }
             saida.push(juntar_parte(tag, tag, cfg, 0, tag, null));
             continue;
         }
@@ -1146,11 +1159,17 @@ function consolidar() {
             if (cfg.partes[nome].esp32) {
                 esp32_por_chave[chave] = [cfg.partes[nome].esp32];
             }
+            if (cfg.partes[nome].inversor) {
+                inv_por_chave[chave] = [cfg.partes[nome].inversor];
+            }
             return juntar_parte(chave, nome, cfg.partes[nome], 1, tag, nome);
         });
         // O ativo principal comanda todas as suas partes de uma vez.
         esp32_por_chave[tag] = nomes
             .map(function (n) { return cfg.partes[n].esp32; })
+            .filter(Boolean);
+        inv_por_chave[tag] = nomes
+            .map(function (n) { return cfg.partes[n].inversor; })
             .filter(Boolean);
 
         saida.push(consolidar_pai(tag, cfg, partes));
@@ -1161,6 +1180,15 @@ function consolidar() {
 
 const lista = consolidar();
 flow.set('esp32_por_chave', esp32_por_chave);
+flow.set('inv_por_chave', inv_por_chave);
+// Mantem os graficos do Detalhe coerentes se o cadastro do ativo aberto
+// mudar (parte nova, inversor trocado) sem precisar reabri-lo.
+(function () {
+    const s = flow.get('ativo_sel');
+    if (s === undefined || s === null) { return; }
+    flow.set('devices_detalhe',
+             (esp32_por_chave[s] || []).concat(inv_por_chave[s] || []));
+})();
 const agora = Date.now();
 
 // ---- Dispositivos ainda nao atribuidos a nenhum ativo ----------------
@@ -2255,20 +2283,27 @@ export default {
 """
 
 no(id="cards_ativos", type="ui-template", z="flow_monitor", group=G_CARDS,
-   name="cards dos ativos", order=1, width="12", height="9",
+   name="cards dos ativos", order=1, width="12", height="0",
    head="", format=CARDS, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=340, wires=[["abrir_ativo"]])
 
 no(id="abrir_ativo", type="function", z="flow_monitor",
-   name="abrir detalhe", outputs=1, timeout=0, noerr=0,
+   name="abrir detalhe", outputs=2, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=840, y=340,
-   wires=[["nav_detalhe"]],
+   wires=[["nav_detalhe"], ["chart_temp", "chart_vib", "chart_corr"]],
    func=r"""
 // Clique num card: guarda o ativo e pede a troca de tela. O nome tem de
 // bater com o do no ui-page, senao o ui-control reclama que nao achou.
-flow.set('ativo_sel', msg.payload);
-return { payload: { page: 'Detalhe' } };
+const sel = msg.payload;
+flow.set('ativo_sel', sel);
+// Os graficos do Detalhe passam a receber so as partes deste ativo. E sao
+// LIMPOS: o ui-chart acumula series, e sem isso as curvas do ativo aberto
+// antes continuariam na tela.
+const esp = (flow.get('esp32_por_chave') || {})[sel] || [];
+const inv = (flow.get('inv_por_chave') || {})[sel] || [];
+flow.set('devices_detalhe', esp.concat(inv));
+return [{ payload: { page: 'Detalhe' } }, { payload: [] }];
 """)
 
 no(id="nav_detalhe", type="ui-control", z="flow_monitor", ui=BASE,
@@ -2495,7 +2530,7 @@ table { border-collapse: collapse; width: 100%; }
 """
 
 no(id="painel_placa", type="ui-template", z="flow_monitor", group=G_PLACA,
-   name="dados de placa", order=1, width="12", height="17",
+   name="dados de placa", order=1, width="12", height="0",
    head="", format=PLACA, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=500, wires=[[]])
@@ -2893,7 +2928,7 @@ button:hover { filter: brightness(1.1); }
 """
 
 no(id="tela_cadastro", type="ui-template", z="flow_monitor", group=G_CAD,
-   name="cadastro de dispositivos", order=1, width="12", height="14",
+   name="cadastro de dispositivos", order=1, width="12", height="0",
    head="", format=CADASTRO, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=800, wires=[["aplicar_cadastro"]])
@@ -3435,13 +3470,13 @@ em, b { color: #f4f4f5; font-style: normal; font-weight: 600; }
 # demonstracao -- elas mostram o roadmap: o que entrega, o que falta e por
 # que a ordem e essa. Honesto e util.
 no(id="pg_ia_conteudo", type="ui-template", z="flow_monitor", group=G_IA,
-   name="roadmap de IA", order=1, width="12", height="9",
+   name="roadmap de IA", order=1, width="12", height="0",
    head="", format=ROADMAP_IA, storeOutMessages=False, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=880, wires=[[]])
 
 no(id="pg_rel_conteudo", type="ui-template", z="flow_monitor", group=G_REL,
-   name="roadmap de relatorios", order=1, width="12", height="9",
+   name="roadmap de relatorios", order=1, width="12", height="0",
    head="", format=ROADMAP_REL, storeOutMessages=False, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=940, wires=[[]])
@@ -3884,7 +3919,7 @@ no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
    x=620, y=340, wires=[[]])
 
 no(id="txt_resumo", type="ui-text", z="flow_monitor", group=G_RESUMO,
-   order=1, width="12", height="4", name="resumo", label="",
+   order=1, width="12", height="0", name="resumo", label="",
    format="{{msg.payload}}", layout="row-left", style=False, font="",
    fontSize=16, color="#717171", wrapText=True, className="",
    x=620, y=380, wires=[])
@@ -3970,7 +4005,7 @@ export default {
 """
 
 no(id="stat_tiles", type="ui-template", z="flow_monitor", group=G_TILES,
-   name="stat tiles do ativo", order=1, width="6", height="5",
+   name="stat tiles do ativo", order=1, width="6", height="0",
    head="", format=STAT_TILES, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=420, wires=[[]])
@@ -4030,7 +4065,7 @@ export default {
 """
 
 no(id="alarmes_kpi", type="ui-template", z="flow_monitor", group=G_ALARMES_KPI,
-   name="KPI de alarmes", order=1, width="12", height="1",
+   name="KPI de alarmes", order=1, width="12", height="0",
    head="", format=ALARMES_KPI, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=540, wires=[[]])
@@ -4107,7 +4142,7 @@ export default {
 """
 
 no(id="alarmes_lista", type="ui-template", z="flow_monitor", group=G_ALARMES_LISTA,
-   name="lista de alarmes", order=1, width="12", height="14",
+   name="lista de alarmes", order=1, width="12", height="0",
    head="", format=ALARMES_LISTA, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=580, wires=[["limpar_alarmes"]])

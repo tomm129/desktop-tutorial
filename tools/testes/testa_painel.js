@@ -427,6 +427,49 @@ console.log('\n=== Multi-Drive: a origem do inversor chega ao cadastro ===');
        `-> ${pd3 && pd3.origem}`);
 }
 // =====================================================================
+console.log('\n=== Graficos do Detalhe: so as partes do ativo aberto ===');
+{
+    // Bug achado na revisao: o Detalhe da "Caldeira" mostrava as curvas da
+    // planta inteira, porque recebia o mesmo fluxo da pagina Tendencias.
+    const regCorr = acharNo('registrar corrente');
+    const montar = acharNo('montar painel');
+    const abrir = acharNo('abrir detalhe');
+    const ctx = novoCtx();
+    ctx.node.send = () => {}; ctx.node.status = () => {};
+    ctx.store.cadastro = {
+        Caldeira: { partes: { Bomba: { esp32: 'esp-cb', inversor: 'inv-cb' },
+                              Vent:  { esp32: 'esp-cv' } } },
+        Torre: { esp32: 'esp-t', inversor: 'inv-t' }
+    };
+    const tel = (id) => rodar(reg, { payload: { device_id: id, temperatura_c: 50,
+                                                 vibracao: { rms_g: 0.2 } } }, ctx);
+    const cor = (id) => rodar(regCorr, { topic: `monitoramento/${id}/inversor`,
+                                         payload: { corrente_a: 9, falha: { codigo: 0 } } }, ctx);
+    ['esp-cb', 'esp-cv', 'esp-t'].forEach(tel); ['inv-cb', 'inv-t'].forEach(cor);
+    rodar(montar, { payload: Date.now() }, ctx);   // elege os da Tendencias
+
+    const [nav, limpa] = rodar(abrir, { payload: 'Caldeira' }, ctx);
+    ok(nav.payload.page === 'Detalhe', 'abrir ainda navega para o Detalhe');
+    ok(Array.isArray(limpa.payload) && limpa.payload.length === 0,
+       'ao abrir, os graficos do Detalhe sao limpos (o ui-chart acumula series)');
+    ok(JSON.stringify(ctx.store.devices_detalhe) === '["esp-cb","esp-cv","inv-cb"]',
+       'recorte = ESP32 e inversores das partes da Caldeira',
+       `-> ${JSON.stringify(ctx.store.devices_detalhe)}`);
+
+    const r1 = tel('esp-cb'), r2 = tel('esp-t');
+    ok(r1[2] && r1[3] && r1[2].topic === 'esp-cb', 'parte da Caldeira chega aos graficos do Detalhe');
+    ok(r2[2] === null && r2[3] === null, 'a Torre NAO chega aos graficos do Detalhe da Caldeira');
+    ok(r2[0] && r2[0].topic === 'esp-t', '...mas continua na pagina Tendencias');
+    const c1 = cor('inv-cb'), c2 = cor('inv-t');
+    ok(c1[1] && c1[1].topic === 'inv-cb' && c2[1] === null,
+       'corrente: so o inversor da Caldeira vai ao Detalhe');
+    ok(c2[0] && c2[0].topic === 'inv-t', 'corrente da Torre continua na Tendencias');
+
+    rodar(abrir, { payload: 'Torre' }, ctx);
+    ok(tel('esp-t')[2] !== null && tel('esp-cb')[2] === null,
+       'trocar de ativo troca o recorte');
+}
+// =====================================================================
 console.log('\n=== Menu Inversores: o servidor do painel ===');
 {
     const aplicar = acharNo('aplicar inversores');
