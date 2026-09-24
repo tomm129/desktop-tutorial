@@ -14,6 +14,10 @@ typedef struct {
     char senha[65];       // 64 + terminador (WPA2-PSK)
     char mqtt_host[64];   // IP ou nome do gateway
     int  mqtt_porta;
+    // O broker do gateway RECUSA conexao anonima (setup_orangepi.sh poe
+    // allow_anonymous false). Sem estes dois o no nunca conectaria.
+    char mqtt_usuario[65];
+    char mqtt_senha[65];
 } ixnode_config_t;
 
 // Carrega da NVS. Devolve false se ainda não há nada gravado — que é o sinal

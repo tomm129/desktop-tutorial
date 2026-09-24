@@ -5,7 +5,7 @@ surpresa: **portal cativo**, **gravação em NVS**, **identidade por MAC** e
 **reconexão**. A medição (ADXL345 + MLX90614) e o buffer offline são
 portados depois, do firmware Arduino que já existe e já foi testado.
 
-> ✅ **Compila** para `esp32c6` com ESP-IDF v5.4.4 (1,04 MB, 32% de folga).
+> ✅ **Compila** para `esp32c6` com ESP-IDF v5.4.4, sem avisos (1,06 MB, 28% de folga — 24/09).
 > ❌ **Não foi gravado nem executado** em placa nenhuma.
 
 ## O problema que ele resolve
@@ -21,8 +21,9 @@ numa planta, inviável — e para vender, impossível.
 1. id = "ixn-" + 3 últimos bytes do MAC     ← sem configuração nenhuma
 2. NVS tem Wi-Fi gravado?
      não → sobe portal cativo, grava, reinicia
-3. conecta; falhou 5 vezes → apaga a config e volta ao portal
-4. conecta no MQTT e publica um batimento
+3. conecta; não conectou no boot → portal por 3 min COM a config mantida,
+   depois tenta de novo (nunca apaga); caiu depois → tenta para sempre
+4. conecta no MQTT, com usuário e senha, e publica
 ```
 
 ### 1. Identidade vem do hardware
@@ -65,11 +66,36 @@ por quem instala, ou seria a mesma em todos os nós — o que não protege nada 
 emperra a instalação. A janela de exposição é a de um nó virgem, e o que se
 pode fazer nela é configurá-lo.
 
-### 3. Rede que não conecta volta ao portal
+### 3. Rede que não conecta: portal por alguns minutos, **sem apagar nada**
 
-Cinco tentativas e o nó **apaga a configuração e reinicia no portal**. Senha
-trocada, roteador substituído, nó mudado de lugar — tudo isso se resolve com
-o celular, sem cabo e sem PC.
+Duas situações que parecem iguais e não são:
+
+- **No boot, a rede gravada não responde.** Pode ser senha trocada — ou,
+  bem mais comum, o roteador ainda subindo depois de uma **falta de
+  energia** (1 a 2 min; o nó sobe em segundos). Depois de 8 tentativas
+  espaçadas (1 s, 2 s, 4 s … 30 s) o nó abre o portal por **3 minutos**,
+  com o formulário já preenchido e um aviso de qual rede falhou. Se alguém
+  reconfigurar, grava; se não, reinicia e tenta a rede gravada de novo — e
+  assim volta sozinho quando o roteador voltar.
+- **A rede cai depois de ter conectado.** Tenta para sempre, espaçando até
+  30 s.
+
+> **Corrigido em 24/09.** Antes, 5 falhas no boot **apagavam a
+> configuração**: uma queda de energia na planta deixaria todos os nós no
+> portal, esperando alguém reconfigurar um por um. E depois de conectado,
+> a 6ª falha seguida fazia o nó **parar de tentar** até ser religado.
+
+### 4. Credenciais do MQTT
+
+O broker do gateway recusa conexão anônima, então o portal pede **usuário e
+senha do MQTT** (os mesmos que o `setup_orangepi.sh` pediu). Ao
+reconfigurar só o Wi-Fi, a senha do MQTT em branco mantém a gravada. A
+senha nunca vai para o log serial.
+
+> **Corrigido em 24/09**, junto com dois defeitos do formulário: a lista de
+> redes ficava **fora** do `<form>` (o nome da rede nunca era enviado, e o
+> portal recusava todo envio), e senhas com símbolos eram cortadas ao
+> decodificar.
 
 ## Como compilar e gravar
 
@@ -105,7 +131,7 @@ idf.py -p COM7 flash monitor   # ajuste a porta
    ```
 2. **No celular**, conecte na rede `iX-Node-XXXXXX`. A página deve abrir
    **sozinha** — se abrir, o DNS está funcionando.
-3. **Preencha** rede, senha e o IP do gateway. Salve.
+3. **Preencha** rede, senha, o IP do gateway e usuário/senha do MQTT. Salve.
 4. O nó reinicia, conecta e o log mostra `MQTT conectado`.
 5. **No painel**, tela de Configuração: `ixn-XXXXXX` aparece em *aguardando
    cadastro*.
@@ -114,8 +140,7 @@ O passo 5 é o teste de ponta a ponta: identidade → rede → broker → painel
 
 ## O que ainda não tem
 
-- [ ] Sensores (ADXL345, MLX90614) — portar do firmware Arduino
+- [ ] MLX90614 (temperatura) — portar do firmware Arduino (o ADXL345 já está)
 - [ ] Buffer offline com decimação — idem
 - [ ] Botão físico para forçar o portal sem apagar a config
-- [ ] Piscar LED sob comando, para identificar qual nó é qual no painel
 - [ ] OTA pelo gateway

@@ -50,9 +50,21 @@ bool ixnode_config_carregar(ixnode_config_t *cfg)
         cfg->mqtt_porta = (int)porta;
     }
 
+    // Ausentes numa configuracao gravada por versao anterior: ficam vazios,
+    // e o no conecta sem credencial (so funciona com broker aberto).
+    n = sizeof(cfg->mqtt_usuario);
+    if (nvs_get_str(h, "mqtt_user", cfg->mqtt_usuario, &n) != ESP_OK) {
+        cfg->mqtt_usuario[0] = '\0';
+    }
+    n = sizeof(cfg->mqtt_senha);
+    if (nvs_get_str(h, "mqtt_pass", cfg->mqtt_senha, &n) != ESP_OK) {
+        cfg->mqtt_senha[0] = '\0';
+    }
+
     nvs_close(h);
-    ESP_LOGI(TAG, "configuracao carregada: SSID '%s', broker %s:%d",
-             cfg->ssid, cfg->mqtt_host, cfg->mqtt_porta);
+    // A senha nunca vai para o log: o serial fica exposto em bancada.
+    ESP_LOGI(TAG, "configuracao carregada: SSID '%s', broker %s:%d, usuario MQTT '%s'",
+             cfg->ssid, cfg->mqtt_host, cfg->mqtt_porta, cfg->mqtt_usuario);
     return true;
 }
 
@@ -70,6 +82,8 @@ bool ixnode_config_gravar(const ixnode_config_t *cfg)
     ok = ok && nvs_set_str(h, "senha", cfg->senha) == ESP_OK;
     ok = ok && nvs_set_str(h, "mqtt_host", cfg->mqtt_host) == ESP_OK;
     ok = ok && nvs_set_i32(h, "mqtt_porta", cfg->mqtt_porta) == ESP_OK;
+    ok = ok && nvs_set_str(h, "mqtt_user", cfg->mqtt_usuario) == ESP_OK;
+    ok = ok && nvs_set_str(h, "mqtt_pass", cfg->mqtt_senha) == ESP_OK;
 
     // O commit é o que realmente escreve na flash. Sem ele os set_* ficam só
     // no cache e um reboot perde tudo -- com a agravante de que o portal já

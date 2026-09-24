@@ -9,8 +9,10 @@
 //  Fluxo:
 //    1. id = "ixn-" + 3 ultimos bytes do MAC        (sem configuracao)
 //    2. NVS tem Wi-Fi?  nao -> sobe portal cativo, grava, reinicia
-//    3. conecta; falhou N vezes -> volta ao portal
-//    4. conecta no MQTT e publica um batimento
+//    3. conecta; falhou N vezes no boot -> portal por 3 min COM a config
+//       mantida, depois tenta de novo (nunca apaga); caiu depois de
+//       conectado -> tenta para sempre
+//    4. conecta no MQTT (com usuario e senha) e publica
 //
 //  Alvo de teste: ESP32-C6. O codigo nao tem nada especifico de chip --
 //  roda igual em S3/C3 trocando o target.
@@ -18,6 +20,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "esp_attr.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
@@ -101,17 +104,49 @@ static const char *TAG = "ixnode";
 static vib_amostra_t s_amostras[VIB_AMOSTRAS];
 static bool s_adxl_ok = false;
 
-// Tentativas antes de desistir da rede e voltar ao portal. Cinco cobre o
-// caso comum de roteador reiniciando junto com o no; mais que isso seria
-// deixar o dispositivo mudo por minutos numa rede que mudou de senha.
-#define MAX_TENTATIVAS   5
-#define INTERVALO_MS     5000
+// Politica de rede. Duas situacoes que parecem iguais e nao sao:
+//
+//  - NO BOOT, a rede gravada nao responde. Pode ser senha trocada -- ou,
+//    muito mais comum, o roteador ainda subindo depois de uma falta de
+//    energia (leva 1-2 min; o no sobe em segundos). Por isso a config
+//    NUNCA e apagada: depois de MAX_TENTATIVAS o no abre o portal por
+//    PORTAL_JANELA_MS, COM a config atual preenchida, e se ninguem mexer
+//    reinicia e tenta a rede gravada de novo. Antes ele apagava a config:
+//    uma queda de energia na planta deixava todos os nos no portal,
+//    esperando alguem reconfigurar um por um.
+//
+//  - DEPOIS de ja ter conectado, a rede cai. Ai nao ha o que decidir: tenta
+//    para sempre, espacando ate RECONECTAR_MAX_MS. Antes, a 6a falha seguida
+//    marcava "falhou" -- sinal que ninguem mais esperava -- e o no parava de
+//    tentar ate alguem desligar e ligar a placa.
+#define MAX_TENTATIVAS      8
+#define PORTAL_JANELA_MS    (3 * 60 * 1000)
+#define RECONECTAR_MAX_MS   30000
+#define INTERVALO_MS        5000
 
 static EventGroupHandle_t s_rede;
 #define BIT_CONECTADO BIT0
 #define BIT_FALHOU    BIT1
 
 static int s_tentativas = 0;
+static bool s_ja_conectou = false;
+// A nova tentativa sai de um timer, nao de um vTaskDelay dentro do handler:
+// o handler roda na task do loop de eventos padrao, e dormir ali atrasa
+// todos os outros eventos do sistema.
+static esp_timer_handle_t s_timer_reconectar = NULL;
+
+// Pede ao boot seguinte que abra o portal com a config atual. Fica na RAM
+// que sobrevive ao esp_restart() (e nao na NVS: nao gasta flash a cada
+// queda de energia). Numa ligacao a frio o conteudo e lixo -- por isso o
+// numero magico.
+#define PEDIDO_PORTAL 0x504F5254u   // "PORT"
+static RTC_NOINIT_ATTR uint32_t s_pedido_portal;
+
+static void tentar_de_novo(void *arg)
+{
+    (void)arg;
+    esp_wifi_connect();
+}
 static esp_mqtt_client_handle_t s_mqtt = NULL;
 // volatile: escrito na task do cliente MQTT, lido no laco de app_main --
 // mesma razao dos flags de comando abaixo. Ficou de fora por descuido, e
@@ -137,17 +172,29 @@ static void ao_evento(void *arg, esp_event_base_t base, int32_t id, void *dados)
     if (base == WIFI_EVENT && id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (++s_tentativas <= MAX_TENTATIVAS) {
-            ESP_LOGW(TAG, "desconectado, tentativa %d/%d", s_tentativas, MAX_TENTATIVAS);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            esp_wifi_connect();
-        } else {
+        ++s_tentativas;
+        if (!s_ja_conectou && s_tentativas > MAX_TENTATIVAS) {
             xEventGroupSetBits(s_rede, BIT_FALHOU);
+            return;
         }
+        // 1 s, 2 s, 4 s ... ate RECONECTAR_MAX_MS. Sem teto de tentativas
+        // depois que ja conectou uma vez.
+        uint32_t espera_ms = 1000u << (s_tentativas < 6 ? s_tentativas - 1 : 5);
+        if (espera_ms > RECONECTAR_MAX_MS) { espera_ms = RECONECTAR_MAX_MS; }
+        if (s_ja_conectou) {
+            ESP_LOGW(TAG, "rede caiu, tentativa %d (de novo em %lu s)",
+                     s_tentativas, (unsigned long)(espera_ms / 1000));
+        } else {
+            ESP_LOGW(TAG, "nao conectou, tentativa %d/%d (de novo em %lu s)",
+                     s_tentativas, MAX_TENTATIVAS, (unsigned long)(espera_ms / 1000));
+        }
+        esp_timer_stop(s_timer_reconectar);   // ignora erro se nao estava armado
+        esp_timer_start_once(s_timer_reconectar, (uint64_t)espera_ms * 1000u);
     } else if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *ev = (ip_event_got_ip_t *)dados;
         ESP_LOGI(TAG, "conectado, IP " IPSTR, IP2STR(&ev->ip_info.ip));
         s_tentativas = 0;
+        s_ja_conectou = true;
         xEventGroupSetBits(s_rede, BIT_CONECTADO);
     }
 }
@@ -155,6 +202,9 @@ static void ao_evento(void *arg, esp_event_base_t base, int32_t id, void *dados)
 static bool conectar_wifi(const ixnode_config_t *cfg)
 {
     s_rede = xEventGroupCreate();
+
+    const esp_timer_create_args_t ta = { .callback = tentar_de_novo, .name = "reconectar" };
+    ESP_ERROR_CHECK(esp_timer_create(&ta, &s_timer_reconectar));
 
     esp_netif_create_default_wifi_sta();
     wifi_init_config_t ic = WIFI_INIT_CONFIG_DEFAULT();
@@ -302,6 +352,11 @@ static void iniciar_mqtt(const ixnode_config_t *cfg)
     esp_mqtt_client_config_t mc = {
         .broker.address.uri = uri,
         .credentials.client_id = ixnode_id(),
+        // Sem credencial o broker do gateway recusa a conexao (anonimo
+        // desligado no setup) e o no ficaria em "MQTT erro" para sempre.
+        // Vazio = NULL: mandar usuario "" nao e o mesmo que nao mandar.
+        .credentials.username = cfg->mqtt_usuario[0] ? cfg->mqtt_usuario : NULL,
+        .credentials.authentication.password = cfg->mqtt_senha[0] ? cfg->mqtt_senha : NULL,
         // LWT: se o no cair, o broker marca offline sozinho. Sem isto o
         // painel so descobre pelo silencio, com o atraso do timeout.
         .session.last_will.topic = s_topico_status,
@@ -362,29 +417,45 @@ void app_main(void)
     }
 
     ixnode_config_t cfg;
-    if (!ixnode_config_carregar(&cfg)) {
-        ESP_LOGW(TAG, "no virgem — subindo portal de configuracao");
-        if (ixnode_portal_executar()) {
-            ESP_LOGI(TAG, "configurado; reiniciando");
-            vTaskDelay(pdMS_TO_TICKS(500));
-            esp_restart();
+    const bool tem_cfg = ixnode_config_carregar(&cfg);
+    const bool pediu_portal = (s_pedido_portal == PEDIDO_PORTAL);
+    s_pedido_portal = 0;   // o pedido vale para UM boot so
+
+    if (!tem_cfg || pediu_portal) {
+        ixnode_portal_res_t res;
+        if (!tem_cfg) {
+            ESP_LOGW(TAG, "no virgem — subindo portal de configuracao");
+            res = ixnode_portal_executar(NULL, 0);
+        } else {
+            ESP_LOGW(TAG, "rede '%s' nao respondeu — portal aberto por %d min, "
+                          "config atual mantida", cfg.ssid, PORTAL_JANELA_MS / 60000);
+            res = ixnode_portal_executar(&cfg, PORTAL_JANELA_MS);
         }
-        // Portal so retorna false em falha de infraestrutura (HTTP nao subiu).
-        // Reiniciar e a unica saida sensata: continuar sem rede nem portal
-        // deixaria o no inerte e mudo.
-        ESP_LOGE(TAG, "portal falhou; reiniciando");
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        if (res == PORTAL_SALVO) {
+            ESP_LOGI(TAG, "configurado; reiniciando");
+        } else if (res == PORTAL_TEMPO_ESGOTADO) {
+            ESP_LOGI(TAG, "ninguem mudou nada; tentando a rede gravada de novo");
+        } else {
+            // Falha de infraestrutura (HTTP nao subiu). Reiniciar e a unica
+            // saida sensata: continuar sem rede nem portal deixaria o no
+            // inerte e mudo.
+            ESP_LOGE(TAG, "portal falhou; reiniciando");
+            vTaskDelay(pdMS_TO_TICKS(1500));
+        }
+        vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
 
     if (!conectar_wifi(&cfg)) {
-        // Rede gravada que nao conecta: senha trocada, roteador substituido,
-        // no mudado de lugar. Apaga e volta ao portal, para ser reconfigurado
-        // sem precisar de cabo nem de PC.
-        ESP_LOGE(TAG, "nao conectou apos %d tentativas — voltando ao portal",
-                 MAX_TENTATIVAS);
-        ixnode_config_apagar();
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        // Rede gravada que nao conecta no boot. NAO apaga nada (ver a
+        // politica de rede la em cima): pede ao proximo boot que abra o
+        // portal por alguns minutos com a config atual, e reinicia. Se
+        // ninguem mexer, o boot seguinte tenta a rede gravada de novo -- e
+        // assim o no volta sozinho quando o roteador voltar.
+        ESP_LOGE(TAG, "nao conectou apos %d tentativas — abrindo o portal "
+                      "(config mantida)", MAX_TENTATIVAS);
+        s_pedido_portal = PEDIDO_PORTAL;
+        vTaskDelay(pdMS_TO_TICKS(500));
         esp_restart();
     }
 

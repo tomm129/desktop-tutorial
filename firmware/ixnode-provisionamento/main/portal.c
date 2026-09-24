@@ -24,6 +24,12 @@ static EventGroupHandle_t s_eventos;
 
 static ixnode_config_t s_cfg;
 
+// Configuracao ja gravada, quando o portal abre porque a rede gravada nao
+// respondeu (em vez de no virgem). Serve para preencher o formulario e
+// para manter a senha do MQTT se ela vier em branco.
+static ixnode_config_t s_atual;
+static bool s_tem_atual = false;
+
 // Redes encontradas na varredura, para o formulário oferecer uma lista em vez
 // de exigir que se digite o SSID. Digitar SSID à mão em campo é fonte
 // garantida de erro -- maiúscula trocada, espaço no fim -- e o sintoma
@@ -142,41 +148,101 @@ static const char PAGINA_TOPO[] =
     "</style></head><body>"
     "<h1>Configurar iX Node</h1>";
 
-static const char PAGINA_FIM[] =
-    "<form method=POST action=/salvar>"
-    "<label>Senha do Wi-Fi</label>"
-    "<input name=senha type=password placeholder='deixe vazio se a rede for aberta'>"
-    "<label>Endereco do gateway (Orange Pi)</label>"
-    "<input name=host inputmode=decimal placeholder='ex.: 192.168.0.10' required>"
-    "<div class=dica>E o IP onde roda o Mosquitto.</div>"
-    "<label>Porta MQTT</label>"
-    "<input name=porta inputmode=numeric value=1883>"
-    "<button type=submit>Salvar e conectar</button>"
-    "</form></body></html>";
+// Escapa texto para dentro de HTML (conteudo e atributo entre aspas). Um
+// SSID e escolhido por quem configurou o roteador e pode ter aspas ou '<':
+// sem isto a opcao do formulario quebrava e a rede nao podia ser escolhida.
+static void html_escapar(const char *ent, char *saida, size_t max)
+{
+    size_t j = 0;
+    for (size_t i = 0; ent[i] && j + 7 < max; i++) {
+        const char *r = NULL;
+        switch (ent[i]) {
+        case '&':  r = "&amp;";  break;
+        case '<':  r = "&lt;";   break;
+        case '>':  r = "&gt;";   break;
+        case '"':  r = "&quot;"; break;
+        case '\'': r = "&#39;";  break;
+        default:   saida[j++] = ent[i]; continue;
+        }
+        size_t n = strlen(r);
+        memcpy(saida + j, r, n);
+        j += n;
+    }
+    saida[j] = '\0';
+}
 
 static esp_err_t pag_raiz(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     httpd_resp_sendstr_chunk(req, PAGINA_TOPO);
 
-    char linha[128];
+    // Folga para o pior caso: um SSID de 32 caracteres especiais escapado
+    // (ate 6x) aparece duas vezes na mesma linha, mais o texto em volta.
+    char linha[900];
+    char esc[200];
     snprintf(linha, sizeof(linha), "<div class=id>%s</div>", ixnode_id());
     httpd_resp_sendstr_chunk(req, linha);
 
-    httpd_resp_sendstr_chunk(req, "<label>Rede Wi-Fi</label><select name=ssid form=f>");
+    if (s_tem_atual) {
+        // Aberto porque a rede gravada nao respondeu. Pode ser so o roteador
+        // demorando a voltar de uma falta de energia -- por isso o no NAO
+        // apaga nada e volta a tentar sozinho.
+        html_escapar(s_atual.ssid, esc, sizeof(esc));
+        snprintf(linha, sizeof(linha),
+                 "<div class=dica style='color:#f59e0b;font-size:13px'>"
+                 "Nao consegui conectar em <b>%s</b>. Se a rede mudou, configure "
+                 "de novo abaixo. Se nao, nada a fazer: o no tenta de novo "
+                 "sozinho em alguns minutos, com a configuracao atual.</div>", esc);
+        httpd_resp_sendstr_chunk(req, linha);
+    }
+
+    httpd_resp_sendstr_chunk(req,
+        "<form id=f method=POST action=/salvar>"
+        "<label>Rede Wi-Fi</label><select name=ssid>");
     if (s_n_redes == 0) {
         httpd_resp_sendstr_chunk(req, "<option value=''>nenhuma rede encontrada</option>");
     }
     for (uint16_t i = 0; i < s_n_redes; i++) {
         // O RSSI vai junto: com duas redes de mesmo nome (repetidor), é o que
         // permite escolher a que o nó realmente alcança daqui.
-        snprintf(linha, sizeof(linha), "<option value=\"%s\">%s (%d dBm)</option>",
-                 (char *)s_redes[i].ssid, (char *)s_redes[i].ssid, s_redes[i].rssi);
+        html_escapar((char *)s_redes[i].ssid, esc, sizeof(esc));
+        const bool sel = s_tem_atual && strcmp((char *)s_redes[i].ssid, s_atual.ssid) == 0;
+        snprintf(linha, sizeof(linha), "<option value=\"%s\"%s>%s (%d dBm)</option>",
+                 esc, sel ? " selected" : "", esc, s_redes[i].rssi);
         httpd_resp_sendstr_chunk(req, linha);
     }
-    httpd_resp_sendstr_chunk(req, "</select>");
+    httpd_resp_sendstr_chunk(req,
+        "</select>"
+        "<label>Senha do Wi-Fi</label>"
+        "<input name=senha type=password placeholder='deixe vazio se a rede for aberta'>");
 
-    httpd_resp_sendstr_chunk(req, PAGINA_FIM);
+    html_escapar(s_tem_atual ? s_atual.mqtt_host : "", esc, sizeof(esc));
+    snprintf(linha, sizeof(linha),
+             "<label>Endereco do gateway (Orange Pi)</label>"
+             "<input name=host inputmode=decimal placeholder='ex.: 192.168.0.10' "
+             "value=\"%s\" required>"
+             "<div class=dica>E o IP onde roda o Mosquitto.</div>", esc);
+    httpd_resp_sendstr_chunk(req, linha);
+
+    snprintf(linha, sizeof(linha),
+             "<label>Porta MQTT</label>"
+             "<input name=porta inputmode=numeric value=%d>",
+             s_tem_atual ? s_atual.mqtt_porta : 1883);
+    httpd_resp_sendstr_chunk(req, linha);
+
+    html_escapar(s_tem_atual ? s_atual.mqtt_usuario : "", esc, sizeof(esc));
+    snprintf(linha, sizeof(linha),
+             "<label>Usuario MQTT</label>"
+             "<input name=musuario autocapitalize=off autocomplete=off value=\"%s\">"
+             "<label>Senha MQTT</label>"
+             "<input name=msenha type=password autocomplete=off placeholder='%s'>"
+             "<div class=dica>Os mesmos que o setup do gateway pediu.</div>",
+             esc, s_tem_atual ? "deixe vazio para manter a atual" : "");
+    httpd_resp_sendstr_chunk(req, linha);
+
+    httpd_resp_sendstr_chunk(req,
+        "<button type=submit>Salvar e conectar</button>"
+        "</form></body></html>");
     httpd_resp_sendstr_chunk(req, NULL);
     return ESP_OK;
 }
@@ -224,8 +290,11 @@ static void campo(const char *corpo, const char *nome, char *saida, size_t max)
             p += strlen(busca);
             const char *fim = strchr(p, '&');
             size_t n = fim ? (size_t)(fim - p) : strlen(p);
-            if (n >= max) { n = max - 1; }
-            char bruto[128];
+            // 'bruto' e o valor AINDA codificado: cada caractere especial
+            // vira %XX, ate 3x o tamanho. Com 128 aqui, uma senha de Wi-Fi
+            // de 64 caracteres com simbolos era cortada em silencio -- e o no
+            // gravava uma senha errada sem aviso.
+            char bruto[200];
             if (n >= sizeof(bruto)) { n = sizeof(bruto) - 1; }
             memcpy(bruto, p, n);
             bruto[n] = '\0';
@@ -239,7 +308,9 @@ static void campo(const char *corpo, const char *nome, char *saida, size_t max)
 
 static esp_err_t pag_salvar(httpd_req_t *req)
 {
-    char corpo[512];
+    // Cabe o formulario inteiro no pior caso: duas senhas de 64 e um SSID
+    // de 32, todos com simbolos (3 bytes cada depois de codificados).
+    char corpo[1024];
     int total = req->content_len;
     if (total <= 0 || total >= (int)sizeof(corpo)) {
         httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "formulario invalido");
@@ -267,6 +338,15 @@ static esp_err_t pag_salvar(httpd_req_t *req)
     cfg.mqtt_porta = (porta[0] != '\0') ? atoi(porta) : 1883;
     if (cfg.mqtt_porta <= 0 || cfg.mqtt_porta > 65535) {
         cfg.mqtt_porta = 1883;
+    }
+
+    campo(corpo, "musuario", cfg.mqtt_usuario, sizeof(cfg.mqtt_usuario));
+    campo(corpo, "msenha", cfg.mqtt_senha, sizeof(cfg.mqtt_senha));
+    // Reconfigurando so o Wi-Fi: a senha do MQTT em branco com o MESMO
+    // usuario mantem a gravada, para nao obrigar a redigita-la.
+    if (cfg.mqtt_senha[0] == '\0' && s_tem_atual &&
+        strcmp(cfg.mqtt_usuario, s_atual.mqtt_usuario) == 0) {
+        strlcpy(cfg.mqtt_senha, s_atual.mqtt_senha, sizeof(cfg.mqtt_senha));
     }
 
     if (cfg.ssid[0] == '\0' || cfg.mqtt_host[0] == '\0') {
@@ -345,9 +425,13 @@ static void varrer_redes(void)
     ESP_LOGI(TAG, "%u redes encontradas", s_n_redes);
 }
 
-bool ixnode_portal_executar(void)
+ixnode_portal_res_t ixnode_portal_executar(const ixnode_config_t *atual, uint32_t tempo_ms)
 {
     s_eventos = xEventGroupCreate();
+    s_tem_atual = (atual != NULL);
+    if (atual) {
+        s_atual = *atual;
+    }
 
     esp_netif_create_default_wifi_ap();
     esp_netif_create_default_wifi_sta();   // necessário para varrer
@@ -376,17 +460,24 @@ bool ixnode_portal_executar(void)
     xTaskCreate(tarefa_dns, "dns_portal", 4096, NULL, 5, NULL);
     httpd_handle_t srv = subir_http();
     if (!srv) {
-        return false;
+        return PORTAL_FALHOU;
     }
 
-    // Espera indefinidamente. Um nó sem configuração não tem o que fazer
-    // além disto, e desistir por tempo só o deixaria inerte até alguém
-    // reiniciá-lo na mão.
-    xEventGroupWaitBits(s_eventos, BIT_SALVO, pdTRUE, pdTRUE, portMAX_DELAY);
+    // No virgem (tempo_ms = 0): espera indefinidamente -- sem configuracao
+    // nao ha o que fazer alem disto. Com configuracao gravada, espera um
+    // tempo e desiste: quem chama reinicia e tenta a rede gravada de novo.
+    const TickType_t espera = tempo_ms ? pdMS_TO_TICKS(tempo_ms) : portMAX_DELAY;
+    EventBits_t b = xEventGroupWaitBits(s_eventos, BIT_SALVO, pdTRUE, pdTRUE, espera);
+    if (!(b & BIT_SALVO)) {
+        ESP_LOGW(TAG, "ninguem configurou em %lu s -- voltando a rede gravada",
+                 (unsigned long)(tempo_ms / 1000));
+        httpd_stop(srv);
+        return PORTAL_TEMPO_ESGOTADO;
+    }
 
     // Um instante para o navegador receber a página de confirmação antes de
     // o rádio cair.
     vTaskDelay(pdMS_TO_TICKS(1500));
     httpd_stop(srv);
-    return true;
+    return PORTAL_SALVO;
 }
