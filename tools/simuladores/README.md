@@ -138,6 +138,10 @@ python tools/simuladores/drive_powerflex.py --sem-web           # sem o painel
 python tools/simuladores/drive_powerflex.py --encadeados 2      # nó Multi-Drive
 ```
 
+A porta **44818** é a do EtherNet/IP. Se já houver algo nela (outro
+simulador, um software da Rockwell), use outra e avise o sidecar com
+`PF525_PORTA`.
+
 ### Nó Multi-Drive
 
 `--encadeados N` (1 a 4) põe N drives atrás do simulado, como num painel
@@ -153,10 +157,6 @@ seção *Vários inversores e Multi-Drive* em
 É assim que eles chegam ao cadastro do painel, cada um com a sua origem:
 
 ![Cadastro do painel com os três drives de um nó Multi-Drive](img/cadastro_multidrive.png)
-
-A porta **44818** é a do EtherNet/IP. Se já houver algo nela (outro
-simulador, um software da Rockwell), use outra e avise o sidecar com
-`PF525_PORTA`.
 
 ---
 
