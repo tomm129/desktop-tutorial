@@ -34,8 +34,9 @@ O projeto combina dois lados:
 | `firmware/esp32-campo` | Firmware do sensor (PlatformIO) — temperatura + vibração via MQTT |
 | `firmware/ixnode-provisionamento` | Provisionamento do IX Node (ESP-IDF, ESP32-C6): portal Wi-Fi e identidade |
 | `nodered/` | Painel — o `flows.json` é **gerado** por `gera_flow.py`; edite o gerador |
-| `integracoes/powerflex525` | Corrente do Allen-Bradley PowerFlex 525 (EtherNet/IP) |
-| `integracoes/danfoss_vlt` | Danfoss FC 51 / FC 301 / FC 302 (Modbus RTU/TCP) |
+| `integracoes/inversores` | **Serviço único de inversores**: lê a lista cadastrada e publica todas as marcas — [manual](integracoes/inversores/README.md) |
+| `integracoes/powerflex525` | Driver do Allen-Bradley PowerFlex 525 (EtherNet/IP, Multi-Drive) |
+| `integracoes/danfoss_vlt` | Driver do Danfoss FC 51 / FC 301 / FC 302 (Modbus RTU/TCP) |
 | `scripts/` | Instalação do gateway (`setup_orangepi.sh`) e conferência (`verifica_instalacao.sh`) |
 | `sql/` | Esquema do histórico (PostgreSQL + TimescaleDB) |
 | `tools/` | **Drives simulados com painel no navegador** (PowerFlex e Danfoss), simulador de campo, gerador de planta de teste, sonda de MCSA e as suítes de teste — [índice](tools/README.md) |
@@ -86,7 +87,7 @@ planta.** O quadro honesto, com o que falta, está em
 | Provisionamento IX Node (C6) | 🔶 compila · ⬜ teste em placa |
 | Sidecar PowerFlex 525 | 🔶 conferido nos manuais, testado contra drive simulado, **com Multi-Drive** (até 5 drives por nó) · ⬜ inversor real |
 | Sidecar Danfoss FC 51/301/302 | 🔶 conferido nos manuais, testado contra drive simulado · ⬜ bancada |
-| Testes sem hardware | ✅ 197 verificações em 7 suítes, incluindo os dois inversores por protocolo real |
+| Testes sem hardware | ✅ 223 verificações em 8 suítes, incluindo os dois inversores por protocolo real |
 
 **Próximos passos, na ordem que mais destrava:**
 

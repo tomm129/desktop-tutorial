@@ -1,0 +1,4 @@
+pycomm3>=1.2
+pymodbus>=3.6
+pyserial>=3.5
+paho-mqtt>=1.6

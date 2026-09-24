@@ -145,7 +145,7 @@ Sendo explícito, porque é o que dá credibilidade ao resto.
   rearmada que deixaria o ativo em alarme para sempre.
 - **Histórico em PostgreSQL + TimescaleDB** na borda, com agregados
   contínuos, compressão e retenção.
-- **Suíte de testes sem hardware**: 197 verificações em 7 suítes, mais a
+- **Suíte de testes sem hardware**: 223 verificações em 8 suítes, mais a
   checagem de compilação da matemática do firmware.
 
 ### O que NÃO existe

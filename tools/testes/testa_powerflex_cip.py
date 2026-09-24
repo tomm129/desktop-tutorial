@@ -187,7 +187,7 @@ ok(L["u13"]["falha"]["codigo"] == 12 and L["u12"]["falha"]["codigo"] == 0
    "falha ativa so no drive 2, nao contamina os outros")
 ok(any(p[1] == 0x97 and p[2] == 18432 for p in no.pedidos),
    "falha ativa do drive 2 lida na base 18432 do objeto 0x97")
-ok(L["u12"]["origem"] == {"no": "127.0.0.1", "drive": 1, "nome": "Exaustor 2", "tag": "U12"},
+ok(L["u12"]["origem"] == {"no": "127.0.0.1", "drive": 1, "modelo": "pf525", "nome": "Exaustor 2", "tag": "U12"},
    "origem vai no pacote: o cadastro sabe qual drive e qual", f"-> {L['u12']['origem']}")
 
 # Com o sidecar RODANDO, o drive 2 e desligado.

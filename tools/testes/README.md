@@ -1,6 +1,6 @@
 # Testes
 
-Sete suítes que rodam sem hardware, sem broker e sem banco — 197
+Oito suítes que rodam sem hardware, sem broker e sem banco — 223
 verificações, mais a checagem de compilação do firmware. Existem porque os
 erros que este projeto já teve não eram erros de digitação — eram de
 **cálculo**, de **contagem** e de **leitura de manual**, o tipo que passa
@@ -11,6 +11,7 @@ python tools/testes/testa_vibracao.py            # matematica da vibracao
 python tools/testes/testa_inversores.py          # logica dos sidecars + MCSA
 python tools/testes/testa_danfoss_modbus.py      # Danfoss contra drive simulado
 python tools/testes/testa_powerflex_cip.py       # PowerFlex contra drive simulado
+python tools/testes/testa_servico_inversores.py  # servico unico: as duas marcas + config ao vivo
 python tools/testes/checa_firmware.py            # o C++ compila limpo?
 python nodered/gera_flow.py                      # (gera antes dos de baixo)
 node   tools/testes/valida_flow.js  nodered/flows.json

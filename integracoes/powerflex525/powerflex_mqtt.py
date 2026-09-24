@@ -251,7 +251,7 @@ class Inversor:
     """Um drive a ler: onde está (IP, posição no nó) e quem ele é no painel."""
 
     def __init__(self, device_id, ip, drive=0, porta=44818, intervalo_s=None,
-                 nome=None, tag=None):
+                 nome=None, tag=None, modelo="pf525"):
         if drive not in BASE_MULTIDRIVE:
             raise ValueError(f"{device_id}: 'drive' tem de ser 0 a 4, veio {drive!r}")
         self.device_id = str(device_id)
@@ -262,6 +262,7 @@ class Inversor:
         # do mesmo IP, sem isto não se sabe qual é qual na hora de atribuir.
         self.nome = (nome or "").strip()
         self.tag = (tag or "").strip()
+        self.modelo = modelo
         self.intervalo_s = float(intervalo_s if intervalo_s is not None else
                                  (INTERVALO_S if self.drive == 0
                                   else INTERVALO_ENCADEADO_S))
@@ -460,7 +461,7 @@ def ler_inversor(conn, inv=None) -> dict:
     dados["status_bruto"] = status
     # De onde o dado veio. O painel mostra isto na lista "Aguardando
     # cadastro" (IP · drive 2 (DSI) · nome) e já preenche a tag.
-    dados["origem"] = {"no": inv.ip, "drive": inv.drive,
+    dados["origem"] = {"no": inv.ip, "drive": inv.drive, "modelo": inv.modelo,
                        "nome": inv.nome, "tag": inv.tag}
     dados["ts"] = int(time.time() * 1000)
     return dados

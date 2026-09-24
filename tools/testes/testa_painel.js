@@ -400,6 +400,8 @@ console.log('\n=== Multi-Drive: a origem do inversor chega ao cadastro ===');
 
     pub('u11', { no: '192.168.1.20', drive: 0, nome: 'Exaustor 1', tag: 'U11' });
     pub('u12', { no: '192.168.1.20', drive: 1, nome: 'Exaustor 2', tag: 'U12' });
+    pub('d3', { barramento: '/dev/ttyUSB0', endereco: 3, modelo: 'danfoss_fc51',
+                nome: 'Bomba', tag: 'D3' });
     // entradas ruins vindas da rede nao podem quebrar a tela
     pub('lixo1', { no: '10.0.0.9', drive: 7, nome: 'x'.repeat(200) });
     pub('lixo2', 'nao sou objeto');
@@ -419,6 +421,10 @@ console.log('\n=== Multi-Drive: a origem do inversor chega ao cadastro ===');
        'pendente mostra IP, posicao no no e nome', `-> ${p12 && p12.origem}`);
     ok(p11 && /drive 0 \(Ethernet\)/.test(p11.origem), 'drive 0 aparece como o da Ethernet');
     ok(p12 && p12.tag_sugerida === 'U12', 'tag do arquivo do sidecar vem sugerida');
+    const pd3 = pend.find(d => d.id === 'd3');
+    ok(pd3 && pd3.origem === '/dev/ttyUSB0  ·  endereço 3  ·  VLT Micro Drive FC 51  ·  Bomba',
+       'Danfoss no RS-485: barramento, endereco e o NOME do modelo (do catalogo)',
+       `-> ${pd3 && pd3.origem}`);
 }
 console.log();
 console.log(falhas === 0 ? 'RESULTADO: todas as verificacoes passaram.'

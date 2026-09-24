@@ -273,56 +273,63 @@ PY
 # =====================================================================
 #  3. Sidecar do PowerFlex 525
 # =====================================================================
-instalar_powerflex() {
-    azul "3/3  Sidecar do PowerFlex 525 (EtherNet/IP -> MQTT)"
+instalar_inversores() {
+    azul "3/3  Servico de inversores (PowerFlex, Danfoss -> MQTT)"
 
     sudo apt-get install -y -qq python3 python3-venv python3-pip
     sudo mkdir -p "${DESTINO_IOT}"
     sudo chown "$(id -u):$(id -g)" "${DESTINO_IOT}"
 
-    local destino="${DESTINO_IOT}/integracoes/powerflex525"
+    # O servico e os drivers de cada marca. Os drivers moram nas pastas das
+    # integracoes antigas porque a conversa com cada drive -- conferida
+    # contra os manuais e testada contra os simuladores -- e a deles.
     mkdir -p "${DESTINO_IOT}/integracoes"
-    cp -r "${REPO_DIR}/integracoes/powerflex525" "${DESTINO_IOT}/integracoes/"
-    ok "codigo em ${destino}"
+    local d
+    for d in inversores powerflex525 danfoss_vlt; do
+        rm -rf "${DESTINO_IOT}/integracoes/${d}.novo"
+        cp -r "${REPO_DIR}/integracoes/${d}" "${DESTINO_IOT}/integracoes/${d}.novo"
+        # preserva .venv e config.env de uma instalacao anterior
+        for manter in .venv config.env; do
+            [[ -e "${DESTINO_IOT}/integracoes/${d}/${manter}" ]] && \
+                mv "${DESTINO_IOT}/integracoes/${d}/${manter}" "${DESTINO_IOT}/integracoes/${d}.novo/"
+        done
+        rm -rf "${DESTINO_IOT}/integracoes/${d}"
+        mv "${DESTINO_IOT}/integracoes/${d}.novo" "${DESTINO_IOT}/integracoes/${d}"
+    done
+    local destino="${DESTINO_IOT}/integracoes/inversores"
+    ok "codigo em ${DESTINO_IOT}/integracoes"
 
-    python3 -m venv "${destino}/.venv"
+    [[ -d "${destino}/.venv" ]] || python3 -m venv "${destino}/.venv"
     "${destino}/.venv/bin/pip" install --quiet --upgrade pip
     "${destino}/.venv/bin/pip" install --quiet -r "${destino}/requirements.txt"
-    ok "dependencias instaladas (pycomm3, paho-mqtt)"
+    ok "dependencias instaladas (pycomm3, pymodbus, pyserial, paho-mqtt)"
 
-    # config.env: preserva o que ja existir, so preenche o MQTT.
+    # Credenciais preenchidas AQUI: nada para editar a mao. A lista de
+    # inversores nao mora neste arquivo -- quem a escreve e o painel, no
+    # menu Inversores, em ${DESTINO_IOT}/dados/inversores.json.
     local cfg="${destino}/config.env"
-    if [[ -f "${cfg}" ]]; then
-        aviso "config.env ja existe — mantido como esta"
-        # Migracao de um erro CONHECIDO, e so dele: versoes antigas do
-        # config.example.env traziam PF525_ESCALA_DCBUS=0.1, mas o b005 e
-        # em volts inteiros (520-UM001). Como a variavel de ambiente vence o
-        # padrao do codigo, corrigir so o script nao bastava -- 311 V
-        # continuariam aparecendo como 31,1 V. Qualquer OUTRO valor foi
-        # escolha de alguem e fica como esta.
-        if grep -qE '^PF525_ESCALA_DCBUS=0\.1[[:space:]]*$' "${cfg}"; then
-            backup "${cfg}"
-            sed -i -E 's/^PF525_ESCALA_DCBUS=0\.1[[:space:]]*$/PF525_ESCALA_DCBUS=1.0/' "${cfg}"
-            ok "config.env: PF525_ESCALA_DCBUS corrigido de 0.1 para 1.0 (b005 e em volts)"
-        fi
-    else
-        cp "${destino}/config.example.env" "${cfg}"
-        # Comentario so em linha propria: o EnvironmentFile do systemd nao
-        # corta comentario no fim da linha (ver README da integracao).
-        sed -i \
-            -e "s|^MQTT_USER=.*|MQTT_USER=${MQTT_USER}|" \
-            -e "s|^MQTT_PASS=.*|MQTT_PASS=${MQTT_PASS}|" \
-            "${cfg}"
-        chmod 600 "${cfg}"
-        ok "config.env criado (credenciais MQTT ja preenchidas)"
-        aviso "AJUSTE PF525_IP no ${cfg} — hoje esta no valor de exemplo"
+    cat > "${cfg}" <<EOF
+MQTT_HOST=localhost
+MQTT_PORT=1883
+MQTT_USER=${MQTT_USER}
+MQTT_PASS=${MQTT_PASS}
+INVERSORES_ARQ=${DESTINO_IOT}/dados/inversores.json
+EOF
+    chmod 600 "${cfg}"
+    ok "config.env gerado (credenciais do MQTT ja preenchidas)"
+
+    # O sidecar avulso da versao anterior, se houver: desligado, para um
+    # mesmo drive nao ser lido duas vezes -- o que pesaria na RS-485 do
+    # Multi-Drive, que o CLP usa para comandar.
+    if systemctl cat powerflex525-corrente >/dev/null 2>&1; then
+        sudo systemctl disable --now powerflex525-corrente 2>/dev/null || true
+        aviso "sidecar antigo powerflex525-corrente desligado (substituido pelo servico de inversores)"
     fi
 
-    # Unit gerado com o usuario e os caminhos reais desta maquina.
-    backup /etc/systemd/system/powerflex525-corrente.service
-    sudo tee /etc/systemd/system/powerflex525-corrente.service >/dev/null <<EOF
+    backup /etc/systemd/system/insightx-inversores.service
+    sudo tee /etc/systemd/system/insightx-inversores.service >/dev/null <<EOF
 [Unit]
-Description=Leitura de corrente do PowerFlex 525 (EtherNet/IP) -> MQTT
+Description=InsightX - leitura dos inversores (PowerFlex, Danfoss) -> MQTT
 After=network-online.target mosquitto.service
 Wants=network-online.target
 
@@ -331,7 +338,7 @@ Type=simple
 User=$(whoami)
 WorkingDirectory=${destino}
 EnvironmentFile=${cfg}
-ExecStart=${destino}/.venv/bin/python powerflex_mqtt.py
+ExecStart=${destino}/.venv/bin/python servico_inversores.py
 Restart=always
 RestartSec=5
 
@@ -339,11 +346,12 @@ RestartSec=5
 WantedBy=multi-user.target
 EOF
     sudo systemctl daemon-reload
-    ok "unit systemd instalado"
-
-    # Nao damos "enable --now": sem o IP do drive configurado ele so entraria
-    # em loop de reconexao. O usuario liga depois de ajustar o config.env.
-    aviso "servico NAO iniciado de proposito — ajuste o PF525_IP primeiro"
+    # Liga JA, mesmo sem inversor cadastrado: ele fica esperando o painel.
+    sudo systemctl enable --now insightx-inversores
+    sleep 3
+    systemctl is-active --quiet insightx-inversores \
+        && ok "servico ativo -- esperando a lista de inversores (${DESTINO_IOT}/dados/inversores.json)" \
+        || aviso "servico nao subiu: journalctl -u insightx-inversores -n 30"
 }
 
 # =====================================================================
@@ -369,14 +377,11 @@ resumo() {
      edite o broker "Mosquitto local", aba Security, preencha usuario e
      senha, e faca Deploy. E uma vez so.
 
-  2. PowerFlex — IP do inversor
-     nano ${DESTINO_IOT}/integracoes/powerflex525/config.env
-       PF525_IP=<ip real do drive>
-     Depois:
-       sudo systemctl enable --now powerflex525-corrente
-       journalctl -u powerflex525-corrente -f
-     Se falhar na ABERTURA da conexao (nao na leitura), o parametro esta
-     certo e a classe CIP e que muda: PF525_CLASSE=0x93.
+  2. Inversores
+     O servico insightx-inversores ja esta rodando e aplica a lista
+     sozinho, sem reiniciar. O menu Inversores do painel, que vai
+     escrever essa lista, esta em construcao; ate la, o formato esta em
+     integracoes/inversores/README.md.
 
   3. ESP32 — as mesmas credenciais
      Em firmware/esp32-campo/include/config.h:
@@ -386,9 +391,6 @@ resumo() {
 
   4. Conferir o barramento
      mosquitto_sub -h localhost -u ${MQTT_USER} -P '<senha>' -t 'monitoramento/#' -v
-
-  NAO instalado (camada de historico, ver docs/visualizacao.md):
-     PostgreSQL + TimescaleDB, Grafana.
 
 EOF
 }
@@ -526,7 +528,7 @@ main() {
     pedir_credenciais
     instalar_mosquitto
     instalar_nodered
-    instalar_powerflex
+    instalar_inversores
     instalar_banco
     configurar_nome_na_rede
     resumo

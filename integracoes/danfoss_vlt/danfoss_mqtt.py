@@ -237,22 +237,30 @@ def endereco_de(pnu: int) -> int:
     return pnu * 10 - 1
 
 
-def abrir_cliente():
+def abrir_cliente(transporte=None, ip=None, porta=None, serial=None,
+                  baud=None, paridade="E"):
+    """Abre o cliente Modbus. Sem argumentos, usa as variáveis de ambiente
+    (um drive por processo, como sempre); com argumentos, serve ao serviço
+    de inversores, que lê vários drives e barramentos."""
     try:
         from pymodbus.client import ModbusTcpClient, ModbusSerialClient
     except ImportError:
         sys.exit("Falta o pymodbus. Instale com: pip install pymodbus")
+    transporte = (transporte or TRANSPORTE).lower()
 
-    if TRANSPORTE == "rtu":
+    if transporte == "rtu":
+        serial, baud = serial or SERIAL, int(baud or BAUD)
         # A Danfoss usa 8 bits, paridade PAR, 1 stop bit por padrão
-        # (par. 8-32/8-33). Se o drive foi reconfigurado, ajuste aqui.
-        cli = ModbusSerialClient(port=SERIAL, baudrate=BAUD,
-                                 bytesize=8, parity="E", stopbits=1,
+        # (par. 8-32/8-33). Todos os drives de UM barramento têm de usar os
+        # mesmos baud e paridade -- é o barramento que é configurado aqui.
+        cli = ModbusSerialClient(port=serial, baudrate=baud,
+                                 bytesize=8, parity=paridade, stopbits=1,
                                  timeout=1.0)
-        alvo = f"{SERIAL} @ {BAUD} 8E1, unit {UNIT}"
+        alvo = f"{serial} @ {baud} 8{paridade}1"
     else:
-        cli = ModbusTcpClient(IP, port=PORTA, timeout=2.0)
-        alvo = f"{IP}:{PORTA}, unit {UNIT}"
+        ip, porta = ip or IP, int(porta or PORTA)
+        cli = ModbusTcpClient(ip, port=porta, timeout=2.0)
+        alvo = f"{ip}:{porta}"
 
     if not cli.connect():
         raise ConnectionError(f"nao conectou em {alvo}")
@@ -260,7 +268,7 @@ def abrir_cliente():
     return cli
 
 
-def _ler_registradores(cli, endereco, quantidade):
+def _ler_registradores(cli, endereco, quantidade, unidade=None):
     """Lê registradores holding, tolerando as duas assinaturas do pymodbus.
 
     O pymodbus 3.x trocou 'unit=' por 'slave=' e depois por 'device_id='.
@@ -271,7 +279,7 @@ def _ler_registradores(cli, endereco, quantidade):
     for kw in ("device_id", "slave", "unit"):
         try:
             r = cli.read_holding_registers(endereco, count=quantidade,
-                                           **{kw: UNIT})
+                                           **{kw: UNIT if unidade is None else unidade})
             return r
         except TypeError as e:
             ultimo_erro = e
@@ -300,12 +308,12 @@ def montar_valor(registros, bits: int, sinal: bool) -> int:
     return valor
 
 
-def ler_parametro(cli, p) -> int:
+def ler_parametro(cli, p, unidade=None) -> int:
     """Lê um parâmetro respeitando a largura: 1 registrador (16 bits) ou 2."""
     if isinstance(p, int):                      # chamada antiga, por PNU
         p = Param(p, 1.0, 0, 32, True)
     n = 1 if p.bits == 16 else 2
-    r = _ler_registradores(cli, endereco_de(p.pnu), n)
+    r = _ler_registradores(cli, endereco_de(p.pnu), n, unidade)
     if r is None or (hasattr(r, "isError") and r.isError()):
         raise IOError(f"erro lendo PNU {p.pnu}")
     return montar_valor(r.registers, p.bits, p.sinal)
@@ -363,21 +371,27 @@ _indisponiveis = set()
 ESSENCIAIS = {"frequencia_hz", "corrente_a"}
 
 
-def ler_inversor(cli) -> dict:
+def ler_inversor(cli, familia=None, unidade=None, indisponiveis=None) -> dict:
+    """Lê um drive. Sem argumentos: o drive das variáveis de ambiente. O
+    serviço de inversores passa a família, o endereço de escravo e o
+    conjunto de parâmetros indisponíveis DAQUELE drive -- num barramento
+    com um FC 51 e um FC 302, o que falta num não falta no outro."""
+    params = PERFIS.get(familia, PARAMETROS) if familia else PARAMETROS
+    indisp = _indisponiveis if indisponiveis is None else indisponiveis
     bruto = {}
     dados = {}
-    for campo, p in PARAMETROS.items():
+    for campo, p in params.items():
         pnu, escala, casas = p
-        if campo in _indisponiveis:
+        if campo in indisp:
             continue
         try:
-            v = ler_parametro(cli, p)
+            v = ler_parametro(cli, p, unidade)
         except Exception as e:
             if campo in ESSENCIAIS:
                 raise
             # Parâmetro que esta família não tem. Registra uma vez e segue:
             # perder o torque não é motivo para perder a corrente também.
-            _indisponiveis.add(campo)
+            indisp.add(campo)
             log.warning("parâmetro %s (PNU %d) indisponível neste drive (%s) "
                         "— seguindo sem ele", campo, pnu, e)
             continue

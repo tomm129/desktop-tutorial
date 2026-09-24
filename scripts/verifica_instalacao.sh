@@ -131,21 +131,28 @@ else
 fi
 
 # ---------------------------------------------------------------------
-secao "Sidecar do PowerFlex"
-PF_CFG=/opt/iot/integracoes/powerflex525/config.env
-if [[ -f "$PF_CFG" ]]; then
-    # b005 e em volts inteiros; 0.1 veio de um config.example.env antigo e
-    # faz 311 V aparecerem como 31,1 V. O setup corrige, mas so se rodar.
-    if grep -qE '^PF525_ESCALA_DCBUS=0\.1[[:space:]]*$' "$PF_CFG"; then
-        falha "PF525_ESCALA_DCBUS=0.1 no config.env -- o b005 e em volts; use 1.0"
+secao "Servico de inversores"
+INV_DIR=/opt/iot/integracoes/inversores
+if systemctl is-active --quiet insightx-inversores; then ok "insightx-inversores ativo"; else falha "insightx-inversores NAO esta ativo"; fi
+if systemctl is-enabled --quiet insightx-inversores 2>/dev/null; then
+    ok "insightx-inversores sobe no boot"
+else
+    falha "insightx-inversores NAO sobe no boot (sudo systemctl enable insightx-inversores)"
+fi
+# O sidecar antigo lendo em paralelo leria o mesmo drive duas vezes --
+# peso a mais na RS-485 do Multi-Drive, que o CLP usa para comandar.
+if systemctl is-active --quiet powerflex525-corrente 2>/dev/null; then
+    falha "sidecar antigo powerflex525-corrente ainda ativo (sudo systemctl disable --now powerflex525-corrente)"
+fi
+LISTA=/opt/iot/dados/inversores.json
+if [[ -f "$LISTA" ]]; then
+    if res=$(cd "$INV_DIR" && INVERSORES_ARQ="$LISTA" .venv/bin/python servico_inversores.py --validar 2>&1); then
+        ok "lista de inversores do painel: $(echo "$res" | head -1)"
     else
-        ok "escala do barramento CC (b005) coerente"
-    fi
-    if grep -qE '^PF525_IP=192\.168\.1\.10[[:space:]]*$' "$PF_CFG"; then
-        aviso "PF525_IP ainda no valor de exemplo"
+        falha "lista de inversores com erro: $(echo "$res" | tail -n +2 | head -3 | tr '\n' ' ')"
     fi
 else
-    aviso "sidecar do PowerFlex nao instalado"
+    aviso "nenhum inversor cadastrado ainda ($LISTA)"
 fi
 
 # ---------------------------------------------------------------------

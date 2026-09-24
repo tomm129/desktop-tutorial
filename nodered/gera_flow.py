@@ -502,6 +502,9 @@ if (p.origem && typeof p.origem === 'object') {
     a.origem = {
         no: txt(o.no),
         drive: (Number.isInteger(o.drive) && o.drive >= 0 && o.drive <= 4) ? o.drive : null,
+        barramento: txt(o.barramento),
+        endereco: (Number.isInteger(o.endereco) && o.endereco >= 1 && o.endereco <= 247) ? o.endereco : null,
+        modelo: txt(o.modelo),
         nome: txt(o.nome),
         tag: txt(o.tag),
     };
@@ -1165,9 +1168,14 @@ flow.set('nao_atribuidos', Object.keys(registro)
             mudo: (Date.now() - (r.visto_em || 0)) > SEM_DADOS_MS,
             origem: (function (o) {
                 if (!o) { return ''; }
-                const pos = (o.drive === null || o.drive === undefined) ? ''
-                    : (o.drive === 0 ? 'drive 0 (Ethernet)' : 'drive ' + o.drive + ' (DSI)');
-                return [o.no, pos, o.nome].filter(Boolean).join('  ·  ');
+                // Onde: IP + posicao no no (EtherNet/IP), ou barramento +
+                // endereco (RS-485), ou IP + endereco (Modbus TCP).
+                const pos = (o.drive !== null && o.drive !== undefined)
+                    ? (o.drive === 0 ? 'drive 0 (Ethernet)' : 'drive ' + o.drive + ' (DSI)')
+                    : (o.endereco ? 'endereço ' + o.endereco : '');
+                // O nome do modelo vem do MESMO catalogo que o servico usa.
+                const modelo = NOMES_MODELO[o.modelo] || o.modelo || '';
+                return [o.no || o.barramento, pos, modelo, o.nome].filter(Boolean).join('  ·  ');
             })(r.origem),
             tag_sugerida: (r.origem && r.origem.tag) || '',
             resumo: (r.tipo === 'inversor')
@@ -4123,6 +4131,15 @@ if __name__ == "__main__":
     for _n in flows:
         if _n.get("id") == "montar_painel":
             _n["func"] = _n["func"].replace("__LOGO_LOCKUP__", LOGO_LOCKUP)
+            # Nomes dos modelos de inversor: lidos do MESMO catalogo que o
+            # servico de inversores usa (integracoes/inversores/catalogo.json),
+            # para o painel e o gateway nunca discordarem.
+            _cat = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                               "..", "integracoes", "inversores", "catalogo.json"),
+                                  encoding="utf-8"))
+            _nomes = {k: v["nome"] for k, v in _cat["modelos"].items()}
+            _n["func"] = ("const NOMES_MODELO = " + json.dumps(_nomes, ensure_ascii=False)
+                          + ";\n" + _n["func"])
     with open(destino, "w", encoding="utf-8", newline="\n") as f:
         json.dump(flows, f, indent=4, ensure_ascii=False)
         f.write("\n")
