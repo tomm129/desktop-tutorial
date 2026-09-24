@@ -28,8 +28,10 @@ painel (menu Inversores)  ──grava──>  /opt/iot/dados/inversores.json  �
   campos o cadastro pede. É a **única** fonte: o serviço e o painel leem
   daqui, e nunca discordam sobre quais modelos existem.
 - **`/opt/iot/dados/inversores.json`** — a lista de inversores desta planta.
-  Quem vai escrevê-la é o **menu Inversores do painel**, que está em
-  construção. **Até lá, ela é escrita à mão**, no formato abaixo.
+  Quem a escreve é o **menu Inversores do painel**: escolha o modelo, o
+  formulário pede só os campos daquele modelo, avisa conflito enquanto se
+  digita, e ao salvar o gateway aplica em segundos. O formato abaixo é só
+  referência — não é preciso editá-lo à mão.
 
 O serviço **relê o arquivo sozinho** quando ele muda (a cada 2 s) — não
 precisa reiniciar nada. Se o arquivo estiver corrompido (uma escrita pela
@@ -46,7 +48,7 @@ metade), ele mantém a configuração anterior rodando e avisa.
 
 Siemens está fora por enquanto: depende de levantar os modelos da fábrica.
 
-## Formato da lista
+## Formato da lista (referência)
 
 ```json
 {"inversores": [

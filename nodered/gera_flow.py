@@ -10,6 +10,16 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from marca import LOGO_LOCKUP, LOGO_ICONE
+from inversores_ui import TELA as TELA_INV, VALIDADOR_JS as VALIDADOR_INV
+
+# Catalogo de modelos de inversor: o MESMO arquivo que o servico do gateway
+# le (integracoes/inversores/catalogo.json). Tela e gateway nunca discordam
+# sobre quais modelos existem nem sobre que campos cada um pede.
+CATALOGO_INV = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                           "..", "integracoes", "inversores", "catalogo.json"),
+                              encoding="utf-8"))
+TELA_INV_PRONTA = (TELA_INV.replace("__CATALOGO__", json.dumps(CATALOGO_INV, ensure_ascii=False))
+                           .replace("__VALIDADOR__", VALIDADOR_INV))
 
 # --- Paleta validada (validate_palette.js, modo escuro) ---------------
 #
@@ -46,6 +56,7 @@ BASE, TEMA = "ui_base", "ui_tema"
 PAGINA, PAGINA_DET, PAGINA_CAD, PAGINA_ALARMES = "pg_visao", "pg_detalhe", "pg_cadastro", "pg_alarmes"
 PAGINA_ATIVOS, PAGINA_TEND = "pg_ativos", "pg_tendencias"
 PAGINA_IA, PAGINA_REL = "pg_ia", "pg_relatorios"
+PAGINA_INV = "pg_inversores"
 
 G_RESUMO, G_CARDS = "grp_resumo", "grp_cards"
 G_LINHA = "grp_linha"
@@ -57,6 +68,7 @@ G_ALARMES_KPI, G_ALARMES_LISTA = "grp_alarmes_kpi", "grp_alarmes_lista"
 G_ATIVOS_TAB = "grp_ativos_tab"
 G_TEND_T, G_TEND_V, G_TEND_C = "grp_tend_t", "grp_tend_v", "grp_tend_c"
 G_IA, G_REL = "grp_ia", "grp_rel"
+G_INV = "grp_inversores"
 
 flows = []
 
@@ -131,6 +143,12 @@ no(id=PAGINA_CAD, type="ui-page", name="Configuracao", ui=BASE, path="/cadastro"
    icon="cog-outline", layout="grid", theme=TEMA, order=7, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
+# Inversores: o gateway le o que se cadastra aqui (menu logo abaixo de
+# Configuracao, que e onde ficam as outras telas de ajuste).
+no(id=PAGINA_INV, type="ui-page", name="Inversores", ui=BASE, path="/inversores",
+   icon="lightning-bolt", layout="grid", theme=TEMA, order=8, className="",
+   visible=True, disabled=False, breakpoints=BREAKPOINTS)
+
 no(id=PAGINA_ALARMES, type="ui-page", name="Alarmes", ui=BASE, path="/alarmes",
    icon="bell-alert", layout="grid", theme=TEMA, order=5, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
@@ -178,6 +196,7 @@ grupo(G_CORR,   "Corrente (A)",           12, 8, altura=8, pagina=PAGINA_DET)
 
 # --- Tela 3: cadastro de dispositivos ---------------------------------
 grupo(G_CAD, "", 12, 1, altura=14, pagina=PAGINA_CAD, titulo=False)
+grupo(G_INV, "", 12, 1, altura=14, pagina=PAGINA_INV, titulo=False)
 
 # --- Tela: Ativos (tabela completa da planta) -------------------------
 grupo(G_ATIVOS_TAB, "Todos os ativos e partes", 12, 1, altura=16,
@@ -2991,6 +3010,252 @@ no(id="gravar_cadastro", type="file", z="flow_monitor", name="ativos.json",
    filename="filename", filenameType="msg", appendNewline=False,
    createDir=True, overwriteFile="true", encoding="utf8",
    x=1080, y=800, wires=[[]])
+
+# =====================================================================
+#  Menu Inversores: cadastro dos inversores que o gateway le
+# =====================================================================
+# O painel escreve /opt/iot/dados/inversores.json; o servico de inversores
+# (integracoes/inversores) o rele sozinho e publica o que aplicou em
+# insightx/gateway/inversores/estado, que volta para esta tela.
+#
+# O validador e o MESMO codigo na tela (aviso enquanto digita) e aqui no
+# servidor (o que de fato grava): nunca se grava o que a tela recusaria.
+_PRE_INV = ("const CATALOGO = " + json.dumps(CATALOGO_INV, ensure_ascii=False) + ";\n"
+            + VALIDADOR_INV + "\n")
+
+no(id="tick_inv_arq", type="inject", z="flow_monitor",
+   name="reler inversores (60s)", props=[{"p": "payload"}], repeat="60",
+   crontab="", once=True, onceDelay="0.7", topic="", payload="",
+   payloadType="date", x=140, y=960, wires=[["caminho_inversores"]])
+
+no(id="caminho_inversores", type="function", z="flow_monitor",
+   name="caminho dos inversores", outputs=1, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=350, y=960,
+   wires=[["ler_inversores"]],
+   func=r"""
+// Caminho absoluto, pelo mesmo motivo do cadastro de ativos: o "file in"
+// resolve caminho relativo contra o diretorio do PROCESSO.
+msg.filename = (env.get('IOT_DADOS') || '/opt/iot/dados') + '/inversores.json';
+return msg;
+""")
+
+no(id="ler_inversores", type="file in", z="flow_monitor", name="inversores.json",
+   filename="filename", filenameType="msg", format="utf8",
+   chunk=False, sendError=False, encoding="utf8", allProps=False,
+   x=560, y=960, wires=[["guardar_inversores"]])
+
+no(id="guardar_inversores", type="function", z="flow_monitor",
+   name="guardar inversores", outputs=0, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=770, y=960, wires=[],
+   func=r"""
+// Arquivo ilegivel (escrita pela metade, edicao a mao errada): mantem o que
+// esta em memoria em vez de apagar a lista da tela.
+try {
+    const j = JSON.parse(msg.payload);
+    flow.set('inversores_cfg', Array.isArray(j.inversores) ? j.inversores : []);
+    flow.set('inversores_arq_erro', null);
+} catch (e) {
+    flow.set('inversores_arq_erro', String(e.message || e));
+}
+return null;
+""")
+
+no(id="mqtt_estado_inv", type="mqtt in", z="flow_monitor",
+   name="estado do servico de inversores", topic="insightx/gateway/inversores/estado",
+   qos="1", datatype="json", broker="broker_local", nl=False, rap=True,
+   rh=0, inputs=0, x=170, y=1020, wires=[["guardar_estado_inv"]])
+
+no(id="guardar_estado_inv", type="function", z="flow_monitor",
+   name="guardar estado do gateway", outputs=0, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=420, y=1020, wires=[],
+   func=r"""
+if (msg.payload && typeof msg.payload === 'object') {
+    flow.set('inversores_estado', msg.payload);
+}
+return null;
+""")
+
+no(id="tick_inv_ui", type="inject", z="flow_monitor",
+   name="atualizar tela de inversores (3s)", props=[{"p": "payload"}], repeat="3",
+   crontab="", once=True, onceDelay="2.5", topic="", payload="",
+   payloadType="date", x=160, y=1080, wires=[["montar_inversores"]])
+
+no(id="montar_inversores", type="function", z="flow_monitor",
+   name="montar tela de inversores", outputs=1, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=410, y=1080,
+   wires=[["tela_inversores"]],
+   func=_PRE_INV + r"""
+// Junta tres fontes para cada inversor: a CONFIGURACAO (inversores.json),
+// o que o GATEWAY disse dela (aplicado ou recusado) e a ULTIMA LEITURA que
+// chegou pelo MQTT. E o que responde "esta funcionando?" sem abrir terminal.
+const cfg = flow.get('inversores_cfg') || [];
+const reg = flow.get('ativos') || {};
+const cad = flow.get('cadastro') || {};
+const est = flow.get('inversores_estado') || null;
+const agora = Date.now();
+
+function ha(ms) {
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) { return 'há ' + s + ' s'; }
+    const m = Math.round(s / 60);
+    if (m < 60) { return 'há ' + m + ' min'; }
+    return 'há ' + Math.round(m / 60) + ' h';
+}
+function num(v, casas) { return Number(v).toFixed(casas).replace('.', ','); }
+
+// Quem usa cada inversor no cadastro de ativos.
+const assoc = {};
+Object.keys(cad).forEach(function (a) {
+    const partes = (cad[a] || {}).partes || {};
+    Object.keys(partes).forEach(function (pn) {
+        const pt = partes[pn] || {};
+        if (pt.inversor) { assoc[pt.inversor] = a + ' › ' + pn; }
+    });
+});
+const errosGw = {};
+((est && est.erros) || []).forEach(function (e) { errosGw[e.id] = e.erro; });
+const ativosGw = {};
+((est && est.ativos) || []).forEach(function (id) { ativosGw[id] = true; });
+
+const lista = cfg.map(function (it) {
+    const r = reg[it.id] || {};
+    let estado, texto;
+    if (it.habilitado === false) { estado = 'desligado'; texto = 'leitura desligada'; }
+    else if (errosGw[it.id]) { estado = 'recusado'; texto = 'recusado pelo gateway'; }
+    // Recem-cadastrado e o gateway ainda nao aplicou: "aguardando", nunca
+    // "sem resposta". O broker pode guardar um 'offline' retido de uma
+    // configuracao anterior com o mesmo id, e o drive novo apareceria em
+    // vermelho por alguns segundos antes de o gateway sequer tenta-lo.
+    else if (est && !ativosGw[it.id]) { estado = 'aguardando'; texto = 'aguardando o gateway aplicar'; }
+    else if (r.conexao === 'offline') {
+        estado = 'sem_resposta';
+        texto = 'sem resposta' + (r.visto_em ? ' · última leitura ' + ha(agora - r.visto_em) : '');
+    }
+    else if (r.visto_em && agora - r.visto_em < 30000) { estado = 'lendo'; texto = 'lendo · ' + ha(agora - r.visto_em); }
+    else if (r.visto_em) { estado = 'sem_resposta'; texto = 'sem dados ' + ha(agora - r.visto_em); }
+    else {
+        estado = 'aguardando';
+        texto = ativosGw[it.id] ? 'aguardando a primeira leitura' : 'aguardando o gateway aplicar';
+    }
+    let leitura = '';
+    if (estado === 'lendo' && typeof r.corrente_a === 'number') {
+        leitura = num(r.corrente_a, 2) + ' A';
+        if (typeof r.frequencia_hz === 'number') { leitura += '  ·  ' + num(r.frequencia_hz, 1) + ' Hz'; }
+    }
+    return Object.assign({}, it, {
+        conexao_desc: descreverConexao(it), estado: estado, estado_texto: texto,
+        leitura: leitura, erro: errosGw[it.id] || '', associado: assoc[it.id] || ''
+    });
+});
+
+return { payload: { lista: lista, gateway: {
+    recebido: !!est,
+    quando: (est && est.ts) ? ha(agora - est.ts) : '',
+    erro_arquivo: (est && est.erro_arquivo) || flow.get('inversores_arq_erro') || ''
+} } };
+""")
+
+# height="0" = altura AUTOMATICA. Com altura fixa o Dashboard 2.0 poe uma
+# rolagem interna no widget, e o formulario ficava cortado justamente onde
+# aparecem o erro de validacao e o botao -- medido no navegador (714 px de
+# caixa para 907 de conteudo).
+no(id="tela_inversores", type="ui-template", z="flow_monitor", group=G_INV,
+   name="cadastro de inversores", order=1, width="12", height="0",
+   head="", format=TELA_INV_PRONTA, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=660, y=1080, wires=[["aplicar_inversores"]])
+
+no(id="aplicar_inversores", type="function", z="flow_monitor",
+   name="aplicar inversores", outputs=3, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=880, y=1080,
+   wires=[["gravar_inversores"], ["tela_inversores"], ["montar_inversores"]],
+   func=_PRE_INV + r"""
+// Aplica a acao da tela, VALIDA A LISTA INTEIRA com o mesmo validador da
+// tela e so entao grava. Saidas: 1 = arquivo, 2 = resposta para a tela,
+// 3 = redesenha a tela na hora (sem esperar o ciclo de 3 s).
+const p = msg.payload || {};
+let lista = JSON.parse(JSON.stringify(flow.get('inversores_cfg') || []));
+const resp = function (ok, texto) {
+    return { payload: { resposta: { ok: ok, texto: texto, pedido: p.pedido } } };
+};
+
+// Diagnostico (usado pelos testes): so valida, nao grava.
+if (p.acao === 'validar') {
+    return [null, { payload: { validacao: validarInversores({ inversores: p.inversores || [] }) } }, null];
+}
+
+let texto;
+if (p.acao === 'salvar') {
+    const it = normalizarItem(p.item || {});
+    const outros = lista.filter(function (i) { return i.id !== p.original; });
+    // O id nasce uma vez e nunca muda: e ele que o cadastro de ativos usa.
+    if (p.original) { it.id = p.original; }
+    else if (!it.id || outros.some(function (i) { return i.id === it.id; })) {
+        it.id = gerarIdInversor(outros, it.tag, it.nome, it.modelo);
+    }
+    // Campo que a tela nao edita (intervalo_s) sobrevive a uma edicao.
+    const antigo = lista.find(function (i) { return i.id === p.original; });
+    if (antigo && antigo.intervalo_s !== undefined && it.intervalo_s === undefined) {
+        it.intervalo_s = antigo.intervalo_s;
+    }
+    const nova = p.original
+        ? lista.map(function (i) { return i.id === p.original ? it : i; })
+        : lista.concat([it]);
+    // Valida com o item que MUDOU no FIM da lista: o validador percorre em
+    // ordem, e quem vem primeiro fica com o lugar. Com o item editado no
+    // meio da lista, um conflito seria atribuido ao VIZINHO -- e o gateway
+    // passaria a recusar o drive que estava funcionando, sem aviso nenhum.
+    // A ordem gravada continua a original.
+    const meus = validarInversores({ inversores: outros.concat([it]) }).erros
+        .filter(function (e) { return e.id === it.id; }).map(function (e) { return e.erro; });
+    if (meus.length) { return [null, resp(false, 'Não salvo: ' + meus.join('; ')), null]; }
+    lista = nova;
+    texto = (p.original ? 'Alterações salvas' : 'Inversor adicionado') + ' — o gateway aplica em segundos.';
+} else if (p.acao === 'remover') {
+    if (!lista.some(function (i) { return i.id === p.id; })) { return [null, resp(false, 'Inversor não encontrado.'), null]; }
+    lista = lista.filter(function (i) { return i.id !== p.id; });
+    // Continua associado a um ativo? Avisa -- remover a associacao e
+    // decisao de quem cuida do cadastro de ativos, nao desta tela.
+    const cad = flow.get('cadastro') || {};
+    let onde = '';
+    Object.keys(cad).forEach(function (a) {
+        const partes = (cad[a] || {}).partes || {};
+        Object.keys(partes).forEach(function (pn) {
+            if ((partes[pn] || {}).inversor === p.id) { onde = a + ' › ' + pn; }
+        });
+    });
+    texto = 'Inversor removido.' + (onde ? ' Ele continua associado a ' + onde + ' em Configuração.' : '');
+} else if (p.acao === 'habilitar') {
+    const nova = lista.map(function (i) {
+        return i.id === p.id ? Object.assign({}, i, { habilitado: !!p.habilitado }) : i;
+    });
+    if (p.habilitado) {
+        // Religar pode conflitar com quem ocupou o lugar enquanto ele
+        // estava desligado.
+        // Mesmo cuidado do salvar: o religado vai para o fim na validacao.
+        const alvo = nova.filter(function (x) { return x.id === p.id; });
+        const resto = nova.filter(function (x) { return x.id !== p.id; });
+        const e = validarInversores({ inversores: resto.concat(alvo) }).erros.filter(function (x) { return x.id === p.id; });
+        if (e.length) { return [null, resp(false, 'Não ligado: ' + e.map(function (x) { return x.erro; }).join('; ')), null]; }
+    }
+    lista = nova;
+    texto = p.habilitado ? 'Leitura ligada.' : 'Leitura desligada.';
+} else {
+    return [null, null, null];
+}
+
+flow.set('inversores_cfg', lista);
+const arquivo = {
+    filename: (env.get('IOT_DADOS') || '/opt/iot/dados') + '/inversores.json',
+    payload: JSON.stringify({ versao: 1, inversores: lista }, null, 2) + '\n'
+};
+return [arquivo, resp(true, texto), { payload: 'redesenhar' }];
+""")
+
+no(id="gravar_inversores", type="file", z="flow_monitor", name="inversores.json",
+   filename="filename", filenameType="msg", appendNewline=False,
+   createDir=True, overwriteFile="true", encoding="utf8",
+   x=1100, y=1080, wires=[[]])
 
 ROADMAP_IA = r"""
 <template>

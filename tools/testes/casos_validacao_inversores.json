@@ -1,0 +1,67 @@
+{
+  "_leia": "Casos de validacao da lista de inversores, lidos por DOIS testes: testa_servico_inversores.py (o validador do servico, Python) e testa_painel.js (o validador do painel, JavaScript). Se as regras divergirem entre os dois lados, um dos testes quebra. 'erros' mapeia id -> trecho que a mensagem tem de conter; 'validos' e a lista exata de ids aceitos.",
+  "casos": [
+    {"caso": "id repetido",
+     "inversores": [{"id": "a", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.1", "posicao": 0}},
+                    {"id": "a", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.2", "posicao": 0}}],
+     "erros": {"a": "repetido"}, "validos": ["a"]},
+
+    {"caso": "modelo fora do catalogo",
+     "inversores": [{"id": "x", "modelo": "abb_acs580", "conexao": {"tipo": "tcp", "ip": "10.0.0.1"}}],
+     "erros": {"x": "desconhecido"}, "validos": []},
+
+    {"caso": "FC 51 por TCP (ele so tem RS-485)",
+     "inversores": [{"id": "x", "modelo": "danfoss_fc51", "conexao": {"tipo": "tcp", "ip": "10.0.0.1"}}],
+     "erros": {"x": "rtu"}, "validos": []},
+
+    {"caso": "IP invalido",
+     "inversores": [{"id": "x", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.300", "posicao": 0}}],
+     "erros": {"x": "IP"}, "validos": []},
+
+    {"caso": "IP com zero a esquerda",
+     "inversores": [{"id": "x", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "010.0.0.1", "posicao": 0}}],
+     "erros": {"x": "IP"}, "validos": []},
+
+    {"caso": "posicao 5 no no",
+     "inversores": [{"id": "x", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.1", "posicao": 5}}],
+     "erros": {"x": "0 a 4"}, "validos": []},
+
+    {"caso": "mesmo drive duas vezes",
+     "inversores": [{"id": "a", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.1", "posicao": 1}},
+                    {"id": "b", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.1", "posicao": 1}}],
+     "erros": {"b": "usado por a"}, "validos": ["a"]},
+
+    {"caso": "mesmo endereco no mesmo barramento RS-485",
+     "inversores": [{"id": "a", "modelo": "danfoss_fc51", "conexao": {"tipo": "rtu", "porta_serial": "/dev/ttyUSB0", "endereco": 3}},
+                    {"id": "b", "modelo": "danfoss_fc51", "conexao": {"tipo": "rtu", "porta_serial": "/dev/ttyUSB0", "endereco": 3}}],
+     "erros": {"b": "endereço 3"}, "validos": ["a"]},
+
+    {"caso": "velocidade diferente no mesmo barramento",
+     "inversores": [{"id": "a", "modelo": "danfoss_fc51", "conexao": {"tipo": "rtu", "porta_serial": "/dev/ttyUSB0", "endereco": 1, "baud": 9600}},
+                    {"id": "b", "modelo": "danfoss_fc302", "conexao": {"tipo": "rtu", "porta_serial": "/dev/ttyUSB0", "endereco": 2, "baud": 19200}}],
+     "erros": {"b": "mesma velocidade"}, "validos": ["a"]},
+
+    {"caso": "endereco 0",
+     "inversores": [{"id": "x", "modelo": "danfoss_fc51", "conexao": {"tipo": "rtu", "porta_serial": "/dev/ttyUSB0", "endereco": 0}}],
+     "erros": {"x": "1 a 247"}, "validos": []},
+
+    {"caso": "mesmo IP e endereco em Modbus TCP",
+     "inversores": [{"id": "a", "modelo": "danfoss_fc302", "conexao": {"tipo": "tcp", "ip": "10.0.0.5", "porta": 502, "endereco": 1}},
+                    {"id": "b", "modelo": "danfoss_fc302", "conexao": {"tipo": "tcp", "ip": "10.0.0.5", "porta": 502, "endereco": 1}}],
+     "erros": {"b": "usado por a"}, "validos": ["a"]},
+
+    {"caso": "configuracao legitima inteira (desabilitado fica de fora sem erro)",
+     "inversores": [{"id": "a", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.1", "posicao": 0}},
+                    {"id": "b", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.1", "posicao": 1}},
+                    {"id": "c", "modelo": "danfoss_fc51", "conexao": {"tipo": "rtu", "porta_serial": "/dev/ttyUSB0", "endereco": 1}},
+                    {"id": "d", "modelo": "danfoss_fc302", "conexao": {"tipo": "rtu", "porta_serial": "/dev/ttyUSB0", "endereco": 2}},
+                    {"id": "f", "modelo": "danfoss_fc51", "conexao": {"tipo": "rtu", "porta_serial": "/dev/ttyUSB1", "endereco": 1, "baud": 19200}},
+                    {"id": "g", "modelo": "pf525", "habilitado": false, "conexao": {"tipo": "cip", "ip": "10.0.0.9", "posicao": 0}}],
+     "erros": {}, "validos": ["a", "b", "c", "d", "f"]},
+
+    {"caso": "desabilitado nao conflita com quem ocupa o mesmo lugar",
+     "inversores": [{"id": "a", "modelo": "pf525", "conexao": {"tipo": "cip", "ip": "10.0.0.1", "posicao": 0}},
+                    {"id": "b", "modelo": "pf525", "habilitado": false, "conexao": {"tipo": "cip", "ip": "10.0.0.1", "posicao": 0}}],
+     "erros": {}, "validos": ["a"]}
+  ]
+}

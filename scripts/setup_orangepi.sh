@@ -318,6 +318,15 @@ EOF
     chmod 600 "${cfg}"
     ok "config.env gerado (credenciais do MQTT ja preenchidas)"
 
+    # Lista vazia na primeira instalacao: quem a preenche e o painel (menu
+    # Inversores). Sem o arquivo, o painel registraria "arquivo nao
+    # encontrado" no log a cada minuto num gateway recem-instalado.
+    local lista="${DESTINO_IOT}/dados/inversores.json"
+    if [[ ! -f "${lista}" ]]; then
+        echo '{"versao": 1, "inversores": []}' > "${lista}"
+        ok "lista de inversores criada vazia -- cadastre pelo painel, menu Inversores"
+    fi
+
     # O sidecar avulso da versao anterior, se houver: desligado, para um
     # mesmo drive nao ser lido duas vezes -- o que pesaria na RS-485 do
     # Multi-Drive, que o CLP usa para comandar.
@@ -350,7 +359,7 @@ EOF
     sudo systemctl enable --now insightx-inversores
     sleep 3
     systemctl is-active --quiet insightx-inversores \
-        && ok "servico ativo -- esperando a lista de inversores (${DESTINO_IOT}/dados/inversores.json)" \
+        && ok "servico ativo -- cadastre os inversores no painel, menu Inversores" \
         || aviso "servico nao subiu: journalctl -u insightx-inversores -n 30"
 }
 
@@ -378,10 +387,8 @@ resumo() {
      senha, e faca Deploy. E uma vez so.
 
   2. Inversores
-     O servico insightx-inversores ja esta rodando e aplica a lista
-     sozinho, sem reiniciar. O menu Inversores do painel, que vai
-     escrever essa lista, esta em construcao; ate la, o formato esta em
-     integracoes/inversores/README.md.
+     No PAINEL, menu Inversores: escolha o modelo, preencha o endereco,
+     salve. O servico insightx-inversores aplica sozinho, sem reiniciar.
 
   3. ESP32 — as mesmas credenciais
      Em firmware/esp32-campo/include/config.h:

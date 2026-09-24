@@ -192,8 +192,10 @@ funcionava. Terminar sem erro não é o mesmo que funcionar — é por isso que 
 
 - **Grave um ESP32** com o mesmo usuário/senha MQTT e `MQTT_HOST = <ip do gateway>`.
   A `medicoes` deixa de estar vazia e o ativo aparece na tela.
-- **PowerFlex** fica parado de propósito até você ajustar `PF525_IP` no
-  `/opt/iot/integracoes/powerflex525/config.env`. Ele fala **EtherNet/IP**, que
-  quer a placa na rede cabeada dos drives — Wi-Fi não serve.
+- **Inversores**: no painel, menu **Inversores**. Escolha o modelo
+  (PowerFlex 525, Danfoss FC 51/301/302), preencha o endereço e salve — o
+  gateway aplica sozinho, sem editar arquivo nem reiniciar. PowerFlex fala
+  **EtherNet/IP**, que quer o gateway na rede cabeada dos drives: Wi-Fi não
+  serve.
 - **Reverta o sudo sem senha**, se você o tiver liberado para automação:
   `sudo rm /etc/sudoers.d/010-<usuario>-nopasswd`

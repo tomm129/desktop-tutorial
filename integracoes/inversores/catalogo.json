@@ -1,82 +1,209 @@
 {
-  "_leia": "Catalogo de modelos de inversor. E a UNICA fonte: o servico de inversores (Python) le daqui como cada modelo se conecta, e o painel (Node-RED) le daqui quais campos mostrar no formulario. Modelo novo = entrada nova aqui + driver, sem mexer no painel.",
+  "_leia": "Catálogo de modelos de inversor. É a ÚNICA fonte: o serviço de inversores (Python) lê daqui como cada modelo se conecta, e o painel (Node-RED) lê daqui quais campos mostrar no formulário. Modelo novo = entrada nova aqui + driver, sem mexer no painel.",
   "versao": 1,
   "modelos": {
     "pf525": {
       "marca": "Allen-Bradley",
       "nome": "PowerFlex 525",
       "driver": "powerflex",
-      "conexoes": ["cip"],
+      "conexoes": [
+        "cip"
+      ],
       "multidrive": true,
-      "descricao": "EtherNet/IP embarcado. Ate 4 PowerFlex 525 encadeados pela RS-485 (DSI) atras dele respondem pelo MESMO IP.",
-      "grandezas": ["frequencia_hz", "corrente_a", "tensao_v", "dc_bus_v"]
+      "descricao": "EtherNet/IP embarcado. Até 4 PowerFlex 525 encadeados pela RS-485 (DSI) atrás dele respondem pelo MESMO IP.",
+      "grandezas": [
+        "frequencia_hz",
+        "corrente_a",
+        "tensao_v",
+        "dc_bus_v"
+      ]
     },
     "danfoss_fc302": {
       "marca": "Danfoss",
       "nome": "VLT FC 302",
       "driver": "danfoss",
       "familia": "fc302",
-      "conexoes": ["rtu", "tcp"],
+      "conexoes": [
+        "rtu",
+        "tcp"
+      ],
       "multidrive": false,
-      "descricao": "RS-485 embutida (terminais 68/69) com Modbus RTU; Modbus TCP so com placa de rede que o fale.",
-      "grandezas": ["frequencia_hz", "corrente_a", "tensao_v", "dc_bus_v", "potencia_kw", "rpm", "torque_nm"]
+      "descricao": "RS-485 embutida (terminais 68/69) com Modbus RTU; Modbus TCP só com placa de rede que o fale.",
+      "grandezas": [
+        "frequencia_hz",
+        "corrente_a",
+        "tensao_v",
+        "dc_bus_v",
+        "potencia_kw",
+        "rpm",
+        "torque_nm"
+      ]
     },
     "danfoss_fc301": {
       "marca": "Danfoss",
       "nome": "VLT FC 301",
       "driver": "danfoss",
       "familia": "fc302",
-      "conexoes": ["rtu", "tcp"],
+      "conexoes": [
+        "rtu",
+        "tcp"
+      ],
       "multidrive": false,
-      "descricao": "Mesmo grupo de parametros do FC 302.",
-      "grandezas": ["frequencia_hz", "corrente_a", "tensao_v", "dc_bus_v", "potencia_kw", "rpm", "torque_nm"]
+      "descricao": "Mesmo grupo de parâmetros do FC 302.",
+      "grandezas": [
+        "frequencia_hz",
+        "corrente_a",
+        "tensao_v",
+        "dc_bus_v",
+        "potencia_kw",
+        "rpm",
+        "torque_nm"
+      ]
     },
     "danfoss_fc51": {
       "marca": "Danfoss",
       "nome": "VLT Micro Drive FC 51",
       "driver": "danfoss",
       "familia": "fc51",
-      "conexoes": ["rtu"],
+      "conexoes": [
+        "rtu"
+      ],
       "multidrive": false,
-      "descricao": "So RS-485. Nao tem 16-16 Torque nem 16-17 Speed.",
-      "grandezas": ["frequencia_hz", "corrente_a", "tensao_v", "dc_bus_v", "potencia_kw"]
+      "descricao": "Só RS-485. Não tem 16-16 Torque nem 16-17 Speed.",
+      "grandezas": [
+        "frequencia_hz",
+        "corrente_a",
+        "tensao_v",
+        "dc_bus_v",
+        "potencia_kw"
+      ]
     }
   },
   "conexoes": {
     "cip": {
       "rotulo": "EtherNet/IP",
       "campos": [
-        {"id": "ip", "rotulo": "IP do drive", "tipo": "ip",
-         "ajuda": "Nos encadeados, e o IP do drive 0 do no (o que esta no cabo de rede)."},
-        {"id": "posicao", "rotulo": "Posicao no no", "tipo": "escolha", "padrao": 0,
-         "opcoes": [
-           {"valor": 0, "rotulo": "0 - o drive no cabo de rede"},
-           {"valor": 1, "rotulo": "1 - encadeado pela RS-485 (DSI)"},
-           {"valor": 2, "rotulo": "2 - encadeado pela RS-485 (DSI)"},
-           {"valor": 3, "rotulo": "3 - encadeado pela RS-485 (DSI)"},
-           {"valor": 4, "rotulo": "4 - encadeado pela RS-485 (DSI)"}
-         ]}
+        {
+          "id": "ip",
+          "rotulo": "IP do drive",
+          "tipo": "ip",
+          "ajuda": "Nos encadeados, é o IP do drive 0 do nó (o que está no cabo de rede)."
+        },
+        {
+          "id": "posicao",
+          "rotulo": "Posição no nó",
+          "tipo": "escolha",
+          "padrao": 0,
+          "opcoes": [
+            {
+              "valor": 0,
+              "rotulo": "0 — o drive no cabo de rede"
+            },
+            {
+              "valor": 1,
+              "rotulo": "1 — encadeado pela RS-485 (DSI)"
+            },
+            {
+              "valor": 2,
+              "rotulo": "2 — encadeado pela RS-485 (DSI)"
+            },
+            {
+              "valor": 3,
+              "rotulo": "3 — encadeado pela RS-485 (DSI)"
+            },
+            {
+              "valor": 4,
+              "rotulo": "4 — encadeado pela RS-485 (DSI)"
+            }
+          ]
+        }
       ]
     },
     "tcp": {
       "rotulo": "Modbus TCP",
       "campos": [
-        {"id": "ip", "rotulo": "IP do drive", "tipo": "ip"},
-        {"id": "porta", "rotulo": "Porta", "tipo": "inteiro", "padrao": 502, "min": 1, "max": 65535},
-        {"id": "endereco", "rotulo": "Endereco de escravo (par. 8-31)", "tipo": "inteiro", "padrao": 1, "min": 1, "max": 247}
+        {
+          "id": "ip",
+          "rotulo": "IP do drive",
+          "tipo": "ip"
+        },
+        {
+          "id": "porta",
+          "rotulo": "Porta",
+          "tipo": "inteiro",
+          "padrao": 502,
+          "min": 1,
+          "max": 65535
+        },
+        {
+          "id": "endereco",
+          "rotulo": "Endereço de escravo (par. 8-31)",
+          "tipo": "inteiro",
+          "padrao": 1,
+          "min": 1,
+          "max": 247
+        }
       ]
     },
     "rtu": {
       "rotulo": "Modbus RTU (RS-485)",
       "campos": [
-        {"id": "porta_serial", "rotulo": "Porta serial do gateway", "tipo": "texto", "padrao": "/dev/ttyUSB0",
-         "ajuda": "O adaptador USB-RS485 ligado ao Orange Pi. Varios drives podem dividir o mesmo barramento."},
-        {"id": "endereco", "rotulo": "Endereco de escravo (par. 8-31)", "tipo": "inteiro", "padrao": 1, "min": 1, "max": 247},
-        {"id": "baud", "rotulo": "Velocidade (par. 8-32)", "tipo": "escolha", "padrao": 9600,
-         "opcoes": [{"valor": 9600, "rotulo": "9600"}, {"valor": 19200, "rotulo": "19200"}, {"valor": 38400, "rotulo": "38400"}],
-         "ajuda": "Todos os drives do mesmo barramento precisam usar a mesma."},
-        {"id": "paridade", "rotulo": "Paridade (par. 8-33)", "tipo": "escolha", "padrao": "E",
-         "opcoes": [{"valor": "E", "rotulo": "Par, 1 stop (padrao)"}, {"valor": "O", "rotulo": "Impar, 1 stop"}, {"valor": "N", "rotulo": "Sem paridade, 1 stop"}]}
+        {
+          "id": "porta_serial",
+          "rotulo": "Porta serial do gateway",
+          "tipo": "texto",
+          "padrao": "/dev/ttyUSB0",
+          "ajuda": "O adaptador USB-RS485 ligado ao Orange Pi. Vários drives podem dividir o mesmo barramento."
+        },
+        {
+          "id": "endereco",
+          "rotulo": "Endereço de escravo (par. 8-31)",
+          "tipo": "inteiro",
+          "padrao": 1,
+          "min": 1,
+          "max": 247
+        },
+        {
+          "id": "baud",
+          "rotulo": "Velocidade (par. 8-32)",
+          "tipo": "escolha",
+          "padrao": 9600,
+          "opcoes": [
+            {
+              "valor": 9600,
+              "rotulo": "9600"
+            },
+            {
+              "valor": 19200,
+              "rotulo": "19200"
+            },
+            {
+              "valor": 38400,
+              "rotulo": "38400"
+            }
+          ],
+          "ajuda": "Todos os drives do mesmo barramento precisam usar a mesma."
+        },
+        {
+          "id": "paridade",
+          "rotulo": "Paridade (par. 8-33)",
+          "tipo": "escolha",
+          "padrao": "E",
+          "opcoes": [
+            {
+              "valor": "E",
+              "rotulo": "Par, 1 stop (padrão)"
+            },
+            {
+              "valor": "O",
+              "rotulo": "Ímpar, 1 stop"
+            },
+            {
+              "valor": "N",
+              "rotulo": "Sem paridade, 1 stop"
+            }
+          ]
+        }
       ]
     }
   }

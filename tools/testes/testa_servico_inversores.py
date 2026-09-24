@@ -96,6 +96,26 @@ ok(not e and [v["id"] for v in validos] == ["a", "b", "c", "d", "f"],
    f"-> {[v['id'] for v in validos]} erros={e}")
 
 
+print("\n=== 1b. Os casos COMPARTILHADOS com o validador do painel (JS) ===")
+# O painel valida com o mesmo conjunto de regras em JavaScript. Os dois
+# testes leem este arquivo: se as regras divergirem, um deles quebra.
+casos = json.loads((Path(__file__).parent / "casos_validacao_inversores.json")
+                   .read_text(encoding="utf-8"))["casos"]
+iguais = 0
+for c in casos:
+    v, e = srv.validar({"inversores": c["inversores"]}, CAT)
+    ids = [x["id"] for x in v]
+    erros = {x["id"]: x["erro"] for x in e}
+    bate = (ids == c["validos"] and len(erros) == len(c["erros"])
+            and all(t in erros.get(i, "") for i, t in c["erros"].items()))
+    if bate:
+        iguais += 1
+    else:
+        ok(False, f"caso compartilhado: {c['caso']}", f"-> {ids} {erros}")
+ok(iguais == len(casos), f"validador do servico bate com os {len(casos)} casos compartilhados com o painel",
+   f"-> {iguais}/{len(casos)}")
+
+
 # =====================================================================
 class CliFalso:
     def __init__(self):

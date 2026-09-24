@@ -152,7 +152,7 @@ if [[ -f "$LISTA" ]]; then
         falha "lista de inversores com erro: $(echo "$res" | tail -n +2 | head -3 | tr '\n' ' ')"
     fi
 else
-    aviso "nenhum inversor cadastrado ainda ($LISTA)"
+    aviso "lista de inversores nao existe ($LISTA) -- rode o setup de novo"
 fi
 
 # ---------------------------------------------------------------------

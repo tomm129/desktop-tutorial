@@ -87,6 +87,16 @@ Executa o código real dos nós contra mensagens simuladas. Cobre:
 - duas quedas distantes viram faixas separadas na linha do tempo;
 - rejeição de valores fisicamente impossíveis;
 - teto da fila de backfill.
+- **menu Inversores**: o nó que grava a lista valida e salva, recusa
+  conflito sem gravar, mantém o `id` ao editar e avisa ao remover um drive
+  que ainda está associado a um ativo; ao reativar ou editar um item, o
+  conflito é atribuído a **ele**, nunca ao vizinho que já funcionava;
+- estados da lista (lendo / sem resposta / aguardando / recusado) —
+  inclusive o drive recém-cadastrado que ainda tem um `offline` retido de
+  antes, que tem de aparecer como "aguardando", não em vermelho;
+- o validador do painel (JS) e o do serviço (Python) rodam os **mesmos
+  casos** de `casos_validacao_inversores.json` e têm de dar as mesmas
+  mensagens.
 
 ## `testa_inversores.py` — drivers de inversor e sonda de MCSA
 

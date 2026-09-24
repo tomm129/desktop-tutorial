@@ -426,6 +426,124 @@ console.log('\n=== Multi-Drive: a origem do inversor chega ao cadastro ===');
        'Danfoss no RS-485: barramento, endereco e o NOME do modelo (do catalogo)',
        `-> ${pd3 && pd3.origem}`);
 }
+// =====================================================================
+console.log('\n=== Menu Inversores: o servidor do painel ===');
+{
+    const aplicar = acharNo('aplicar inversores');
+    const montarInv = acharNo('montar tela de inversores');
+    // Estes nos usam env.get (caminho do arquivo); o rodar() comum passa {}.
+    const rodarEnv = (no, msg, ctx) => {
+        const fn = new Function('msg', 'node', 'flow', 'global', 'context',
+                                'RED', 'env', 'Buffer', no.func);
+        return fn(msg, ctx.node, ctx.flow, {}, {}, {}, { get: () => undefined }, Buffer);
+    };
+    const casos = JSON.parse(fs.readFileSync(
+        require('path').join(__dirname, 'casos_validacao_inversores.json'), 'utf8')).casos;
+
+    // 1. Os MESMOS casos que o validador do servico (Python) le.
+    let iguais = 0;
+    for (const c of casos) {
+        const ctx = novoCtx();
+        const [, r] = rodarEnv(aplicar, { payload: { acao: 'validar', inversores: c.inversores } }, ctx);
+        const v = r.payload.validacao;
+        const ids = v.validos.map(x => x.id);
+        const erros = Object.fromEntries(v.erros.map(x => [x.id, x.erro]));
+        const bate = JSON.stringify(ids) === JSON.stringify(c.validos) &&
+            Object.keys(erros).length === Object.keys(c.erros).length &&
+            Object.entries(c.erros).every(([id, t]) => (erros[id] || '').includes(t));
+        if (bate) { iguais++; } else { ok(false, 'caso compartilhado: ' + c.caso, JSON.stringify(v.erros)); }
+    }
+    ok(iguais === casos.length, `validador do painel bate com os ${casos.length} casos compartilhados com o Python`,
+       `-> ${iguais}/${casos.length}`);
+
+    // 2. Salvar: id gerado, arquivo gravado.
+    const ctx = novoCtx();
+    const pf = (pos, extra) => Object.assign({ modelo: 'pf525', nome: 'Exaustor', tag: 'U1' + pos,
+        habilitado: true, conexao: { tipo: 'cip', ip: '192.168.1.20', posicao: String(pos) } }, extra || {});
+    let [arq, r, redesenho] = rodarEnv(aplicar, { payload: { acao: 'salvar', item: pf(0), pedido: 1 } }, ctx);
+    ok(r.payload.resposta.ok && r.payload.resposta.pedido === 1, 'salvar responde ok para o mesmo pedido');
+    ok(arq && /inversores\.json$/.test(arq.filename), 'grava inversores.json', `-> ${arq && arq.filename}`);
+    ok(redesenho, 'e manda redesenhar a tela na hora');
+    const gravado = JSON.parse(arq.payload).inversores;
+    ok(gravado.length === 1 && gravado[0].id === 'inv-u10', 'id gerado da tag', `-> ${gravado[0].id}`);
+    ok(gravado[0].conexao.posicao === 0,
+       'posicao que veio como TEXTO do formulario e gravada como NUMERO');
+
+    // 3. Conflito: recusado, e NADA e gravado.
+    [arq, r] = rodarEnv(aplicar, { payload: { acao: 'salvar', item: pf(0, { tag: 'U99' }), pedido: 2 } }, ctx);
+    ok(!r.payload.resposta.ok && /usado por inv-u10/.test(r.payload.resposta.texto) && arq === null,
+       'mesmo drive de novo: recusado com o motivo, sem gravar', `-> ${r.payload.resposta.texto}`);
+
+    // 4. Editar mantem o id (o cadastro de ativos depende dele) e o intervalo.
+    ctx.store.inversores_cfg[0].intervalo_s = 7;
+    [arq, r] = rodarEnv(aplicar, { payload: { acao: 'salvar', original: 'inv-u10', pedido: 3,
+        item: pf(0, { id: 'inv-outro', tag: 'NOVA', nome: 'Exaustor renomeado' }) } }, ctx);
+    const ed = JSON.parse(arq.payload).inversores[0];
+    ok(ed.id === 'inv-u10' && ed.tag === 'NOVA', 'editar troca a tag mas NAO o id', `-> ${ed.id}`);
+    ok(ed.intervalo_s === 7, 'campo que a tela nao edita sobrevive a edicao');
+
+    // 5. Desligar e religar num lugar ocupado.
+    rodarEnv(aplicar, { payload: { acao: 'habilitar', id: 'inv-u10', habilitado: false, pedido: 4 } }, ctx);
+    [arq, r] = rodarEnv(aplicar, { payload: { acao: 'salvar', item: pf(0, { tag: 'U77' }), pedido: 5 } }, ctx);
+    ok(r.payload.resposta.ok, 'com o primeiro desligado, outro pode ocupar o lugar');
+    [arq, r] = rodarEnv(aplicar, { payload: { acao: 'habilitar', id: 'inv-u10', habilitado: true, pedido: 6 } }, ctx);
+    ok(!r.payload.resposta.ok && arq === null, 'religar num lugar ocupado e recusado, sem gravar',
+       `-> ${r.payload.resposta.texto}`);
+
+    // 5b. Editar um drive do COMECO da lista para o lugar de outro: o
+    // conflito tem de cair nele, nao no vizinho que ja funcionava.
+    {
+        const c3 = novoCtx();
+        c3.store.inversores_cfg = [
+            { id: 'p', modelo: 'pf525', conexao: { tipo: 'cip', ip: '10.0.0.1', posicao: 0 } },
+            { id: 'q', modelo: 'pf525', conexao: { tipo: 'cip', ip: '10.0.0.1', posicao: 1 } }];
+        const [a3, r3] = rodarEnv(aplicar, { payload: { acao: 'salvar', original: 'p', pedido: 1,
+            item: { modelo: 'pf525', conexao: { tipo: 'cip', ip: '10.0.0.1', posicao: 1 } } } }, c3);
+        ok(!r3.payload.resposta.ok && a3 === null && /usado por q/.test(r3.payload.resposta.texto),
+           'editar o primeiro para o lugar do segundo: recusa o EDITADO, nao o vizinho',
+           `-> ${r3.payload.resposta.texto}`);
+    }
+
+    // 6. Remover um drive associado avisa onde ele continua.
+    ctx.store.cadastro = { 'Caldeira 01': { partes: { 'Exaustor': { inversor: 'inv-u77' } } } };
+    [arq, r] = rodarEnv(aplicar, { payload: { acao: 'remover', id: 'inv-u77', pedido: 7 } }, ctx);
+    ok(r.payload.resposta.ok && /Caldeira 01 › Exaustor/.test(r.payload.resposta.texto),
+       'remover avisa que ele continua associado a um ativo', `-> ${r.payload.resposta.texto}`);
+
+    // 7. A lista mostra o estado de cada um, juntando config, gateway e leitura.
+    const c2 = novoCtx();
+    const agora = Date.now();
+    c2.store.inversores_cfg = [
+        { id: 'a', modelo: 'pf525', conexao: { tipo: 'cip', ip: '10.0.0.1', posicao: 0 } },
+        { id: 'b', modelo: 'pf525', conexao: { tipo: 'cip', ip: '10.0.0.1', posicao: 1 } },
+        { id: 'c', modelo: 'danfoss_fc51', conexao: { tipo: 'rtu', porta_serial: '/dev/ttyUSB0', endereco: 1 } },
+        { id: 'd', modelo: 'pf525', conexao: { tipo: 'cip', ip: '10.0.0.2', posicao: 0 } },
+        { id: 'e', modelo: 'pf525', habilitado: false, conexao: { tipo: 'cip', ip: '10.0.0.3', posicao: 0 } },
+    ];
+    c2.store.ativos = { a: { visto_em: agora - 2000, corrente_a: 12.34, frequencia_hz: 45.6 },
+                        b: { visto_em: agora - 90000, conexao: 'offline' } };
+    c2.store.inversores_estado = { ts: agora - 5000, ativos: ['a', 'b', 'c'],
+                                   erros: [{ id: 'd', erro: 'IP inválido' }] };
+    c2.store.cadastro = { 'Caldeira 01': { partes: { 'Bomba': { inversor: 'a' } } } };
+    const tela = rodarEnv(montarInv, { payload: 1 }, c2).payload;
+    const est = Object.fromEntries(tela.lista.map(i => [i.id, i.estado]));
+    ok(est.a === 'lendo' && est.b === 'sem_resposta' && est.c === 'aguardando' &&
+       est.d === 'recusado' && est.e === 'desligado',
+       'cinco estados: lendo, sem resposta, aguardando, recusado, desligado', `-> ${JSON.stringify(est)}`);
+    const la = tela.lista.find(i => i.id === 'a');
+    ok(la.leitura === '12,34 A  ·  45,6 Hz' && la.associado === 'Caldeira 01 › Bomba',
+       'leitura em pt-BR e o ativo associado', `-> ${la.leitura} | ${la.associado}`);
+    ok(tela.lista.find(i => i.id === 'b').conexao_desc === '10.0.0.1  ·  drive 1 (DSI)',
+       'conexao descrita em uma linha');
+    // Recem-cadastrado, com um 'offline' retido de antes: aguardando, nao vermelho.
+    c2.store.inversores_cfg.push({ id: 'novo', modelo: 'pf525', conexao: { tipo: 'cip', ip: '10.0.0.7', posicao: 0 } });
+    c2.store.ativos.novo = { conexao: 'offline', visto_em: agora - 600000 };
+    const t2 = rodarEnv(montarInv, { payload: 1 }, c2).payload;
+    ok(t2.lista.find(i => i.id === 'novo').estado === 'aguardando',
+       "recem-cadastrado com 'offline' retido de antes: 'aguardando', nao 'sem resposta'");
+    ok(tela.gateway.recebido && /há 5 s/.test(tela.gateway.quando), 'mostra quando o gateway aplicou',
+       `-> ${tela.gateway.quando}`);
+}
 console.log();
 console.log(falhas === 0 ? 'RESULTADO: todas as verificacoes passaram.'
                          : `RESULTADO: ${falhas} falha(s).`);

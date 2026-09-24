@@ -25,6 +25,7 @@ integracoes/**/config.env
 
 # Cadastro real de ativos e fotos das plaquetas (conteudo do usuario)
 dados/ativos.json
+dados/inversores.json
 dados/fotos/*
 !dados/fotos/.gitkeep
 
