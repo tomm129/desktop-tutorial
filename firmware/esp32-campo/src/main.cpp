@@ -14,9 +14,17 @@
 #include <ArduinoJson.h>
 #include <Adafruit_Sensor.h>
 #include <Adafruit_ADXL345_U.h>
+#include <Ticker.h>
 #include <math.h>
 
 #include "config.h"
+
+// LED do comando "identificar" (botao "piscar" do painel). O GPIO2 e o LED
+// azul da maioria das placas ESP32 DevKit. Config antigo sem a chave
+// continua compilando com este padrao.
+#ifndef PIN_LED_IDENT
+  #define PIN_LED_IDENT 2
+#endif
 
 // --- Seleção do sensor de temperatura em tempo de compilação ----------
 #if TEMP_SENSOR_TYPE == 1
@@ -53,15 +61,62 @@ static unsigned long intervaloPublicacao = INTERVALO_PUBLICACAO_MS;
 // Marcado por um comando "publicar" para forçar uma leitura imediata.
 static volatile bool solicitarPublicacao = false;
 
+// Marcado pelo comando "reiniciar". O reboot acontece no loop, nunca dentro
+// do callback do MQTT: ali o cliente ainda está no meio do processamento.
+static volatile bool solicitarReinicio = false;
+
+// Comando "identificar": pisca o LED para achar ESTE módulo no painel
+// elétrico. O Ticker roda fora do loop — a janela de vibração segura o
+// loop por ~1 s, e um pisca feito no loop congelaria junto.
+static Ticker tickerIdent;
+static volatile unsigned long identificarAte = 0;
+static volatile bool identificando = false;
+
+static void piscarLed() {
+  if ((long)(millis() - identificarAte) >= 0) {
+    tickerIdent.detach();
+    digitalWrite(PIN_LED_IDENT, LOW);
+    identificando = false;
+    return;
+  }
+  digitalWrite(PIN_LED_IDENT, !digitalRead(PIN_LED_IDENT));
+}
+
+static void identificar(unsigned long seg) {
+  identificarAte = millis() + seg * 1000UL;
+  if (!identificando) {
+    identificando = true;
+    tickerIdent.attach_ms(150, piscarLed);
+  }
+  Serial.printf("[CMD] Identificar: piscando o LED por %lu s\n", seg);
+}
+
+// Tentativas de reconexão SEM travar o loop. Antes, com o Wi-Fi fora, cada
+// volta do loop esperava 20 s pela conexão: o módulo continuava "medindo
+// durante a queda", mas uma vez a cada 20 s em vez de a cada 5 — e o
+// buffer offline, que existe justamente para cobrir a queda, recebia um
+// quarto das amostras.
+static const unsigned long WIFI_RETENTAR_MS = 15000;
+static const unsigned long MQTT_RETENTAR_MS = 5000;
+
 // =====================================================================
 //  Wi-Fi
 // =====================================================================
-static void conectarWiFi() {
+// esperar=true só no setup: no boot não há o que medir antes da rede.
+static void conectarWiFi(bool esperar) {
   if (WiFi.status() == WL_CONNECTED) return;
+
+  static unsigned long ultimaTentativa = 0;
+  static bool jaTentou = false;
+  if (jaTentou && millis() - ultimaTentativa < WIFI_RETENTAR_MS) return;
+  jaTentou = true;
+  ultimaTentativa = millis();
 
   Serial.printf("[WiFi] Conectando a \"%s\" ...\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  if (!esperar) return;
 
   unsigned long inicio = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - inicio < 20000) {
@@ -82,9 +137,11 @@ static void conectarWiFi() {
 // =====================================================================
 
 // Recebe comandos do Node-RED em monitoramento/<DEVICE_ID>/cmd.
-// Payload em JSON. Exemplos:
-//   {"comando":"publicar"}       -> força uma publicação imediata
-//   {"intervalo_ms":2000}        -> altera o intervalo de publicação
+// Payload em JSON — o MESMO formato do firmware ixnode-provisionamento:
+//   {"comando":"publicar"}              -> força uma publicação imediata
+//   {"intervalo_ms":2000}               -> altera o intervalo de publicação
+//   {"comando":"identificar","seg":15}  -> pisca o LED (achar o módulo)
+//   {"comando":"reiniciar"}             -> reboot
 static void mqttCallback(char* topic, byte* payload, unsigned int length) {
   JsonDocument doc;
   DeserializationError err = deserializeJson(doc, payload, length);
@@ -105,11 +162,32 @@ static void mqttCallback(char* topic, byte* payload, unsigned int length) {
   if (strcmp(comando, "publicar") == 0) {
     solicitarPublicacao = true;
     Serial.println("[CMD] Publicacao imediata solicitada.");
+  } else if (strcmp(comando, "identificar") == 0) {
+    long seg = doc["seg"] | 10L;
+    if (seg < 1) { seg = 1; }
+    if (seg > 120) { seg = 120; }
+    identificar((unsigned long)seg);
+  } else if (strcmp(comando, "reiniciar") == 0) {
+    solicitarReinicio = true;
+    Serial.println("[CMD] Reinicio solicitado pelo painel.");
+  } else if (comando[0] != '\0') {
+    // Antes os comandos desconhecidos sumiam em silencio -- foi assim que
+    // "identificar" e "reiniciar" ficaram sem efeito neste firmware.
+    Serial.printf("[CMD] Comando desconhecido: %s\n", comando);
   }
 }
 
 static void conectarMQTT() {
   if (mqtt.connected()) return;
+  if (WiFi.status() != WL_CONNECTED) return;   // sem rede, nem tenta
+
+  // Cada tentativa contra um broker fora do ar custa o timeout do TCP; sem
+  // espaçar, o loop passaria a maior parte do tempo tentando conectar.
+  static unsigned long ultimaTentativa = 0;
+  static bool jaTentou = false;
+  if (jaTentou && millis() - ultimaTentativa < MQTT_RETENTAR_MS) return;
+  jaTentou = true;
+  ultimaTentativa = millis();
 
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
 
@@ -666,14 +744,30 @@ void setup() {
   mqtt.setBufferSize(768);
   mqtt.setCallback(mqttCallback);
 
-  conectarWiFi();
+  pinMode(PIN_LED_IDENT, OUTPUT);
+  digitalWrite(PIN_LED_IDENT, LOW);
+
+  conectarWiFi(true);
   conectarMQTT();
 }
 
 void loop() {
-  conectarWiFi();
+  conectarWiFi(false);
   conectarMQTT();
   mqtt.loop();
+
+  if (solicitarReinicio) {
+    // Avisa o painel antes de sumir: sem isto o LWT so dispara no timeout
+    // do broker, e o modulo aparece "online" por segundos depois de ja ter
+    // reiniciado.
+    if (mqtt.connected()) {
+      mqtt.publish(topicStatus.c_str(), "offline", true);
+      mqtt.loop();
+      mqtt.disconnect();
+    }
+    delay(300);
+    ESP.restart();
+  }
 
   // Recupera o que ficou guardado antes de mandar coisa nova, para o
   // histórico chegar em ordem cronológica.

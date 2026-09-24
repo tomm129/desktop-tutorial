@@ -47,6 +47,10 @@
 #define PIN_I2C_SCL            22
 #define ADXL345_ADDR           0x53    // 0x53 (SDO=GND) ou 0x1D (SDO=VCC)
 
+// LED que pisca no comando "identificar" (botao "piscar" do painel).
+// GPIO2 = LED azul da maioria das placas ESP32 DevKit.
+#define PIN_LED_IDENT          2
+
 // Amostragem de vibração
 //
 // 384 amostras a ~370 Hz dão ~1,04 s de janela. O tamanho é ditado pela

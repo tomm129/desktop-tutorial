@@ -71,7 +71,17 @@ verificar_ambiente() {
     ok "arquitetura: $(uname -m)"
 
     # Aquece o sudo uma vez, para nao pedir senha no meio da instalacao.
-    sudo -v
+    #
+    # 'sudo -n true' primeiro: com sudo liberado sem senha, o 'sudo -v'
+    # PEDE senha mesmo assim sempre que existe outra regra que a exija (a
+    # do grupo sudo, padrao do Debian). E como a pergunta seguinte e a senha
+    # do MQTT, quem instala digitava a do MQTT aqui e o setup morria em
+    # "3 incorrect password attempts" -- aconteceu em 24/09.
+    if ! sudo -n true 2>/dev/null; then
+        echo "    O sudo vai pedir a senha do USUARIO LINUX ($(whoami))."
+        echo "    (A senha do MQTT e perguntada DEPOIS, em separado.)"
+        sudo -v || erro "sudo nao autorizado -- confira a senha do usuario $(whoami)."
+    fi
 }
 
 # =====================================================================
@@ -226,6 +236,16 @@ instalar_nodered() {
         aviso "criado dados/ativos.json a partir do exemplo — preencha com os seus motores"
     fi
 
+    # Lista de inversores vazia na primeira instalacao: quem a preenche e o
+    # painel (menu Inversores). Criada AQUI, antes do Node-RED subir -- no
+    # passo dos inversores ela chegava tarde, e o painel registrava "arquivo
+    # nao encontrado" no primeiro start (visto no comissionamento de 24/09).
+    local lista="${DESTINO_IOT}/dados/inversores.json"
+    if [[ ! -f "${lista}" ]]; then
+        echo '{"versao": 1, "inversores": []}' > "${lista}"
+        ok "lista de inversores criada vazia -- cadastre pelo painel, menu Inversores"
+    fi
+
     # Serve dados/fotos/ em /fotos para o painel de dados de placa. Sem
     # isso a foto da plaqueta nao carrega -- o navegador pede /fotos/x.jpg
     # e o Node-RED responde 404, sem erro visivel no log do fluxo.
@@ -323,15 +343,6 @@ INVERSORES_ARQ=${DESTINO_IOT}/dados/inversores.json
 EOF
     chmod 600 "${cfg}"
     ok "config.env gerado (credenciais do MQTT ja preenchidas)"
-
-    # Lista vazia na primeira instalacao: quem a preenche e o painel (menu
-    # Inversores). Sem o arquivo, o painel registraria "arquivo nao
-    # encontrado" no log a cada minuto num gateway recem-instalado.
-    local lista="${DESTINO_IOT}/dados/inversores.json"
-    if [[ ! -f "${lista}" ]]; then
-        echo '{"versao": 1, "inversores": []}' > "${lista}"
-        ok "lista de inversores criada vazia -- cadastre pelo painel, menu Inversores"
-    fi
 
     # O sidecar avulso da versao anterior, se houver: desligado, para um
     # mesmo drive nao ser lido duas vezes -- o que pesaria na RS-485 do
