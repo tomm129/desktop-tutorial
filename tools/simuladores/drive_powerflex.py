@@ -100,6 +100,10 @@ class DrivePF525:
         self.historico = collections.deque(maxlen=240)  # (t, corrente A)
         self.total = 0
         self._tempos = collections.deque(maxlen=4000)   # para a taxa
+        # Multi-Drive: drives encadeados pela RS-485 atrás deste (1 a 4).
+        # Cada um é outro DrivePF525 -- só params, trip e 'ligado' importam.
+        self.encadeados = {}
+        self.ligado = True
         self.inicio = time.time()
         self.trava = threading.Lock()
 
@@ -129,9 +133,27 @@ class DrivePF525:
     def _resposta(servico, status, dados=b""):
         return bytes([servico | 0x80, 0, status, 0]) + dados
 
-    def _anotar(self, classe, inst, atrib, via, status, valor=None):
+    def _anotar(self, classe, inst, atrib, via, status, valor=None, drive=0, pnu=None):
         self.recentes.append(dict(t=time.time(), classe=classe, inst=inst,
-                                  atrib=atrib, via=via, status=status, valor=valor))
+                                  atrib=atrib, via=via, status=status, valor=valor,
+                                  drive=drive, pnu=inst if pnu is None else pnu))
+
+    # Faixas de instância do Multi-Drive (520COM-UM001, Apêndice C):
+    #   0..16383      drive 0
+    #   16384..17407  "Interface" -- no adaptador embarcado, igual ao drive 0
+    #   17408 + 1024*(k-1) ..   drive k (1 a 4)
+    # A base de cada faixa é a "Class (Drive k)": atributos de classe.
+    def _resolver(self, inst):
+        """instância -> (drive alvo, índice do drive, nº do parâmetro)."""
+        if inst is None or inst < 17408:
+            return self, 0, (inst - 16384 if inst is not None and inst >= 16384 else inst)
+        k = (inst - 16384) // 1024
+        if k > 4:
+            return None, k, None
+        alvo = self.encadeados.get(k)
+        if alvo is None or not alvo.ligado:
+            return None, k, None
+        return alvo, k, inst - (16384 + 1024 * k)
 
     def atender(self, mr, via_0x52=False):
         servico, palavras = mr[0], mr[1]
@@ -155,28 +177,33 @@ class DrivePF525:
         self.total += 1
         self._tempos.append(time.time())
 
+        alvo, k, pnu = self._resolver(inst)
+        if alvo is None:
+            # drive encadeado que não existe ou está desligado
+            self._anotar(classe, inst, atrib, via_0x52, ST_OBJETO, drive=k)
+            return self._resposta(servico, ST_OBJETO)
         with self.trava:
             if classe in (0x0F, 0x93):
                 valor_no = 1 if classe == 0x0F else 9
-                if inst not in self.params:
-                    self._anotar(classe, inst, atrib, via_0x52, ST_OBJETO)
+                if pnu not in alvo.params:
+                    self._anotar(classe, inst, atrib, via_0x52, ST_OBJETO, drive=k, pnu=pnu)
                     return self._resposta(servico, ST_OBJETO)
                 if atrib != valor_no:
                     # O atributo existe mas NÃO é o valor (na 0x93, o 1 é a
                     # senha de proteção). Devolve outra coisa, como o drive.
-                    self._anotar(classe, inst, atrib, via_0x52, ST_OK, 0)
+                    self._anotar(classe, inst, atrib, via_0x52, ST_OK, 0, drive=k, pnu=pnu)
                     return self._resposta(servico, ST_OK, struct.pack("<H", 0))
-                v = self.params[inst]
-                self._anotar(classe, inst, atrib, via_0x52, ST_OK, v)
+                v = alvo.params[pnu]
+                self._anotar(classe, inst, atrib, via_0x52, ST_OK, v, drive=k, pnu=pnu)
                 return self._resposta(servico, ST_OK, struct.pack("<h", v))
             if classe == 0x97 and self.tem_obj_falha:
-                if inst == 0 and atrib == 4:
-                    self._anotar(classe, inst, atrib, via_0x52, ST_OK, self.trip)
+                if pnu == 0 and atrib == 4:
+                    self._anotar(classe, inst, atrib, via_0x52, ST_OK, alvo.trip, drive=k, pnu=0)
                     return self._resposta(servico, ST_OK,
-                                          struct.pack("<H", self.trip))
-                self._anotar(classe, inst, atrib, via_0x52, ST_ATRIBUTO)
+                                          struct.pack("<H", alvo.trip))
+                self._anotar(classe, inst, atrib, via_0x52, ST_ATRIBUTO, drive=k)
                 return self._resposta(servico, ST_ATRIBUTO)
-        self._anotar(classe, inst, atrib, via_0x52, ST_OBJETO)
+        self._anotar(classe, inst, atrib, via_0x52, ST_OBJETO, drive=k)
         return self._resposta(servico, ST_OBJETO)
 
     # ---- encapsulamento EtherNet/IP -----------------------------------
@@ -418,6 +445,8 @@ def main():
                     help="recusa o envelope Unconnected Send (adaptador que não roteia)")
     ap.add_argument("--sem-objeto-falha", action="store_true",
                     help="não oferece o DPI Fault Object (0x97)")
+    ap.add_argument("--encadeados", type=int, default=0, choices=range(0, 5),
+                    help="Multi-Drive: quantos drives encadeados pela RS-485 (0 a 4)")
     a = ap.parse_args()
     # Linha a linha mesmo com a saída redirecionada para arquivo ou pipe.
     sys.stdout.reconfigure(line_buffering=True)
@@ -426,6 +455,13 @@ def main():
                      tem_obj_falha=not a.sem_objeto_falha)
     drv.aplicar(a.cenario)
     drv.ciclo = a.ciclo
+    # Encadeados rodando em pontos diferentes, para dar para distinguir um do
+    # outro no painel: 40, 35, 30 e 25 Hz, com cargas diferentes.
+    for k in range(1, a.encadeados + 1):
+        f = 50 - 5 * k
+        drv.encadeados[k] = DrivePF525({1: f * 100, 3: 900 - 120 * k,
+                                        4: int(3800 * f / 60), 5: 530 + k,
+                                        6: 0b00011, 7: 0})
     try:
         drv.subir(a.host, a.porta)
     except OSError as e:
@@ -434,6 +470,8 @@ def main():
     threading.Thread(target=drv.animar, daemon=True).start()
 
     print(f"PowerFlex 525 simulado em {a.host}:{drv.porta}  —  cenário '{a.cenario}'")
+    if a.encadeados:
+        print(f"  Multi-Drive: drive 0 + {a.encadeados} encadeado(s) pela RS-485 (DSI)")
     if not a.sem_web:
         try:
             servir_painel(drv, a.host, a.web, _tabela_falhas())

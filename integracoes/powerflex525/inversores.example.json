@@ -1,0 +1,9 @@
+{
+  "_leia": "Copie para inversores.json e aponte PF525_INVERSORES para ele. 'drive' e a posicao no no Multi-Drive: 0 = o PowerFlex 525 na rede EtherNet/IP, 1 a 4 = os encadeados pela RS-485 (DSI) atras dele, com o MESMO ip. 'nome' e 'tag' sao opcionais e so servem para identificar o drive no cadastro do painel. 'intervalo_s' e opcional: padrao 1 s no drive 0 e 5 s nos encadeados, para nao pesar na RS-485 que o CLP usa.",
+  "inversores": [
+    { "device_id": "pf-linha1-u11", "ip": "192.168.1.20", "drive": 0, "nome": "Exaustor 1",           "tag": "U11" },
+    { "device_id": "pf-linha1-u12", "ip": "192.168.1.20", "drive": 1, "nome": "Exaustor 2",           "tag": "U12" },
+    { "device_id": "pf-linha1-u13", "ip": "192.168.1.20", "drive": 2, "nome": "Bomba de recirculacao", "tag": "U13" },
+    { "device_id": "pf-linha2-u21", "ip": "192.168.1.21", "drive": 0, "nome": "Ventilador da torre",   "tag": "U21" }
+  ]
+}

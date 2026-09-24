@@ -124,6 +124,87 @@ requisição — comportamento certo para um rack Logix, mas o adaptador
 embarcado não é orientado a tags. Leitura pontual de parâmetro é o caso de
 uso de UCMM, e é o que se usa aqui.
 
+## Vários inversores e Multi-Drive
+
+Em muitos painéis só o **primeiro** PowerFlex 525 vai à rede EtherNet/IP; até
+**quatro** outros se penduram nele pela RS-485 (DSI). O nó inteiro tem **um
+IP só** (520COM-UM001, capítulo 7).
+
+```
+            EtherNet/IP                       RS-485 (DSI), 19,2 kbps
+ roteador ─────────────── drive 0 ──── drive 1 ──── drive 2 ──── drive 3 ──── drive 4
+                         192.168.1.20   (sem IP: alcançados PELO drive 0)
+```
+
+Os drives de trás são lidos pelo mesmo IP, somando uma base à instância
+(Apêndice C): drive 1 = `17408 + nº do parâmetro`, drive 2 = `18432 + n`,
+drive 3 = `19456 + n`, drive 4 = `20480 + n`.
+
+> **Antes disto o sidecar lia só o drive 0.** E sem o deslocamento o erro
+> nem aparece: pedir o parâmetro 3 "do drive 1" sem somar a base devolve a
+> corrente **do drive 0** — o painel mostraria cinco inversores com os mesmos
+> números. O teste reproduz exatamente isso.
+
+### Configurar
+
+Liste os drives num JSON (modelo em `inversores.example.json`) e aponte
+`PF525_INVERSORES` no `config.env` para ele:
+
+```json
+{"inversores": [
+  {"device_id": "pf-linha1-u11", "ip": "192.168.1.20", "drive": 0, "nome": "Exaustor 1",            "tag": "U11"},
+  {"device_id": "pf-linha1-u12", "ip": "192.168.1.20", "drive": 1, "nome": "Exaustor 2",            "tag": "U12"},
+  {"device_id": "pf-linha1-u13", "ip": "192.168.1.20", "drive": 2, "nome": "Bomba de recirculacao", "tag": "U13"}
+]}
+```
+
+| Campo | Para quê |
+|---|---|
+| `device_id` | o id no painel — **um por drive**, nunca repetido |
+| `ip` | o IP do **drive 0** do nó (os encadeados usam o mesmo) |
+| `drive` | posição no nó: `0` = o da Ethernet, `1`–`4` = os encadeados |
+| `nome`, `tag` | opcionais: aparecem no cadastro para você saber **qual é qual** |
+| `intervalo_s` | opcional: padrão 1 s no drive 0 e **5 s** nos encadeados |
+
+### Como aparece no painel
+
+Cada drive vira um **inversor próprio**, igual a um avulso. Na tela de
+Cadastro, os ainda não atribuídos aparecem assim:
+
+```
+pf-linha1-u13   inversor
+192.168.1.20  ·  drive 2 (DSI)  ·  Bomba de recirculacao        6,60 A · 35,0 Hz
+```
+
+Ao escolher um, o campo de tag já vem com a do arquivo (`U13`). Depois de
+atribuído a um ativo, ele aparece no painel com o nome do ativo e a tag,
+como qualquer outro inversor.
+
+### O que muda no comportamento
+
+- **Uma sessão por nó.** Os drives do mesmo IP são lidos em sequência, nunca
+  em paralelo: é o adaptador do drive 0 que repassa tudo pela RS-485.
+- **Um encadeado desligado não derruba os outros**: só ele vira `offline`
+  no painel. Se o **drive 0** para de responder, o nó inteiro reconecta —
+  é o adaptador dele que atende os demais.
+- **Encadeados a cada 5 s.** A RS-485 do Multi-Drive é fixa em 19,2 kbps e
+  é o **mesmo fio que o CLP usa para comandar** os drives; o manual dá
+  +24 ms de atraso de controle por drive encadeado. Leitura explícita
+  disputa esse fio. Antes de ligar em produção, confirme com a manutenção
+  que a linha não sente a diferença.
+- **Status por drive.** Com a lista, cada drive tem seu `online`/`offline`
+  publicado pelo sidecar; não há testamento (LWT) — o broker só guarda um
+  por conexão, e um status "do sidecar" viraria um dispositivo fantasma no
+  painel. Se o processo inteiro cair, o painel detecta pelo silêncio, como
+  com qualquer dispositivo mudo.
+
+A `--bancada` com a lista lê **cada** drive e mostra a instância usada — é
+o jeito de conferir, drive por drive, contra o teclado de cada um.
+
+> ⚠️ **Ainda não conferido em drive real:** que o Fault Trip Instance do
+> drive k fica na base da faixa dele (`17408`, `18432`…). É a leitura do
+> Apêndice C ("Class (Drive k)"), mas a bancada é que confirma.
+
 ## Sem drive na mão? Use o simulador
 
 `tools/simuladores/drive_powerflex.py` é um PowerFlex 525 de mentira que fala

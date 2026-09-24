@@ -1,6 +1,6 @@
 # Testes
 
-Sete suítes que rodam sem hardware, sem broker e sem banco — 177
+Sete suítes que rodam sem hardware, sem broker e sem banco — 197
 verificações, mais a checagem de compilação do firmware. Existem porque os
 erros que este projeto já teve não eram erros de digitação — eram de
 **cálculo**, de **contagem** e de **leitura de manual**, o tipo que passa

@@ -84,9 +84,9 @@ planta.** O quadro honesto, com o que falta, está em
 | Histórico (TimescaleDB) | ✅ esquema aplicado no gateway · ⬜ nenhuma medição real ainda |
 | Firmware do sensor | 🔶 matemática validada e compilada · ⬜ firmware inteiro nunca gravado |
 | Provisionamento IX Node (C6) | 🔶 compila · ⬜ teste em placa |
-| Sidecar PowerFlex 525 | 🔶 conferido nos manuais, testado contra drive simulado · ⬜ inversor real |
+| Sidecar PowerFlex 525 | 🔶 conferido nos manuais, testado contra drive simulado, **com Multi-Drive** (até 5 drives por nó) · ⬜ inversor real |
 | Sidecar Danfoss FC 51/301/302 | 🔶 conferido nos manuais, testado contra drive simulado · ⬜ bancada |
-| Testes sem hardware | ✅ 177 verificações em 7 suítes, incluindo os dois inversores por protocolo real |
+| Testes sem hardware | ✅ 197 verificações em 7 suítes, incluindo os dois inversores por protocolo real |
 
 **Próximos passos, na ordem que mais destrava:**
 

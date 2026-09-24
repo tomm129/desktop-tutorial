@@ -339,11 +339,14 @@ function pintarLog(itens) {
       resp = '<span class="erro">✕ recusado — o sidecar deve tentar direto</span>';
     } else {
       caminho = "0x" + p.classe.toString(16).padStart(2, "0").toUpperCase() + " · " + p.inst + " · " + p.atrib;
+      const n = (p.pnu === undefined || p.pnu === null) ? p.inst : p.pnu;
       if (p.classe === 0x97) pedido = "Falha ativa (Fault Trip)";
-      else pedido = PARAM[p.inst] ? PARAM[p.inst][0] + " " + PARAM[p.inst][1] : "parâmetro " + p.inst;
-      if (p.status !== 0) resp = '<span class="erro">✕ ' + ({5:"caminho inválido",8:"serviço recusado",20:"atributo inexistente",22:"objeto inexistente"}[p.status] || "erro " + p.status) + "</span>";
+      else pedido = PARAM[n] ? PARAM[n][0] + " " + PARAM[n][1] : "parâmetro " + n;
+      // Multi-Drive: drive encadeado pela RS-485 atrás deste
+      if (p.drive) pedido = "<span class='via'>drive " + p.drive + "</span> " + pedido;
+      if (p.status !== 0) resp = '<span class="erro">✕ ' + (p.drive && p.status === 22 ? "drive " + p.drive + " não responde (desligado ou ausente)" : ({5:"caminho inválido",8:"serviço recusado",20:"atributo inexistente",22:"objeto inexistente"}[p.status] || "erro " + p.status)) + "</span>";
       else if (p.classe === 0x97) resp = p.valor ? "⚠ " + p.valor + " (desarmado)" : "0 (sem falha)";
-      else if (PARAM[p.inst] && (p.classe === 0x0F && p.atrib === 1 || p.classe === 0x93 && p.atrib === 9)) resp = PARAM[p.inst][2](p.valor);
+      else if (PARAM[n] && (p.classe === 0x0F && p.atrib === 1 || p.classe === 0x93 && p.atrib === 9)) resp = PARAM[n][2](p.valor);
       else resp = '<span class="erro">' + p.valor + " — atributo errado para esta classe</span>";
     }
     return "<tr><td class='num'>" + hora(p.t) + "</td><td>" + pedido + "</td><td class='mono'>" + caminho +

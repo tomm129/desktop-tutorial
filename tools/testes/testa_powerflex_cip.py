@@ -112,7 +112,7 @@ drv = DrivePF525(PARAMS, aceita_ucmm_send=False).subir()
 pf, d = ler(drv)
 ok(d.get("corrente_a") == 12.34, "modo auto cai para envio direto e le",
    f"-> {d.get('corrente_a')}")
-ok(pf._ucmm_escolhido is False, "e memoriza o modo que funcionou")
+ok(pf.modo_envio("127.0.0.1") is False, "e memoriza o modo que funcionou")
 diretos = [p for p in drv.pedidos if not p[4]]
 ok(len(diretos) >= 7, "pedidos seguintes vao direto, sem nova tentativa")
 
@@ -120,7 +120,7 @@ print("\n=== 4. Drive que ACEITA Unconnected Send ===")
 drv = DrivePF525(PARAMS, aceita_ucmm_send=True).subir()
 pf, d = ler(drv)
 ok(d.get("corrente_a") == 12.34, "le pelo envelope 0x52")
-ok(pf._ucmm_escolhido is True, "modo com Unconnected Send memorizado")
+ok(pf.modo_envio("127.0.0.1") is True, "modo com Unconnected Send memorizado")
 
 print("\n=== 5. Classe DPI 0x93: valor no atributo 9 ===")
 drv = DrivePF525(PARAMS).subir()
@@ -137,7 +137,7 @@ ok(d.get("corrente_a") == 12.34, "o resto da leitura chega")
 ok(d["falha"]["codigo"] == 0,
    "sem saber se ha falha ativa, nao AFIRMA falha (evita alarme eterno)")
 ok(d["ultima_falha"]["codigo"] == 13, "a ultima falha continua visivel")
-ok(pf._sem_objeto_falha, "e para de insistir no objeto que nao existe")
+ok(pf.PADRAO.sem_objeto_falha, "e para de insistir no objeto que nao existe")
 
 print("\n=== 7. Tabela de falhas (520-UM001, Drive Error Codes) ===")
 pf_t = sys.modules[next(k for k in sys.modules if k.startswith("pf525_"))]
@@ -147,6 +147,79 @@ for cod, trecho in ((3, "alimentação"), (42, "U e W"), (43, "V e W"),
     ok(trecho in t, f"F{cod} -> ...{trecho}...", f"-> {t}")
 ok(pf_t.traduzir_falha(0) is None, "F0 = sem falha")
 ok("ver manual" in pf_t.traduzir_falha(99), "codigo desconhecido nao vira 'sem falha'")
+
+print("\n=== 8. Multi-Drive: drive 0 + dois encadeados pela RS-485 ===")
+import json as _json, tempfile as _tmp, threading as _th, time as _time
+
+no = DrivePF525({**PARAMS, 7: 0}).subir()
+# drive 1 a 40 Hz / 7,80 A; drive 2 DESARMADO por F12 (sobrecorrente)
+no.encadeados[1] = DrivePF525({1: 4000, 3: 780, 4: 2533, 5: 531, 6: 3, 7: 0})
+no.encadeados[2] = DrivePF525({1: 0, 3: 0, 4: 0, 5: 532, 6: 0, 7: 12}, trip=1)
+
+def _cfg(itens):
+    f = _tmp.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+    _json.dump({"inversores": itens}, f); f.close()
+    return f.name
+
+itens = [
+    {"device_id": "u11", "ip": "127.0.0.1", "porta": no.porta, "drive": 0, "nome": "Exaustor 1", "tag": "U11"},
+    {"device_id": "u12", "ip": "127.0.0.1", "porta": no.porta, "drive": 1, "nome": "Exaustor 2", "tag": "U12"},
+    {"device_id": "u13", "ip": "127.0.0.1", "porta": no.porta, "drive": 2, "nome": "Bomba de recirculacao", "tag": "U13"},
+]
+pf = carregar_sidecar(no, PF525_INVERSORES=_cfg(itens))
+invs = pf.carregar_inversores()
+ok(len(invs) == 3 and len(pf.agrupar_por_no(invs)) == 1,
+   "tres drives no mesmo IP = um no, uma sessao")
+ok(invs[0].intervalo_s == 1.0 and invs[1].intervalo_s == 5.0,
+   "encadeados lidos mais devagar por padrao (RS-485 de 19,2 kbps)",
+   f"-> {[i.intervalo_s for i in invs]}")
+
+with pf.abrir_drive("127.0.0.1", no.porta) as conn:
+    L = {i.device_id: pf.ler_inversor(conn, i) for i in invs}
+ok(L["u11"]["corrente_a"] == 12.34, "drive 0 lido", f"-> {L['u11']['corrente_a']}")
+ok(L["u12"]["corrente_a"] == 7.8 and L["u12"]["frequencia_hz"] == 40.0,
+   "drive 1 lido (nao e copia do drive 0)", f"-> {L['u12']['corrente_a']} A")
+insts = {p[2] for p in no.pedidos if p[1] == 0x0F}
+ok({17408 + 3, 18432 + 3} <= insts,
+   "drive 1 pela instancia 17408+n, drive 2 pela 18432+n (manual, Ap. C)")
+ok(L["u13"]["falha"]["codigo"] == 12 and L["u12"]["falha"]["codigo"] == 0
+   and L["u11"]["falha"]["codigo"] == 0,
+   "falha ativa so no drive 2, nao contamina os outros")
+ok(any(p[1] == 0x97 and p[2] == 18432 for p in no.pedidos),
+   "falha ativa do drive 2 lida na base 18432 do objeto 0x97")
+ok(L["u12"]["origem"] == {"no": "127.0.0.1", "drive": 1, "nome": "Exaustor 2", "tag": "U12"},
+   "origem vai no pacote: o cadastro sabe qual drive e qual", f"-> {L['u12']['origem']}")
+
+# Com o sidecar RODANDO, o drive 2 e desligado.
+class _CliFalso:
+    def __init__(self): self.msgs = []
+    def publish(self, t, p, qos=0, retain=False): self.msgs.append((t, p, retain))
+no.encadeados[2].ligado = False
+for i in invs:
+    i.intervalo_s = 0.2
+cli, parar = _CliFalso(), _th.Event()
+t = _th.Thread(target=pf.atender_no, args=("127.0.0.1", no.porta, invs, cli, parar), daemon=True)
+t.start(); _time.sleep(1.6); parar.set(); t.join(5)
+pub = lambda dev: [m for m in cli.msgs if m[0] == f"monitoramento/{dev}/inversor"]
+ok(len(pub("u11")) >= 3 and len(pub("u12")) >= 3,
+   "com o drive 2 desligado, os drives 0 e 1 continuam publicando",
+   f"-> {len(pub('u11'))} e {len(pub('u12'))} pacotes")
+ok(("monitoramento/u13/status", "offline", True) in cli.msgs and not pub("u13"),
+   "o drive 2 vira 'offline' no painel, e so ele")
+ok(("monitoramento/u11/status", "online", True) in cli.msgs,
+   "os que respondem sao marcados 'online'")
+
+# Erros de digitacao no arquivo que o painel nao denunciaria
+for rot, ruim in (("device_id repetido", [itens[0], {**itens[1], "device_id": "u11"}]),
+                  ("drive fora de 0..4", [{**itens[0], "drive": 5}]),
+                  ("mesmo drive duas vezes", [itens[0], {**itens[0], "device_id": "outro"}])):
+    os.environ["PF525_INVERSORES"] = _cfg(ruim)
+    try:
+        pf.carregar_inversores(); barrou = False
+    except SystemExit:
+        barrou = True
+    ok(barrou, f"arquivo com {rot} e recusado na partida")
+os.environ.pop("PF525_INVERSORES", None)
 
 print(f"\nRESULTADO: {'todas as verificacoes passaram.' if not falhas else f'{falhas} falha(s).'}")
 sys.exit(1 if falhas else 0)

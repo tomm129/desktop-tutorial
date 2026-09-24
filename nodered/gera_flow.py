@@ -492,6 +492,21 @@ const ativos = flow.get('ativos') || {};
 const a = ativos[id] || { id: id };
 a.tipo = 'inversor';
 
+// De onde o dado veio: IP do no, posicao no Multi-Drive (0 = o drive na
+// Ethernet, 1..4 = encadeados pela RS-485) e o nome/tag que o sidecar traz
+// do arquivo de configuracao. Com varios drives atras do mesmo IP, e o
+// que permite saber QUAL e qual na hora de cadastrar.
+if (p.origem && typeof p.origem === 'object') {
+    const o = p.origem;
+    const txt = function (v) { return (typeof v === 'string') ? v.trim().slice(0, 60) : ''; };
+    a.origem = {
+        no: txt(o.no),
+        drive: (Number.isInteger(o.drive) && o.drive >= 0 && o.drive <= 4) ? o.drive : null,
+        nome: txt(o.nome),
+        tag: txt(o.tag),
+    };
+}
+
 function valida_corr(v) {
     if (typeof v !== 'number' || !isFinite(v) || v < 0) { return null; }
     if (v > 500) { node.warn('corrente fora da faixa para ' + id + ': ' + v); return null; }
@@ -1148,6 +1163,13 @@ flow.set('nao_atribuidos', Object.keys(registro)
             tipo: r.tipo || 'desconhecido',
             visto: ha_quanto(r.visto_em),
             mudo: (Date.now() - (r.visto_em || 0)) > SEM_DADOS_MS,
+            origem: (function (o) {
+                if (!o) { return ''; }
+                const pos = (o.drive === null || o.drive === undefined) ? ''
+                    : (o.drive === 0 ? 'drive 0 (Ethernet)' : 'drive ' + o.drive + ' (DSI)');
+                return [o.no, pos, o.nome].filter(Boolean).join('  ·  ');
+            })(r.origem),
+            tag_sugerida: (r.origem && r.origem.tag) || '',
             resumo: (r.tipo === 'inversor')
                 ? ((r.corrente_a !== undefined ? r.corrente_a.toFixed(2) + ' A' : '--') +
                    (r.frequencia_hz !== undefined ? '  ·  ' + r.frequencia_hz.toFixed(1) + ' Hz' : ''))
@@ -2480,6 +2502,7 @@ CADASTRO = r"""
                     <td class="id">
                         {{ d.id }}
                         <span class="tipo" :class="d.tipo">{{ d.tipo }}</span>
+                        <div v-if="d.origem" class="origem">{{ d.origem }}</div>
                     </td>
                     <td class="resumo">{{ d.resumo }}</td>
                     <td class="visto" :class="{ mudo: d.mudo }">
@@ -2672,6 +2695,9 @@ export default {
             this.sel = d;
             this.aviso = '';
             this.limpar();
+            // Drive de Multi-Drive: a tag que o sidecar trouxe do arquivo de
+            // configuracao ja vem no campo. Da para trocar antes de salvar.
+            if (d.tag_sugerida) { this.tag = d.tag_sugerida; }
         },
         // Reabre o formulario com o que ja esta cadastrado. Antes so havia
         // "remover": trocar um no queimado ou corrigir um nome exigia apagar
@@ -2779,6 +2805,7 @@ table  { border-collapse: collapse; width: 100%; }
 .tipo.desconhecido { color: #71717a; border-color: #3f3f46; }
 
 .resumo { color: #a1a1aa; font-variant-numeric: tabular-nums; }
+.origem { color: #a1a1aa; font-size: 12px; margin-top: 3px; }
 .visto  { color: #71717a; font-size: 12px; text-align: right; }
 .visto.mudo { color: #ef4444; }
 .acao   { color: #71717a; text-align: right; }

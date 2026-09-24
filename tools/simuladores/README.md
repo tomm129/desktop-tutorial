@@ -135,7 +135,24 @@ python tools/simuladores/drive_powerflex.py --recusa-ucmm       # recusa o envel
 python tools/simuladores/drive_powerflex.py --sem-objeto-falha
 python tools/simuladores/drive_powerflex.py --porta 44819 --web 8526   # outras portas
 python tools/simuladores/drive_powerflex.py --sem-web           # sem o painel
+python tools/simuladores/drive_powerflex.py --encadeados 2      # nó Multi-Drive
 ```
+
+### Nó Multi-Drive
+
+`--encadeados N` (1 a 4) põe N drives atrás do simulado, como num painel
+em que só o primeiro PowerFlex vai à rede e os outros se penduram nele pela
+RS-485. Eles respondem nas faixas de instância do manual (drive 1 em
+`17408 + n`, drive 2 em `18432 + n`…) e rodam em pontos diferentes (45, 40,
+35 e 30 Hz), para dar para distinguir um do outro no painel. O registro de
+pedidos mostra de qual drive é cada leitura.
+
+Para ler o nó inteiro, o sidecar precisa da lista de inversores — veja a
+seção *Vários inversores e Multi-Drive* em
+[`integracoes/powerflex525/README.md`](../../integracoes/powerflex525/README.md).
+É assim que eles chegam ao cadastro do painel, cada um com a sua origem:
+
+![Cadastro do painel com os três drives de um nó Multi-Drive](img/cadastro_multidrive.png)
 
 A porta **44818** é a do EtherNet/IP. Se já houver algo nela (outro
 simulador, um software da Rockwell), use outra e avise o sidecar com

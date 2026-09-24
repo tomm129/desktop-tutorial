@@ -389,6 +389,37 @@ console.log('\n=== 9. Comando reiniciar: confirmacao em dois cliques ===');
     }
 }
 
+// =====================================================================
+console.log('\n=== Multi-Drive: a origem do inversor chega ao cadastro ===');
+{
+    const regCorr = acharNo('registrar corrente');
+    const montar = acharNo('montar painel');
+    const ctx = novoCtx();
+    const pub = (id, origem) => rodar(regCorr, { topic: `monitoramento/${id}/inversor`,
+        payload: { corrente_a: 7.8, frequencia_hz: 40, falha: { codigo: 0 }, origem } }, ctx);
+
+    pub('u11', { no: '192.168.1.20', drive: 0, nome: 'Exaustor 1', tag: 'U11' });
+    pub('u12', { no: '192.168.1.20', drive: 1, nome: 'Exaustor 2', tag: 'U12' });
+    // entradas ruins vindas da rede nao podem quebrar a tela
+    pub('lixo1', { no: '10.0.0.9', drive: 7, nome: 'x'.repeat(200) });
+    pub('lixo2', 'nao sou objeto');
+    const A = ctx.store.ativos;
+    ok(A.u12.origem && A.u12.origem.drive === 1 && A.u12.origem.tag === 'U12',
+       'registrar corrente guarda a origem', `-> ${JSON.stringify(A.u12.origem)}`);
+    ok(A.lixo1.origem.drive === null && A.lixo1.origem.nome.length === 60,
+       'drive fora de 0..4 vira null e nome longo e cortado');
+    ok(A.lixo2.origem === undefined, 'origem que nao e objeto e ignorada');
+
+    rodar(montar, { payload: Date.now() },
+          Object.assign(ctx, { node: { warn: () => {}, error: (e) => { throw e; },
+                                       send: () => {}, status: () => {} } }));
+    const pend = ctx.store.nao_atribuidos || [];
+    const p12 = pend.find(d => d.id === 'u12'), p11 = pend.find(d => d.id === 'u11');
+    ok(p12 && p12.origem === '192.168.1.20  ·  drive 1 (DSI)  ·  Exaustor 2',
+       'pendente mostra IP, posicao no no e nome', `-> ${p12 && p12.origem}`);
+    ok(p11 && /drive 0 \(Ethernet\)/.test(p11.origem), 'drive 0 aparece como o da Ethernet');
+    ok(p12 && p12.tag_sugerida === 'U12', 'tag do arquivo do sidecar vem sugerida');
+}
 console.log();
 console.log(falhas === 0 ? 'RESULTADO: todas as verificacoes passaram.'
                          : `RESULTADO: ${falhas} falha(s).`);
