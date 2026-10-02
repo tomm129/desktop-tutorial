@@ -1429,7 +1429,46 @@ for (const h of hist) {
     }
 }
 if (hist.length > MAX_HIST_ALARMES) { hist = hist.slice(0, MAX_HIST_ALARMES); }
+
+// ---- Reconhecimento e silencio (ISA-18.2) ----------------------------
+// Reconhecer = "ja vi, estamos tratando": o evento para de piscar, o
+// estado continua na tela. Silenciar = tirar o ativo do resumo de alarmes
+// por um prazo (manutencao programada). Quando o prazo vence, os eventos
+// abertos voltam como NAO reconhecidos -- e o que a norma pede: um silencio
+// esquecido nao pode esconder um problema para sempre.
+const silenciados = flow.get('silenciados') || {};
+for (const k of Object.keys(silenciados)) {
+    if (silenciados[k].ate <= agora) {
+        delete silenciados[k];
+        for (const h of hist) {
+            if (!h.fim_ms && h.ativo === k) { h.rec_em = null; }
+        }
+    }
+}
+flow.set('silenciados', silenciados);
 flow.set('historico_alarmes', hist);
+
+// Situacao de alarme de um ativo principal, para cards, linha do tempo e
+// resumo. 'pendente' = ha evento aberto que ninguem reconheceu.
+function alarme_de(a) {
+    const abertos = hist.filter(function (h) {
+        return !h.fim_ms && (h.ativo === a.chave || h.ativo === a.rotulo) &&
+               h.estado !== 'normal';
+    });
+    const sil = silenciados[a.chave] || null;
+    const rec = abertos.filter(function (h) { return h.rec_em; })
+                       .sort(function (x, y) { return y.rec_em - x.rec_em; })[0];
+    const hhmm = function (ms) {
+        return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    };
+    return {
+        pendente: !sil && abertos.some(function (h) { return !h.rec_em; }),
+        reconhecido: !!rec && abertos.every(function (h) { return h.rec_em; }),
+        rec_txt: rec ? 'reconhecido às ' + hhmm(rec.rec_em) : '',
+        silenciado: !!sil,
+        sil_txt: sil ? 'silenciado até ' + hhmm(sil.ate) : ''
+    };
+}
 
 // ---- Passo 3: monta as linhas e a lista de alarmes -------------------
 const linhas = [];
@@ -1578,9 +1617,14 @@ const elos = [
 // acompanha o flows.json, sem depender de httpStatic no destino.
 const LOGO = '__LOGO_LOCKUP__';
 const n_pai = lista.filter(function (x) { return x.nivel === 0; }).length;
-const cnt = { normal: 0, atencao: 0, critico: 0, sem_dados: 0 };
+const cnt = { normal: 0, atencao: 0, critico: 0, sem_dados: 0, silenciado: 0, pendentes: 0 };
 for (const a of lista) {
-    if (a.nivel === 0) { cnt[estados[a.chave].estado] = (cnt[estados[a.chave].estado] || 0) + 1; }
+    if (a.nivel !== 0) { continue; }
+    const al = alarme_de(a);
+    // Silenciado nao conta como alarme: e o ponto de silenciar.
+    if (al.silenciado) { cnt.silenciado++; continue; }
+    cnt[estados[a.chave].estado] = (cnt[estados[a.chave].estado] || 0) + 1;
+    if (al.pendente) { cnt.pendentes++; }
 }
 
 // Saude da planta: % do tempo em OK, somando todos os ativos, na ultima
@@ -1892,9 +1936,11 @@ function m4_cards() {
                 return x.tag_inversor ? (x.rotulo + ' (' + x.tag_inversor + ')')
                                       : x.rotulo;
             });
+        const al = alarme_de(a);
         return {
             chave: a.chave,
             estado: e,
+            alarme: al,
             tag: a.rotulo,
             descricao: nomes_partes.join(' • '),
             cor: COR[e], simb: SIMB[e], rotulo: ROTULO[e],
@@ -2040,6 +2086,7 @@ const m7 = { payload: {
     total: hist.length,
     ativos: n_pai,
     abertos: hist.filter(function (h) { return !h.fim_ms; }).length,
+    pendentes: hist.filter(function (h) { return !h.fim_ms && !h.rec_em; }).length,
     critico: hist.filter(function (h) { return h.estado === 'critico'; }).length,
     atencao: hist.filter(function (h) { return h.estado === 'atencao'; }).length,
     sem_dados: hist.filter(function (h) { return h.estado === 'sem_dados'; }).length
@@ -2283,7 +2330,7 @@ const linhas_tl = lista
         const aberto = segs.filter(function (s) { return !s.fim_ms && s.estado === e; })[0];
         return { nome: a.rotulo, chave: a.chave, estado: e, cor: COR[e], simb: SIMB[e],
                  rot_estado: ROTULO[e], desde_ms: aberto ? aberto.ini_ms : null,
-                 segs: segs };
+                 segs: segs, alarme: alarme_de(a) };
     })
     // Mesma ordem dos cards: o pior primeiro.
     .sort(function (x, y) {
@@ -2323,7 +2370,7 @@ no(id="cards_ativos", type="ui-template", z="flow_monitor", group=G_CARDS,
    name="cards dos ativos", order=1, width="12", height="0",
    head="", format=CARDS_VISAO, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
-   x=640, y=340, wires=[["abrir_ativo"]])
+   x=640, y=340, wires=[["abrir_ativo", "acao_alarme"]])
 
 no(id="abrir_ativo", type="function", z="flow_monitor",
    name="abrir detalhe", outputs=2, timeout=0, noerr=0,
@@ -2332,6 +2379,8 @@ no(id="abrir_ativo", type="function", z="flow_monitor",
    func=r"""
 // Clique num card: guarda o ativo e pede a troca de tela. O nome tem de
 // bater com o do no ui-page, senao o ui-control reclama que nao achou.
+// Objeto = acao de alarme (reconhecer/silenciar), tratada por outro no.
+if (typeof msg.payload !== 'string') { return null; }
 const sel = msg.payload;
 flow.set('ativo_sel', sel);
 // Os graficos do Detalhe passam a receber so as partes deste ativo. E sao
@@ -2341,6 +2390,53 @@ const esp = (flow.get('esp32_por_chave') || {})[sel] || [];
 const inv = (flow.get('inv_por_chave') || {})[sel] || [];
 flow.set('devices_detalhe', esp.concat(inv));
 return [{ payload: { page: 'Detalhe' } }, { payload: [] }];
+""")
+
+no(id="acao_alarme", type="function", z="flow_monitor",
+   name="reconhecer / silenciar alarme", outputs=1, timeout=0, noerr=0,
+   initialize="", finalize="", libs=[], x=840, y=400,
+   wires=[["aviso_cmd"]],
+   func=r"""
+// Acoes de alarme vindas dos cards e da linha do tempo (ISA-18.2):
+//   { acao: 'reconhecer', chave }          -> eventos abertos do ativo vistos
+//   { acao: 'silenciar',  chave, horas }   -> fora do resumo por N horas
+//   { acao: 'reativar',   chave }          -> desfaz o silencio na hora
+// String = clique de abrir o Detalhe, que e de outro no.
+const p = msg.payload;
+if (!p || typeof p !== 'object' || !p.acao || typeof p.chave !== 'string') { return null; }
+const agora = Date.now();
+const hist = flow.get('historico_alarmes') || [];
+const sil = flow.get('silenciados') || {};
+const hhmm = function (ms) {
+    return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+};
+function reconhecer() {
+    let n = 0;
+    for (const h of hist) {
+        if (!h.fim_ms && !h.rec_em && h.ativo === p.chave) { h.rec_em = agora; n++; }
+    }
+    flow.set('historico_alarmes', hist);
+    return n;
+}
+let texto;
+if (p.acao === 'reconhecer') {
+    const n = reconhecer();
+    texto = n ? (p.chave + ': ' + n + ' alarme(s) reconhecido(s)') : (p.chave + ': nada pendente');
+} else if (p.acao === 'silenciar') {
+    // So prazos fechados: silencio sem prazo e alarme apagado e esquecido.
+    const horas = [1, 2, 4, 8, 24].indexOf(Number(p.horas)) >= 0 ? Number(p.horas) : 8;
+    sil[p.chave] = { ate: agora + horas * 3600000, desde: agora };
+    flow.set('silenciados', sil);
+    reconhecer();
+    texto = p.chave + ' silenciado até ' + hhmm(sil[p.chave].ate) + ' (manutenção)';
+} else if (p.acao === 'reativar') {
+    delete sil[p.chave];
+    flow.set('silenciados', sil);
+    texto = p.chave + ': alarmes reativados';
+} else {
+    return null;
+}
+return { payload: texto };
 """)
 
 no(id="nav_detalhe", type="ui-control", z="flow_monitor", ui=BASE,
@@ -3543,11 +3639,11 @@ LINHA_TEMPO = r"""
                  :title="'Abrir ' + l.nome">
                 <div class="tl-nome">
                     <i class="tl-bola" :class="{ 'tl-bola-sd': l.estado === 'sem_dados',
-                                                 'tl-pulsa': l.estado === 'critico' }"
+                                                 'tl-pulsa': l.alarme && l.alarme.pendente }"
                        :style="l.estado === 'sem_dados' ? {} : { background: l.estado === 'normal' ? '#58a6ff' : l.cor }"></i>
                     <span class="tl-nm">{{ l.nome }}</span>
                 </div>
-                <div class="tl-trilho">
+                <div class="tl-trilho" :class="{ 'tl-silenciado': l.alarme && l.alarme.silenciado }">
                     <div class="tl-base"></div>
                     <template v-for="(s, i) in segs(l)" :key="i">
                         <div class="tl-seg" :class="['tl-' + s.estado, { 'tl-aberto': s.aberto }]"
@@ -3557,8 +3653,10 @@ LINHA_TEMPO = r"""
                               :style="{ left: s.x + '%', borderColor: s.cor, color: s.cor }">{{ s.etiqueta }}</span>
                     </template>
                 </div>
-                <div class="tl-agora-txt" :style="{ color: l.estado === 'normal' ? '#8b98a5' : l.cor }">
+                <div v-if="l.alarme && l.alarme.silenciado" class="tl-agora-txt tl-sil-txt">🔕 {{ l.alarme.sil_txt }}</div>
+                <div v-else class="tl-agora-txt" :style="{ color: l.estado === 'normal' ? '#8b98a5' : l.cor }">
                     {{ l.simb }} {{ l.rot_estado }}<span v-if="l.desde_ms" class="tl-ha"> há {{ dur(agora_cli - l.desde_ms) }}</span>
+                    <span v-if="l.alarme && l.alarme.reconhecido" class="tl-rec" title="reconhecido">✓</span>
                 </div>
             </div>
             <div v-if="ocultos" class="tl-mais">+ {{ ocultos }} ativo(s) sem ocorrência nesta janela</div>
@@ -3809,6 +3907,9 @@ export default {
 .tl-agora-txt { font-size: 12px; font-weight: 600; white-space: nowrap; text-align: right;
                 padding-right: 8px; }
 .tl-ha { font-weight: 400; color: #8b98a5; }
+.tl-rec { color: #8bb4e8; margin-left: 4px; font-weight: 400; }
+.tl-silenciado { opacity: .35; }
+.tl-sil-txt { color: #8b98a5; font-weight: 500; }
 
 .tl-pulsa { animation: tl-pulso 1.6s ease-in-out infinite; }
 @keyframes tl-pulso { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.55); }
@@ -3859,7 +3960,7 @@ no(id="linha_tempo", type="ui-template", z="flow_monitor", group=G_LINHA,
    head="", format=LINHA_TEMPO, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    # Clique numa linha abre o Detalhe do ativo, como o clique no card.
-   x=640, y=1000, wires=[["abrir_ativo"]])
+   x=640, y=1000, wires=[["abrir_ativo", "acao_alarme"]])
 
 
 # =====================================================================

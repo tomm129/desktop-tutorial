@@ -31,6 +31,8 @@ RESUMO = r"""
       <div class="rs-c"><span class="rs-cr"><i style="background:#ef4444"></i>Críticos</span>
         <b :class="{ cr: r.cnt.critico }">{{ r.cnt.critico }}</b></div>
       <div class="rs-c"><span class="rs-cr"><i class="sd"></i>Sem dados</span><b>{{ r.cnt.sem_dados }}</b></div>
+      <div class="rs-c" v-if="r.cnt.silenciado"><span class="rs-cr">🔕 Silenciados</span><b class="sil">{{ r.cnt.silenciado }}</b></div>
+      <div class="rs-pend" v-if="r.cnt.pendentes">● {{ r.cnt.pendentes }} {{ r.cnt.pendentes > 1 ? 'alarmes não reconhecidos' : 'alarme não reconhecido' }}</div>
     </div>
 
     <div class="rs-sis">
@@ -84,7 +86,12 @@ export default {
 .rs-cr i { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .rs-cr i.sd { border: 1.5px solid #6e7a87; width: 6px; height: 6px; }
 .rs-c b { font-size: 30px; font-weight: 650; color: #e6edf3; line-height: 1; letter-spacing: -.02em; }
-.rs-c b.at { color: #f59e0b; } .rs-c b.cr { color: #ef4444; }
+.rs-c b.at { color: #f59e0b; } .rs-c b.cr { color: #ef4444; } .rs-c b.sil { color: #8b98a5; }
+.rs-cont { flex-wrap: wrap; align-items: flex-end; }
+.rs-pend { align-self: center; font-size: 12px; font-weight: 600; color: #f59e0b;
+           background: rgba(245,158,11,.10); border-radius: 999px; padding: 4px 12px;
+           animation: rs-pisca 1.2s ease-in-out infinite; }
+@keyframes rs-pisca { 50% { opacity: .45; } }
 .rs-sis { margin-left: auto; display: flex; flex-direction: column; gap: 6px; }
 .rs-elo { display: flex; align-items: center; gap: 8px; font-size: 12px; background: #1c232c;
           border: 1px solid #2a323c; border-radius: 999px; padding: 4px 12px; }
@@ -106,14 +113,17 @@ CARDS = r"""
 <template>
   <div class="pa">
     <div v-if="!cards.length" class="pa-vazio">Aguardando o primeiro ativo publicar...</div>
-    <div v-for="c in cards" :key="c.chave" class="cd" :class="'e-' + c.estado"
+    <div v-for="c in cards" :key="c.chave" class="cd"
+         :class="['e-' + (c.alarme && c.alarme.silenciado ? 'silenciado' : c.estado),
+                  { pend: c.alarme && c.alarme.pendente }]"
          role="button" tabindex="0" @click="abrir(c)" @keyup.enter="abrir(c)">
       <div class="cd-topo">
         <div class="cd-nome">
           <div class="cd-tag">{{ c.tag }}</div>
           <div class="cd-desc">{{ c.descricao }}</div>
         </div>
-        <span class="cd-chip">{{ c.simb }} {{ c.rotulo }}</span>
+        <span class="cd-chip" v-if="c.alarme && c.alarme.silenciado">🔕 SILENCIADO</span>
+        <span class="cd-chip" v-else>{{ c.simb }} {{ c.rotulo }}</span>
       </div>
 
       <div class="cd-med">
@@ -144,6 +154,28 @@ CARDS = r"""
         </div>
       </div>
 
+      <!-- alarme aberto: reconhecer / silenciar (ISA-18.2). Os botoes nao
+           abrem o Detalhe: @click.stop. -->
+      <div v-if="c.alarme && (c.estado !== 'normal' || c.alarme.silenciado)" class="cd-al" @click.stop>
+        <template v-if="c.alarme.silenciado">
+          <span class="cd-al-t">{{ c.alarme.sil_txt }}</span>
+          <span class="cd-al-esp"></span>
+          <button class="cd-b" @click="acao(c, 'reativar')">Reativar</button>
+        </template>
+        <template v-else>
+          <span class="cd-al-t" v-if="c.alarme.reconhecido">✓ {{ c.alarme.rec_txt }}</span>
+          <span class="cd-al-t pend" v-else-if="c.alarme.pendente">● não reconhecido</span>
+          <span class="cd-al-esp"></span>
+          <button v-if="c.alarme.pendente" class="cd-b pri" @click="acao(c, 'reconhecer')">Reconhecer</button>
+          <span class="cd-sil">
+            <button class="cd-b" @click="menu = menu === c.chave ? null : c.chave">Silenciar ▾</button>
+            <span v-if="menu === c.chave" class="cd-menu">
+              <button v-for="h in [1, 2, 4, 8, 24]" :key="h" @click="acao(c, 'silenciar', h)">{{ h }} h</button>
+            </span>
+          </span>
+        </template>
+      </div>
+
       <div class="cd-rod">
         <span>{{ c.n_partes }}<span v-if="c.marcha" class="cd-marcha" :class="c.marcha_cls"> · {{ c.marcha }}</span></span>
         <span>visto há {{ c.visto }}</span>
@@ -154,9 +186,13 @@ CARDS = r"""
 
 <script>
 export default {
-  data () { return { cards: [] } },
+  data () { return { cards: [], menu: null } },
   methods: {
     abrir (c) { this.send({ payload: c.chave }) },
+    acao (c, a, horas) {
+      this.menu = null;
+      this.send({ payload: { acao: a, chave: c.chave, horas: horas } });
+    },
     corSpark (m) { return m.alerta ? m.cor : '#58a6ff'; },
     // Escala da PROPRIA serie: o minigrafico mostra forma (para onde vai);
     // nivel quem mostra e o numero e a cor.
@@ -201,6 +237,29 @@ export default {
 .e-atencao .cd-chip { color: #f59e0b; background: rgba(245,158,11,.12); }
 .e-critico .cd-chip { color: #ef4444; background: rgba(239,68,68,.12); }
 .e-sem_dados .cd-chip { color: #8b98a5; background: rgba(139,152,165,.12); }
+.cd.e-silenciado { border-top-color: #3b4a5c; }
+.e-silenciado .cd-chip { color: #8b98a5; background: rgba(139,152,165,.10); }
+.e-silenciado .cd-mv { opacity: .7; }
+/* So o NAO reconhecido pisca (ISA-18.2): o reconhecido fica fixo. */
+.cd.pend .cd-chip { animation: cd-pisca 1.2s ease-in-out infinite; }
+@keyframes cd-pisca { 50% { opacity: .35; } }
+
+.cd-al { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 10px;
+         border-top: 1px solid #222a33; font-size: 12px; cursor: default; flex-wrap: wrap; }
+.cd-al-t { color: #8b98a5; }
+.cd-al-t.pend { color: #f59e0b; }
+.cd-al-esp { flex: 1; }
+.cd-b { background: #1c232c; color: #c9d4df; border: 1px solid #2a323c; border-radius: 7px;
+        padding: 4px 10px; font-size: 12px; cursor: pointer; }
+.cd-b:hover { border-color: #3b4a5c; color: #e6edf3; }
+.cd-b.pri { background: #2f81f7; border-color: #2f81f7; color: #fff; }
+.cd-sil { position: relative; }
+.cd-menu { position: absolute; right: 0; bottom: 110%; display: flex; gap: 4px; background: #161b22;
+           border: 1px solid #2a323c; border-radius: 9px; padding: 4px; z-index: 5;
+           box-shadow: 0 8px 22px rgba(0,0,0,.45); }
+.cd-menu button { background: transparent; border: 0; color: #c9d4df; font-size: 12px; padding: 4px 8px;
+                  border-radius: 6px; cursor: pointer; white-space: nowrap; }
+.cd-menu button:hover { background: #2f81f7; color: #fff; }
 
 .cd-med { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .cd-mr { font-size: 11px; color: #6e7a87; text-transform: uppercase; letter-spacing: .07em; }

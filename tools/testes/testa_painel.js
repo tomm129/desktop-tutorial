@@ -470,6 +470,77 @@ console.log('\n=== Graficos do Detalhe: so as partes do ativo aberto ===');
        'trocar de ativo troca o recorte');
 }
 // =====================================================================
+console.log('\n=== Alarmes: reconhecer e silenciar (ISA-18.2) ===');
+{
+    const montar = acharNo('montar painel');
+    const acao = acharNo('reconhecer / silenciar alarme');
+    const abrir = acharNo('abrir detalhe');
+    const ctx = novoCtx();
+    ctx.node.send = () => {}; ctx.node.status = () => {};
+    const agora = Date.now();
+    // Sem cadastro: o device_id vira o ativo. Temperatura muito acima de
+    // qualquer limite -> critico.
+    ctx.store.cadastro = {};
+    ctx.store.ativos = { 'esp-q': { id: 'esp-q', tipo: 'esp32', visto_em: agora,
+        temperatura_c: 150, vib_rms_g: 0.2, vib_vel_mm_s: 1.0, vib_crista: 3.5,
+        conexao: 'online', hist: { temp: [150], vib: [0.2], vel: [1], crista: [3.5] } } };
+    const saida = (destino) => {
+        const r = rodar(montar, { payload: Date.now() }, ctx);
+        const i = montar.wires.findIndex(w => w.includes(destino));
+        return r[i] && r[i].payload;
+    };
+    for (let k = 0; k < 4; k++) { saida('cards_ativos'); }   // histerese assenta
+    let card = saida('cards_ativos')[0];
+    let res = saida('txt_resumo');
+    ok(card.estado === 'critico', 'ativo em critico', `-> ${card.estado}`);
+    ok(card.alarme.pendente === true, 'alarme novo comeca NAO reconhecido (pisca)');
+    ok(res.cnt.critico === 1 && res.cnt.pendentes === 1, 'resumo conta 1 critico pendente',
+       `-> ${JSON.stringify(res.cnt)}`);
+
+    ok(rodar(abrir, { payload: { acao: 'reconhecer', chave: 'esp-q' } }, ctx) === null,
+       'acao de alarme nao navega para o Detalhe');
+    const r1 = rodar(acao, { payload: { acao: 'reconhecer', chave: 'esp-q' } }, ctx);
+    ok(/1 alarme/.test(r1.payload), 'reconhecer devolve aviso', `-> ${r1.payload}`);
+    card = saida('cards_ativos')[0];
+    ok(card.alarme.pendente === false && card.alarme.reconhecido === true,
+       'reconhecido: para de piscar');
+    ok(card.estado === 'critico', '...mas o estado continua critico na tela');
+    ok(/reconhecido às \d\d:\d\d/.test(card.alarme.rec_txt), 'mostra quando foi reconhecido',
+       `-> ${card.alarme.rec_txt}`);
+
+    // Normalizou e voltou: e OUTRO evento, e volta a piscar -- o
+    // reconhecimento do primeiro nao vale para o segundo.
+    ctx.store.ativos['esp-q'].temperatura_c = 30;
+    for (let k = 0; k < 4; k++) { saida('cards_ativos'); }
+    ok(saida('cards_ativos')[0].estado === 'normal', 'temperatura normalizou: evento fechado');
+    ctx.store.ativos['esp-q'].temperatura_c = 150;
+    for (let k = 0; k < 4; k++) { saida('cards_ativos'); }
+    ok(saida('cards_ativos')[0].alarme.pendente === true,
+       'voltou a passar do limite: alarme NOVO, nao reconhecido');
+
+    const r2 = rodar(acao, { payload: { acao: 'silenciar', chave: 'esp-q', horas: 999 } }, ctx);
+    const sil = ctx.store.silenciados['esp-q'];
+    ok(sil && Math.abs((sil.ate - Date.now()) / 3600000 - 8) < 0.01,
+       'prazo invalido vira 8 h (silencio sem prazo nao existe)');
+    ok(/silenciado até/.test(r2.payload), 'silenciar devolve aviso', `-> ${r2.payload}`);
+    res = saida('txt_resumo'); card = saida('cards_ativos')[0];
+    ok(res.cnt.critico === 0 && res.cnt.silenciado === 1, 'silenciado sai da contagem de criticos',
+       `-> ${JSON.stringify(res.cnt)}`);
+    ok(card.alarme.silenciado && !card.alarme.pendente, 'card silenciado nao pisca');
+
+    // Prazo venceu: volta NAO reconhecido.
+    ctx.store.silenciados['esp-q'].ate = Date.now() - 1;
+    card = saida('cards_ativos')[0];
+    ok(!card.alarme.silenciado && card.alarme.pendente,
+       'fim do silencio: alarmes voltam NAO reconhecidos');
+    ok(!ctx.store.silenciados['esp-q'], 'silencio vencido e removido');
+
+    rodar(acao, { payload: { acao: 'silenciar', chave: 'esp-q', horas: 2 } }, ctx);
+    rodar(acao, { payload: { acao: 'reativar', chave: 'esp-q' } }, ctx);
+    ok(!ctx.store.silenciados['esp-q'], 'reativar desfaz o silencio na hora');
+    ok(rodar(acao, { payload: 'esp-q' }, ctx) === null, 'clique de abrir (string) e ignorado aqui');
+}
+// =====================================================================
 console.log('\n=== Menu Inversores: o servidor do painel ===');
 {
     const aplicar = acharNo('aplicar inversores');
