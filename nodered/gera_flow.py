@@ -1652,8 +1652,71 @@ if (n_pai && agora - ini_saude >= 60000) {
     }
     saude = Math.max(0, Math.round(100 * (1 - ruim / (n_pai * (agora - ini_saude)))));
 }
+// ---- Fila de acao: o que pede gente agora ---------------------------
+// A ISA-101 pede, na tela de visao geral, o caminho ate o problema. Aqui:
+// cada evento aberto (de ativo NAO silenciado), com o que fazer. Ordem: o
+// nao reconhecido primeiro, depois o mais grave, depois o mais antigo.
+//
+// As recomendacoes sao de PRIMEIRA RESPOSTA, genericas por tipo de
+// problema -- nao diagnostico. Na velocidade usam a zona da ISO 20816,
+// que ja diz quanto tempo se pode operar assim.
+function recomendacao(h, item) {
+    const m = (h.motivos || []).join(' ').toLowerCase();
+    const crit = h.estado === 'critico';
+    if (h.estado === 'sem_dados') {
+        return 'Verificar alimentação e rede do módulo; use "piscar" no Detalhe para localizá-lo no painel.';
+    }
+    if (/inversor em falha/.test(m)) {
+        return 'Consultar o código no manual do drive e corrigir a causa antes de rearmar.';
+    }
+    if (/sem leitura/.test(m)) {
+        return 'O sensor não respondeu: conferir cabo e conexão do sensor no módulo.';
+    }
+    if (/velocidade/.test(m) && item && typeof item.vib_vel_mm_s === 'number') {
+        const z = zona_iso(item.vib_vel_mm_s, grupo_iso(item.placa));
+        if (z === 'D') {
+            return 'ISO 20816 zona D — risco de dano. Reduzir carga ou parar assim que possível e inspecionar mancais, alinhamento e fixação.';
+        }
+        if (z === 'C') {
+            return 'ISO 20816 zona C — operar só por período limitado. Programar inspeção de mancais, alinhamento e fixação.';
+        }
+    }
+    if (/vibracao/.test(m)) {
+        return 'Conferir a fixação do sensor e da máquina; comparar com a velocidade (mm/s) no Detalhe.';
+    }
+    if (/temperatura/.test(m)) {
+        return crit ? 'Temperatura crítica: reduzir carga e inspecionar ventilação e lubrificação dos mancais.'
+                    : 'Verificar ventilação, lubrificação e carga; acompanhar a tendência.';
+    }
+    if (/corrente/.test(m)) {
+        return 'Corrente acima da nominal: verificar carga mecânica e tensão de alimentação.';
+    }
+    return 'Abrir o Detalhe e avaliar a tendência.';
+}
+const PESO = { critico: 0, atencao: 1, sem_dados: 2 };
+const fila = [];
+for (const a of lista) {
+    if (a.nivel !== 0 || silenciados[a.chave]) { continue; }
+    for (const h of hist) {
+        if (h.fim_ms || (h.ativo !== a.chave && h.ativo !== a.rotulo)) { continue; }
+        // Equipamento unico (sem partes) grava o PROPRIO nome como parte no
+        // evento: nao ha 'Ativo/Ativo' na lista -- a medicao e a do ativo.
+        const item = (h.parte && lista.find(function (x) { return x.chave === a.chave + '/' + h.parte; })) || a;
+        const parte = (h.parte && h.parte !== a.rotulo) ? h.parte : '';
+        fila.push({ chave: a.chave, ativo: a.rotulo, parte: parte,
+                    estado: h.estado, cor: COR[h.estado], simb: SIMB[h.estado],
+                    rotulo: ROTULO[h.estado], motivo: (h.motivos || []).join(' · '),
+                    desde_ms: h.inicio_ms, pendente: !h.rec_em,
+                    recomendacao: recomendacao(h, item) });
+    }
+}
+fila.sort(function (x, y) {
+    return (y.pendente - x.pendente) || (PESO[x.estado] - PESO[y.estado]) ||
+           (x.desde_ms - y.desde_ms);
+});
+
 const m2 = { payload: lista.length ? { logo: LOGO, total: n_pai, cnt: cnt, saude: saude,
-                                       elos: elos } : null };
+                                       elos: elos, fila: fila, agora: agora } : null };
 
 // ---- Saidas 3..5: a tela de detalhe ----------------------------------
 const alvo = lista.find(function (x) { return x.chave === sel; }) || lista[0];
@@ -4186,7 +4249,8 @@ no(id="txt_resumo", type="ui-template", z="flow_monitor", group=G_RESUMO,
    name="resumo da planta", order=1, width="12", height="0",
    head="", format=RESUMO, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
-   x=620, y=380, wires=[[]])
+   # A fila de acao abre o Detalhe e reconhece alarmes, como os cards.
+   x=620, y=380, wires=[["abrir_ativo", "acao_alarme"]])
 
 
 # Painel de detalhe: STAT TILES, nao medidores de ponteiro.

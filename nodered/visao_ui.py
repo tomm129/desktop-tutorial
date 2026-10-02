@@ -42,11 +42,44 @@ RESUMO = r"""
     </div>
   </div>
   <div v-else class="rs-vazio">Aguardando o primeiro ativo publicar...</div>
+
+  <!-- fila de acao: so o que pede gente, com o que fazer -->
+  <div v-if="r && r.fila && r.fila.length" class="fa">
+    <div class="fa-cab">
+      <span class="fa-tit">O que fazer agora</span>
+      <span class="fa-n">{{ r.fila.length }} {{ r.fila.length > 1 ? 'ocorrências' : 'ocorrência' }}</span>
+      <button v-if="r.fila.length > LIM" class="fa-mais" @click="tudo = !tudo">
+        {{ tudo ? 'mostrar menos' : 'ver todas' }}</button>
+    </div>
+    <div v-for="(f, i) in (tudo ? r.fila : r.fila.slice(0, LIM))" :key="f.chave + f.parte + f.estado + i"
+         class="fa-i" :class="['e-' + f.estado, { pend: f.pendente }]">
+      <span class="fa-sev">{{ f.simb }}</span>
+      <div class="fa-txt">
+        <div class="fa-l1">
+          <b>{{ f.ativo }}</b><span v-if="f.parte" class="fa-p"> › {{ f.parte }}</span>
+          <span class="fa-mot">{{ f.motivo }}</span>
+        </div>
+        <div class="fa-rec">{{ f.recomendacao }}</div>
+      </div>
+      <span class="fa-ha">{{ f.pendente ? '● ' : '✓ ' }}há {{ dur(r.agora - f.desde_ms) }}</span>
+      <button v-if="f.pendente" class="fa-b pri" @click="send({ payload: { acao: 'reconhecer', chave: f.chave } })">Reconhecer</button>
+      <button class="fa-b" @click="send({ payload: f.chave })">Abrir</button>
+    </div>
+  </div>
 </template>
 
 <script>
 export default {
-  data () { return { r: null } },
+  data () { return { r: null, tudo: false, LIM: 4 } },
+  methods: {
+    dur (ms) {
+      const m = Math.round(ms / 60000);
+      if (m < 1) { return 'menos de 1 min'; }
+      if (m < 60) { return m + ' min'; }
+      const h = Math.floor(m / 60);
+      return h + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '');
+    }
+  },
   computed: {
     arcos () {
       if (!this.r) { return []; }
@@ -100,6 +133,36 @@ export default {
 .rs-en { color: #e6edf3; font-weight: 600; }
 .rs-ed { color: #6e7a87; }
 .rs-vazio { color: #6e7a87; font-size: 14px; padding: 8px; }
+
+/* --- fila de acao --- */
+.fa { margin-top: 16px; padding-top: 14px; border-top: 1px solid #222a33; }
+.fa-cab { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.fa-tit { font-size: 13px; font-weight: 650; color: #e6edf3; }
+.fa-n { font-size: 12px; color: #6e7a87; }
+.fa-mais { margin-left: auto; background: transparent; border: 0; color: #79c0ff; font-size: 12px; cursor: pointer; }
+.fa-i { display: grid; grid-template-columns: 22px 1fr auto auto auto; align-items: center; gap: 12px;
+        padding: 10px 12px; border-radius: 10px; background: #1c232c; border: 1px solid #2a323c;
+        border-left: 3px solid #5c6773; margin-bottom: 6px; }
+.fa-i.e-critico { border-left-color: #ef4444; }
+.fa-i.e-atencao { border-left-color: #f59e0b; }
+.fa-sev { font-size: 14px; text-align: center; color: #8b98a5; }
+.e-critico .fa-sev { color: #ef4444; } .e-atencao .fa-sev { color: #f59e0b; }
+.fa-txt { min-width: 0; }
+.fa-l1 { font-size: 13px; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fa-p { color: #8b98a5; }
+.fa-mot { color: #8b98a5; margin-left: 10px; font-size: 12px; }
+.fa-rec { font-size: 12px; color: #8bb4e8; margin-top: 3px; line-height: 1.4; }
+.fa-ha { font-size: 12px; color: #6e7a87; white-space: nowrap; }
+.pend .fa-ha { color: #f59e0b; }
+.fa-b { background: #161b22; color: #c9d4df; border: 1px solid #2a323c; border-radius: 7px;
+        padding: 5px 12px; font-size: 12px; cursor: pointer; }
+.fa-b:hover { border-color: #3b4a5c; color: #e6edf3; }
+.fa-b.pri { background: #2f81f7; border-color: #2f81f7; color: #fff; }
+@media (max-width: 700px) {
+  .fa-i { grid-template-columns: 22px 1fr; }
+  .fa-ha { grid-column: 2; }
+  .fa-b { grid-column: 2; justify-self: start; }
+}
 @media (max-width: 700px) {
   .rs { gap: 18px; }
   .rs-logo { border: 0; padding: 0; }

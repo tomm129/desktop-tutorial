@@ -541,6 +541,46 @@ console.log('\n=== Alarmes: reconhecer e silenciar (ISA-18.2) ===');
     ok(rodar(acao, { payload: 'esp-q' }, ctx) === null, 'clique de abrir (string) e ignorado aqui');
 }
 // =====================================================================
+console.log('\n=== Fila de acao: o que fazer agora ===');
+{
+    const montar = acharNo('montar painel');
+    const acao = acharNo('reconhecer / silenciar alarme');
+    const ctx = novoCtx();
+    ctx.node.send = () => {}; ctx.node.status = () => {};
+    const agora = Date.now();
+    const esp = (id, temp, vel) => ({ id: id, tipo: 'esp32', visto_em: agora,
+        temperatura_c: temp, vib_rms_g: 0.2, vib_vel_mm_s: vel, vib_crista: 3.5,
+        conexao: 'online', hist: { temp: [temp], vib: [0.2], vel: [vel], crista: [3.5] } });
+    ctx.store.cadastro = {};
+    ctx.store.ativos = { 'esp-temp': esp('esp-temp', 150, 1.0),    // temperatura critica
+                         'esp-vel':  esp('esp-vel', 40, 5.0),      // 5 mm/s: zona D (grupo 2 rigido)
+                         'esp-ok':   esp('esp-ok', 40, 1.0) };
+    const fila = () => {
+        const r = rodar(montar, { payload: Date.now() }, ctx);
+        return r[montar.wires.findIndex(w => w.includes('txt_resumo'))].payload.fila;
+    };
+    for (let k = 0; k < 4; k++) { fila(); }
+    let f = fila();
+    ok(f.length === 2 && !f.some(x => x.chave === 'esp-ok'), 'so os ativos com problema entram',
+       `-> ${f.map(x => x.chave).join(', ')}`);
+    const vel = f.find(x => x.chave === 'esp-vel');
+    ok(vel && /zona D/.test(vel.recomendacao) && /parar/.test(vel.recomendacao),
+       'velocidade: recomendacao pela zona da ISO 20816', `-> ${vel && vel.recomendacao}`);
+    const tmp = f.find(x => x.chave === 'esp-temp');
+    ok(tmp && /ventila/.test(tmp.recomendacao), 'temperatura: recomendacao de temperatura',
+       `-> ${tmp && tmp.recomendacao}`);
+
+    rodar(acao, { payload: { acao: 'reconhecer', chave: f[0].chave } }, ctx);
+    const primeiro = f[0].chave;
+    f = fila();
+    ok(f[f.length - 1].chave === primeiro && !f[f.length - 1].pendente,
+       'reconhecido desce: o nao reconhecido vem primeiro');
+
+    rodar(acao, { payload: { acao: 'silenciar', chave: 'esp-vel', horas: 2 } }, ctx);
+    f = fila();
+    ok(!f.some(x => x.chave === 'esp-vel'), 'ativo silenciado sai da fila');
+}
+// =====================================================================
 console.log('\n=== Menu Inversores: o servidor do painel ===');
 {
     const aplicar = acharNo('aplicar inversores');
