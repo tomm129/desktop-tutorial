@@ -65,7 +65,6 @@ G_RESUMO, G_CARDS = "grp_resumo", "grp_cards"
 G_LINHA = "grp_linha"
 G_CAB, G_TILES, G_PARTES, G_CMD = "grp_cab", "grp_tiles", "grp_partes", "grp_cmd"
 G_PLACA = "grp_placa"
-G_TEMP, G_VIB, G_CORR = "grp_temp", "grp_vib", "grp_corr"
 G_CAD = "grp_cadastro"
 G_ALARMES_KPI, G_ALARMES_LISTA = "grp_alarmes_kpi", "grp_alarmes_lista"
 G_ATIVOS_TAB = "grp_ativos_tab"
@@ -243,7 +242,7 @@ no(id="parse_json", type="json", z="flow_monitor", name="", property="payload",
 no(id="reg_telemetria", type="function", z="flow_monitor",
    name="registrar telemetria", outputs=4, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=500, y=100,
-   wires=[["tend_temp"], ["tend_vib"], [], []],
+   wires=[["tend_temp"], ["tend_vib"]],
    func=r"""
 // Guarda a ultima leitura de cada ativo num registro unico (flow context)
 // e repassa os valores para os graficos. Tambem mantem um cache curto para
@@ -489,16 +488,11 @@ marcar_amostra(id);
 const temp = (a.temperatura_c === null) ? null : { topic: id, payload: a.temperatura_c };
 const vib  = (a.vib_rms_g === null)     ? null : { topic: id, payload: a.vib_rms_g };
 
-// Saidas 1-2: pagina Tendencias (os eleitos da planta).
+// Saidas para a pagina Tendencias (os eleitos da planta). O Detalhe nao
+// passa por aqui: o grafico dele le a serie com horario do registro.
 const eleitos = flow.get('devices_grafico');
 const na_tend = !!eleitos && eleitos.indexOf(id) >= 0;
-// Saidas 3-4: graficos da tela de Detalhe -- SO as partes do ativo aberto.
-// Antes os dois recebiam o mesmo fluxo e o Detalhe da "Caldeira 01"
-// mostrava a planta inteira. 'devices_detalhe' e montado ao abrir o ativo.
-const det = flow.get('devices_detalhe');
-const no_det = !!det && det.indexOf(id) >= 0;
-return [na_tend ? temp : null, na_tend ? vib : null,
-        no_det ? temp : null, no_det ? vib : null];
+return [na_tend ? temp : null, na_tend ? vib : null];
 """)
 
 no(id="mqtt_corrente", type="mqtt in", z="flow_monitor",
@@ -507,9 +501,9 @@ no(id="mqtt_corrente", type="mqtt in", z="flow_monitor",
    rh=0, inputs=0, x=140, y=180, wires=[["reg_corrente"]])
 
 no(id="reg_corrente", type="function", z="flow_monitor",
-   name="registrar corrente", outputs=2, timeout=0, noerr=0,
+   name="registrar corrente", outputs=1, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=500, y=180,
-   wires=[["tend_corr"], []],
+   wires=[["tend_corr"]],
    func=r"""
 // O sidecar pycomm3 publica a telemetria do drive: corrente, tensao,
 // barramento CC, frequencia, se esta rodando e o codigo de falha.
@@ -658,11 +652,9 @@ marcar_amostra(id, { rodando: a.rodando });
 const corr = (typeof a.corrente_a === 'number')
     ? { topic: id, payload: Math.round(a.corrente_a * 100) / 100 }
     : null;
-// Saida 1: Tendencias; saida 2: Detalhe (ver registrar telemetria).
+// So a pagina Tendencias (ver registrar telemetria).
 const eleitos = flow.get('devices_grafico');
-const det = flow.get('devices_detalhe');
-return [(eleitos && eleitos.indexOf(id) >= 0) ? corr : null,
-        (det && det.indexOf(id) >= 0) ? corr : null];
+return (eleitos && eleitos.indexOf(id) >= 0) ? corr : null;
 """)
 
 no(id="mqtt_status", type="mqtt in", z="flow_monitor",
@@ -1155,9 +1147,6 @@ function consolidar_pai(tag, cfg, partes) {
 // Quais ESP32 respondem por cada chave -- e o que o botao "Publicar agora"
 // precisa para saber a quem mandar o comando.
 const esp32_por_chave = {};
-// E quais inversores: junto com o de cima, e o que os graficos da tela de
-// Detalhe mostram (ver 'devices_detalhe').
-const inv_por_chave = {};
 
 function consolidar() {
     const tags = Object.keys(ATIVOS);
@@ -1180,7 +1169,6 @@ function consolidar() {
         // Ativo sem 'partes': trata como equipamento unico (um nivel so).
         if (!cfg.partes) {
             if (cfg.esp32) { esp32_por_chave[tag] = [cfg.esp32]; }
-            if (cfg.inversor) { inv_por_chave[tag] = [cfg.inversor]; }
             saida.push(juntar_parte(tag, tag, cfg, 0, tag, null));
             continue;
         }
@@ -1191,17 +1179,11 @@ function consolidar() {
             if (cfg.partes[nome].esp32) {
                 esp32_por_chave[chave] = [cfg.partes[nome].esp32];
             }
-            if (cfg.partes[nome].inversor) {
-                inv_por_chave[chave] = [cfg.partes[nome].inversor];
-            }
             return juntar_parte(chave, nome, cfg.partes[nome], 1, tag, nome);
         });
         // O ativo principal comanda todas as suas partes de uma vez.
         esp32_por_chave[tag] = nomes
             .map(function (n) { return cfg.partes[n].esp32; })
-            .filter(Boolean);
-        inv_por_chave[tag] = nomes
-            .map(function (n) { return cfg.partes[n].inversor; })
             .filter(Boolean);
 
         saida.push(consolidar_pai(tag, cfg, partes));
@@ -1212,15 +1194,6 @@ function consolidar() {
 
 const lista = consolidar();
 flow.set('esp32_por_chave', esp32_por_chave);
-flow.set('inv_por_chave', inv_por_chave);
-// Mantem os graficos do Detalhe coerentes se o cadastro do ativo aberto
-// mudar (parte nova, inversor trocado) sem precisar reabri-lo.
-(function () {
-    const s = flow.get('ativo_sel');
-    if (s === undefined || s === null) { return; }
-    flow.set('devices_detalhe',
-             (esp32_por_chave[s] || []).concat(inv_por_chave[s] || []));
-})();
 const agora = Date.now();
 
 // ---- Dispositivos ainda nao atribuidos a nenhum ativo ----------------
@@ -2454,9 +2427,9 @@ no(id="cards_ativos", type="ui-template", z="flow_monitor", group=G_CARDS,
    x=640, y=340, wires=[["abrir_ativo", "acao_alarme"]])
 
 no(id="abrir_ativo", type="function", z="flow_monitor",
-   name="abrir detalhe", outputs=2, timeout=0, noerr=0,
+   name="abrir detalhe", outputs=1, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=840, y=340,
-   wires=[["nav_detalhe"], []],
+   wires=[["nav_detalhe"]],
    func=r"""
 // Clique num card: guarda o ativo e pede a troca de tela. O nome tem de
 // bater com o do no ui-page, senao o ui-control reclama que nao achou.
@@ -2464,13 +2437,7 @@ no(id="abrir_ativo", type="function", z="flow_monitor",
 if (typeof msg.payload !== 'string') { return null; }
 const sel = msg.payload;
 flow.set('ativo_sel', sel);
-// Os graficos do Detalhe passam a receber so as partes deste ativo. E sao
-// LIMPOS: o ui-chart acumula series, e sem isso as curvas do ativo aberto
-// antes continuariam na tela.
-const esp = (flow.get('esp32_por_chave') || {})[sel] || [];
-const inv = (flow.get('inv_por_chave') || {})[sel] || [];
-flow.set('devices_detalhe', esp.concat(inv));
-return [{ payload: { page: 'Detalhe' } }, { payload: [] }];
+return { payload: { page: 'Detalhe' } };
 """)
 
 no(id="acao_alarme", type="function", z="flow_monitor",
@@ -4278,78 +4245,6 @@ no(id="txt_resumo", type="ui-template", z="flow_monitor", group=G_RESUMO,
 # forte e errada. O stat tile mostra "--" e resolve isso. Cada tile traz a
 # barra de faixa (medidor contra o limite), o valor e o estado com simbolo
 # + texto, para a cor nunca ser o unico portador do significado.
-STAT_TILES = r"""
-<template>
-    <div class="tiles">
-        <div v-for="t in tiles" :key="t.nome" class="tile"
-             :class="{ vazio: t.texto === '--' || t.texto === 'FALHA' }">
-            <div class="rot">{{ t.nome }}</div>
-            <div class="val">
-                {{ t.texto }}<span v-if="t.un" class="un">{{ t.un }}</span>
-                <!-- v-if em vez de acesso direto: sem a guarda, UM tile sem
-                     'tend' lanca no render e o Vue apaga o widget inteiro,
-                     nao so o tile. Custa um atributo e evita tela branca. -->
-                <span v-if="t.tend" class="tend" :style="{ color: t.tend.cor }">{{ t.tend.simb }}</span>
-            </div>
-            <div class="trilho">
-                <div class="preenche" :style="{ width: t.pct + '%', background: t.cor }"></div>
-            </div>
-            <div class="estado" :style="{ color: t.cor }">{{ t.simb }} {{ t.rotulo }}</div>
-            <svg v-if="t.spark && t.spark.length" class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
-                <polyline fill="none" stroke="#52525b" stroke-width="2"
-                          :points="sparkPoints(t.spark)" />
-                <polyline fill="none" :stroke="t.cor" stroke-width="2.5"
-                          :points="sparkPoints(t.spark)" />
-            </svg>
-        </div>
-    </div>
-</template>
-
-<script>
-export default {
-    data () { return { tiles: [] } },
-    methods: {
-        sparkPoints (arr) {
-            if (!arr || arr.length < 2) { return ''; }
-            const min = Math.min(...arr), max = Math.max(...arr);
-            const rng = (max === min) ? 1 : (max - min);
-            const step = 100 / (arr.length - 1);
-            return arr.map((v, i) => {
-                const x = i * step;
-                const y = 30 - ((v - min) / rng) * 28 - 1;
-                return x.toFixed(1) + ',' + y.toFixed(1);
-            }).join(' ');
-        }
-    },
-    watch: {
-        msg: {
-            immediate: true,
-            handler (m) { if (m && m.payload) { this.tiles = m.payload } }
-        }
-    }
-}
-</script>
-
-<style scoped>
-.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-.tile  { background: #151518; border: 1px solid #3f3f46; border-radius: 10px;
-         padding: 14px; transition: background .2s ease; }
-.tile:hover { background: #1e1e22; }
-.tile.vazio { opacity: .85; }
-.rot   { font-size: 11px; color: #71717a; text-transform: uppercase;
-         letter-spacing: .5px; margin-bottom: 4px; }
-.val   { font-size: 28px; line-height: 1.15; color: #f4f4f5;
-         font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-.un    { font-size: 13px; color: #a1a1aa; margin-left: 4px; }
-.tend  { font-size: 14px; margin-left: 6px; }
-.trilho   { height: 4px; background: #27272a; border-radius: 2px; margin: 8px 0 5px; overflow: hidden; }
-.preenche { height: 100%; border-radius: 2px; transition: width .4s ease, background .3s ease; }
-.estado   { font-size: 11px; font-weight: 600; text-transform: uppercase;
-            letter-spacing: .4px; }
-.spark { width: 100%; height: 30px; margin-top: 8px; display: block; }
-</style>
-"""
-
 no(id="det_principal", type="ui-template", z="flow_monitor", group=G_TILES,
    name="detalhe: KPIs e grafico", order=1, width="8", height="0",
    head="", format=DET_PRINCIPAL, storeOutMessages=True, passthru=False,
