@@ -10,6 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from marca import LOGO_LOCKUP, LOGO_ICONE
+from detalhe_ui import DET_PRINCIPAL, DET_LATERAL
 import estilo   # linguagem visual do simulador: paleta + CSS global
 from inversores_ui import TELA as TELA_INV, VALIDADOR_JS as VALIDADOR_INV
 
@@ -177,11 +178,13 @@ grupo(G_CARDS,  "Ativos",  12, 3, altura=9, titulo=False)
 grupo(G_CAB,    "",                       12, 1, altura=3, pagina=PAGINA_DET, titulo=False)
 # 8 tiles em 3 colunas = 3 linhas. Com altura 5 a terceira ficava cortada e
 # o grupo criava barra de rolagem propria.
-grupo(G_TILES,  "Leituras agora",          6, 2, altura=8, pagina=PAGINA_DET)
+# Painel principal (KPIs + grafico) a esquerda, lateral do ativo a direita:
+# o formato "item selecionado + acoes" das referencias de dashboard.
+grupo(G_TILES,  "",                        8, 2, altura=8, pagina=PAGINA_DET, titulo=False)
 # Altura 8, igual a "Leituras agora" ao lado. Com altura 2 (so o botao de
 # publicar) sobrava um vao morto de ~200px na coluna direita, e o card ficava
 # atarracado ao lado de um alto.
-grupo(G_CMD,    "Comandos",                6, 3, altura=8, pagina=PAGINA_DET)
+grupo(G_CMD,    "",                        4, 3, altura=8, pagina=PAGINA_DET, titulo=False)
 grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=5, pagina=PAGINA_DET)
 # Altura 10: com os dados de placa em 3 colunas (grupos identificacao /
 # eletrico / mecanico) uma ficha cabe nessa altura; o widget usa o mesmo
@@ -191,9 +194,8 @@ grupo(G_PARTES, "Partes deste ativo",     12, 4, altura=5, pagina=PAGINA_DET)
 # cortada ao meio, e a altura foi calibrada olhando so um ativo de uma
 # parte. Acima de duas partes o bloco rola, que e degradacao aceitavel.
 grupo(G_PLACA,  "Dados de placa", 12, 5, altura=17, pagina=PAGINA_DET)
-grupo(G_TEMP,   "Temperatura (°C)",        6, 6, altura=8, pagina=PAGINA_DET)
-grupo(G_VIB,    "Vibracao RMS (g)",        6, 7, altura=8, pagina=PAGINA_DET)
-grupo(G_CORR,   "Corrente (A)",           12, 8, altura=8, pagina=PAGINA_DET)
+# Os tres graficos nativos (temperatura, vibracao, corrente) sairam: o
+# grafico do painel principal mostra as quatro grandezas, com historico.
 
 # --- Tela 3: cadastro de dispositivos ---------------------------------
 grupo(G_CAD, "", 12, 1, altura=14, pagina=PAGINA_CAD, titulo=False)
@@ -237,7 +239,7 @@ no(id="parse_json", type="json", z="flow_monitor", name="", property="payload",
 no(id="reg_telemetria", type="function", z="flow_monitor",
    name="registrar telemetria", outputs=4, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=500, y=100,
-   wires=[["tend_temp"], ["tend_vib"], ["chart_temp"], ["chart_vib"]],
+   wires=[["tend_temp"], ["tend_vib"], [], []],
    func=r"""
 // Guarda a ultima leitura de cada ativo num registro unico (flow context)
 // e repassa os valores para os graficos. Tambem mantem um cache curto para
@@ -409,6 +411,18 @@ empilhar(a.hist.vib, a.vib_rms_g);
 empilhar(a.hist.vel, a.vib_vel_mm_s);
 empilhar(a.hist.crista, a.vib_crista);
 
+// Serie COM HORARIO da ultima hora, para o grafico do Detalhe abrir ja
+// desenhado (o cache acima nao tem tempo: serve a sparkline, nao um eixo).
+// Uma amostra a cada 20 s no maximo: 180 pontos por dispositivo.
+const ST_PASSO_MS = 20000, ST_MAX = 180;
+if (!a.st) { a.st = []; }
+const st_agora = Date.now();
+if (!a.st.length || st_agora - a.st[a.st.length - 1][0] >= ST_PASSO_MS) {
+    const r = function (v, k) { return (typeof v === 'number') ? Math.round(v * k) / k : null; };
+    a.st.push([st_agora, r(a.temperatura_c, 10), r(a.vib_vel_mm_s, 100), r(a.vib_rms_g, 1000)]);
+    if (a.st.length > ST_MAX) { a.st.splice(0, a.st.length - ST_MAX); }
+}
+
 ativos[id] = a;
 flow.set('ativos', ativos);
 
@@ -491,7 +505,7 @@ no(id="mqtt_corrente", type="mqtt in", z="flow_monitor",
 no(id="reg_corrente", type="function", z="flow_monitor",
    name="registrar corrente", outputs=2, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=500, y=180,
-   wires=[["tend_corr"], ["chart_corr"]],
+   wires=[["tend_corr"], []],
    func=r"""
 // O sidecar pycomm3 publica a telemetria do drive: corrente, tensao,
 // barramento CC, frequencia, se esta rodando e o codigo de falha.
@@ -559,6 +573,12 @@ if (p.falha) {
     a.falha_codigo = (typeof p.falha.codigo === 'number') ? p.falha.codigo : 0;
     a.falha_texto  = p.falha.texto || null;
 }
+// Ultima falha (historico do drive, b007): continua la depois do rearme.
+// O Detalhe a mostra ao lado da falha ativa, como o simulador.
+if (p.ultima_falha && typeof p.ultima_falha.codigo === 'number') {
+    a.ultima_falha_codigo = p.ultima_falha.codigo;
+    a.ultima_falha_texto = p.ultima_falha.texto || null;
+}
 
 // Cache curto para tendencia de corrente.
 const MAX_HIST = 30;
@@ -566,6 +586,13 @@ if (!a.hist) { a.hist = { corr: [] }; }
 if (typeof a.corrente_a === 'number') {
     a.hist.corr.push(a.corrente_a);
     if (a.hist.corr.length > MAX_HIST) { a.hist.corr.shift(); }
+}
+// Serie com horario da ultima hora (ver o mesmo bloco na telemetria).
+if (!a.st_corr) { a.st_corr = []; }
+if (typeof a.corrente_a === 'number' &&
+    (!a.st_corr.length || Date.now() - a.st_corr[a.st_corr.length - 1][0] >= 20000)) {
+    a.st_corr.push([Date.now(), Math.round(a.corrente_a * 100) / 100]);
+    if (a.st_corr.length > 180) { a.st_corr.splice(0, a.st_corr.length - 180); }
 }
 
 a.visto_em = Date.now();
@@ -723,7 +750,7 @@ no(id="tick", type="inject", z="flow_monitor", name="a cada 2s",
 no(id="montar_painel", type="function", z="flow_monitor",
    name="montar painel", outputs=11, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=350, y=380,
-   wires=[["tabela_ativos"], ["txt_resumo"], ["stat_tiles"],
+   wires=[["tabela_ativos"], ["txt_resumo"], ["det_principal", "det_lateral"],
           ["cards_ativos"], ["cab_detalhe"], ["painel_placa"],
           ["alarmes_kpi"], ["alarmes_lista"], ["tabela_planta"], ["linha_tempo"],
           ["alvo_cmd"]],
@@ -1693,7 +1720,7 @@ function tile_crista(hist) {
 
 const h_esp = (registro[alvo.fonte_esp32] || {}).hist || {};
 
-const m3 = { payload: [
+const tiles = [
     tile('Temperatura',  'temperatura_c', 1, '°C', h_esp.temp || []),
     tile_velocidade(h_esp.vel || []),
     tile('Vibracao RMS', 'vib_rms_g',     3, 'g',  h_esp.vib || []),
@@ -1703,7 +1730,92 @@ const m3 = { payload: [
     tile_simples('Tensao',    'tensao_v', 1, 'V'),
     tile_simples('Barramento CC', 'dc_bus_v', 1, 'V'),
     tile_simples('Frequencia', 'frequencia_hz', 1, 'Hz')
-], topic: alvo.chave };
+];
+
+// ---- Saida 3: tela de Detalhe (painel principal + lateral) -----------
+// Partes do ativo aberto: cada uma vira uma curva no grafico.
+const partes_alvo = (alvo.nivel === 0)
+    ? lista.filter(function (x) { return x.nivel > 0 && x.chave.split('/')[0] === alvo.chave; })
+    : [];
+const fontes_graf = (partes_alvo.length ? partes_alvo : [alvo]).map(function (x) {
+    return { nome: x.rotulo,
+             st: ((registro[x.fonte_esp32] || {}).st) || [],
+             stc: ((registro[x.fonte_inversor] || {}).st_corr) || [] };
+});
+// Serie de uma metrica por parte. Coluna 1..3 do 'st' = temp, vel, vib.
+const COL = { temp: 1, vel: 2, vib: 3 };
+function series_de(id) {
+    return fontes_graf.map(function (f) {
+        const pts = (id === 'corr')
+            ? f.stc.map(function (r) { return [r[0], r[1]]; })
+            : f.st.map(function (r) { return [r[0], r[COL[id]]]; });
+        return { nome: f.nome, pts: pts.filter(function (q) { return q[1] !== null; }) };
+    }).filter(function (sr) { return sr.pts.length; });
+}
+// Variacao do valor atual contra a media da ULTIMA HORA. Honesta e sem
+// banco: e o que o painel tem em memoria. Com menos de 5 min de dado, nao
+// ha media que valha -- devolve null e a tela mostra um traco.
+function delta_de(series, v) {
+    if (typeof v !== 'number') { return null; }
+    let soma = 0, n = 0, ini = Infinity;
+    for (const sr of series) for (const q of sr.pts) { soma += q[1]; n++; if (q[0] < ini) { ini = q[0]; } }
+    if (n < 15 || agora - ini < 5 * 60000) { return null; }
+    const media = soma / n;
+    if (!media) { return null; }
+    return Math.round(((v - media) / Math.abs(media)) * 1000) / 10;
+}
+const DEF = [['temp', 'temperatura_c', 0], ['vel', 'vib_vel_mm_s', 1],
+             ['vib', 'vib_rms_g', 2], ['corr', 'corrente_a', 4]];
+const series_det = {};
+const kpis = DEF.map(function (d) {
+    const sr = series_de(d[0]);
+    series_det[d[0]] = sr;
+    const tl = tiles[d[2]];
+    const lim = lims_alvo[d[1]] || null;
+    const casas = { temp: 1, vel: 2, vib: 3, corr: 2 }[d[0]];
+    return { id: d[0], nome: tl.nome, texto: tl.texto, un: tl.un, cor: tl.cor,
+             rotulo: tl.rotulo, simb: tl.simb, dica: tl.dica || '', criterio: tl.criterio || '',
+             delta: delta_de(sr, alvo[d[1]]),
+             lim: lim ? { at: lim.atencao, cr: lim.critico,
+                          txt: 'atenção ' + (+lim.atencao.toFixed(casas)) + ' · crítico ' +
+                               (+lim.critico.toFixed(casas)) + ' ' + tl.un } : null };
+});
+const cfg_ativo = ATIVOS[alvo.chave.split('/')[0]] || {};
+// Ultima falha: do inversor do proprio ativo, ou do primeiro das partes
+// que tenha uma (o ativo principal nao tem inversor proprio).
+const inv_alvo = [alvo].concat(partes_alvo)
+    .map(function (x) { return registro[x.fonte_inversor] || {}; })
+    .filter(function (r) { return r.ultima_falha_codigo; })[0] || {};
+const m3 = { topic: alvo.chave, payload: {
+    chave: alvo.chave,
+    kpis: kpis,
+    sec: [tiles[3], tiles[5], tiles[6], tiles[7]].map(function (x) {
+        return { nome: x.nome, texto: x.texto, un: x.un, rotulo: x.rotulo };
+    }),
+    series: series_det,
+    agora: agora,
+    lateral: {
+        nome: alvo.nivel > 0 ? alvo.chave.split('/')[0] + ' › ' + alvo.rotulo : alvo.rotulo,
+        local: cfg_ativo.local || '',
+        estado: (estados[alvo.chave] || {}).estado || 'sem_dados',
+        motivos: ((estados[alvo.chave] || {}).motivos || []).join(' · '),
+        partes: partes_alvo.map(function (x) {
+            const e = (estados[x.chave] || {}).estado || 'sem_dados';
+            return { nome: x.rotulo, estado: e, cor: COR[e], simb: SIMB[e],
+                     tag: x.tag_inversor || '' };
+        }),
+        tem_inversor: !!alvo.fonte_inversor || partes_alvo.some(function (x) { return !!x.fonte_inversor; }),
+        falha: alvo.falha_codigo ? { cod: 'F' + String(alvo.falha_codigo).padStart(3, '0'),
+                                     txt: alvo.falha_texto || '' } : null,
+        // Com falha ativa, ela E a ultima (b007), mesmo que o servico ainda
+        // nao tenha publicado o historico.
+        ultima: inv_alvo.ultima_falha_codigo
+            ? { cod: 'F' + String(inv_alvo.ultima_falha_codigo).padStart(3, '0'),
+                txt: inv_alvo.ultima_falha_texto || '' }
+            : (alvo.falha_codigo ? { cod: 'F' + String(alvo.falha_codigo).padStart(3, '0'),
+                                     txt: alvo.falha_texto || '' } : null)
+    }
+} };
 
 // ---- Saida 4: os cards da visao geral --------------------------------
 // Um card por ativo PRINCIPAL. As partes aparecem quando o card e aberto.
@@ -2347,7 +2459,7 @@ no(id="cards_ativos", type="ui-template", z="flow_monitor", group=G_CARDS,
 no(id="abrir_ativo", type="function", z="flow_monitor",
    name="abrir detalhe", outputs=2, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=840, y=340,
-   wires=[["nav_detalhe"], ["chart_temp", "chart_vib", "chart_corr"]],
+   wires=[["nav_detalhe"], []],
    func=r"""
 // Clique num card: guarda o ativo e pede a troca de tela. O nome tem de
 // bater com o do no ui-page, senao o ui-control reclama que nao achou.
@@ -4186,11 +4298,17 @@ export default {
 </style>
 """
 
-no(id="stat_tiles", type="ui-template", z="flow_monitor", group=G_TILES,
-   name="stat tiles do ativo", order=1, width="6", height="0",
-   head="", format=STAT_TILES, storeOutMessages=True, passthru=False,
+no(id="det_principal", type="ui-template", z="flow_monitor", group=G_TILES,
+   name="detalhe: KPIs e grafico", order=1, width="8", height="0",
+   head="", format=DET_PRINCIPAL, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=420, wires=[[]])
+
+no(id="det_lateral", type="ui-template", z="flow_monitor", group=G_CMD,
+   name="detalhe: ativo e falhas", order=1, width="4", height="0",
+   head="", format=DET_LATERAL, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=640, y=460, wires=[[]])
 
 
 ALARMES_KPI = r"""
@@ -4359,9 +4477,6 @@ grafico("tend_temp", G_TEND_T, "Temperatura",  "°C", "", "", largura=12)
 grafico("tend_vib",  G_TEND_V, "Vibracao RMS", "g",  "0", "", largura=12)
 grafico("tend_corr", G_TEND_C, "Corrente",     "A",  "0", "", largura=12)
 
-grafico("chart_temp", G_TEMP,  "Temperatura",  "°C", "", "")
-grafico("chart_vib",  G_VIB,   "Vibracao RMS", "g",  "0", "")
-grafico("chart_corr", G_CORR,  "Corrente",     "A",  "0", "", largura=12)
 
 # =====================================================================
 #  Comandos: escolher o ativo e mandar publicar
@@ -4386,7 +4501,7 @@ def botao_cmd(nid, rotulo, acao, ordem, largura, dica, y,
 # "Identificar", com o mesmo peso visual -- e nao tem o mesmo peso: um e a
 # acao comum e segura, o outro e ocasional e so serve com voce na frente da
 # maquina. Identificar virou acao POR MODULO, na lista abaixo.
-botao_cmd("btn_publicar", "Publicar agora", "publicar", 1, 6,
+botao_cmd("btn_publicar", "Publicar agora", "publicar", 2, 4,
           "Forca uma leitura imediata em todos os modulos deste ativo", 560)
 
 # Rotulo no imperativo ("Mudar ... para") de proposito.
@@ -4398,7 +4513,7 @@ botao_cmd("btn_publicar", "Publicar agora", "publicar", 1, 6,
 # nao entrega -- e o ritmo real aparece na lista de modulos, vindo do proprio
 # no pela telemetria.
 no(id="dd_intervalo", type="ui-dropdown", z="flow_monitor", group=G_CMD,
-   name="intervalo", label="Mudar intervalo para...", order=2, width="6",
+   name="intervalo", label="Mudar intervalo para...", order=3, width="4",
    height="1", tooltip="Ritmo com que este ativo publica telemetria",
    place="escolha...", className="", clearable=False, multiple=False,
    chips=False, passthru=False, options=[
@@ -4423,7 +4538,7 @@ no(id="dd_intervalo", type="ui-dropdown", z="flow_monitor", group=G_CMD,
 # Plural: o comando vai para TODOS os modulos do ativo. "Reiniciar modulo",
 # no singular, escondia que num ativo de duas partes a telemetria inteira
 # cai junto.
-botao_cmd("btn_reiniciar", "Reiniciar modulos", "reiniciar", 5, 3,
+botao_cmd("btn_reiniciar", "Reiniciar modulos", "reiniciar", 6, 4,
           "Reinicia todos os modulos deste ativo. Clique duas vezes para "
           "confirmar.", 680, cor_texto=TINTA_1, cor_fundo=FUNDO_ELEV)
 
@@ -4435,7 +4550,7 @@ botao_cmd("btn_reiniciar", "Reiniciar modulos", "reiniciar", 5, 3,
 # estiver transbordando em campo, o fs_hz cai aqui antes de qualquer outro
 # sintoma.
 no(id="alvo_cmd", type="ui-template", z="flow_monitor", group=G_CMD,
-   name="modulo alvo", order=3, width="6", height="3",
+   name="modulo alvo", order=4, width="4", height="3",
    format=(r"""
 <div class="alvo">
   <div class="tit">Modulos deste ativo</div>
