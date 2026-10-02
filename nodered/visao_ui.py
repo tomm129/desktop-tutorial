@@ -205,13 +205,24 @@ CARDS = r"""
           <svg v-if="m.spark && m.spark.length > 2" class="cd-sp" viewBox="0 0 100 26" preserveAspectRatio="none">
             <defs>
               <linearGradient :id="'sp' + c.chave.replace(/\W/g, '') + i" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" :stop-color="corSpark(m)" stop-opacity=".35"/>
-                <stop offset="100%" :stop-color="corSpark(m)" stop-opacity="0"/>
+                <stop offset="0%" stop-color="#58a6ff" stop-opacity=".35"/>
+                <stop offset="100%" stop-color="#58a6ff" stop-opacity="0"/>
               </linearGradient>
             </defs>
-            <path :d="area(m.spark)" :fill="'url(#sp' + c.chave.replace(/\W/g, '') + i + ')'"/>
-            <polyline :points="pontos(m.spark)" fill="none" :stroke="corSpark(m)" stroke-width="1.6"
+            <!-- faixa do normal (ISA-101): do fundo ate o limite de atencao -->
+            <rect v-if="faixa(m)" x="0" :y="faixa(m).y" width="100" :height="26 - faixa(m).y" class="cd-fx"/>
+            <line v-if="faixa(m)" x1="0" x2="100" :y1="faixa(m).y" :y2="faixa(m).y" class="cd-fx-l"
+                  vector-effect="non-scaling-stroke"/>
+            <path :d="area(m.spark, m)" :fill="'url(#sp' + c.chave.replace(/\W/g, '') + i + ')'"/>
+            <polyline :points="pontos(m.spark, m)" fill="none" stroke="#58a6ff" stroke-width="1.6"
                       vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/>
+            <!-- o trecho ACIMA do limite, colorido: so ele chama atencao -->
+            <clipPath v-if="faixa(m)" :id="'cl' + c.chave.replace(/\W/g, '') + i">
+              <rect x="0" y="0" width="100" :height="faixa(m).y"/>
+            </clipPath>
+            <polyline v-if="faixa(m)" :points="pontos(m.spark, m)" fill="none" stroke="#f59e0b"
+                      stroke-width="1.8" vector-effect="non-scaling-stroke" stroke-linejoin="round"
+                      :clip-path="'url(#cl' + c.chave.replace(/\W/g, '') + i + ')'"/>
           </svg>
           <div v-else class="cd-sp-vazio"></div>
         </div>
@@ -257,15 +268,34 @@ export default {
       this.send({ payload: { acao: a, chave: c.chave, horas: horas } });
     },
     corSpark (m) { return m.alerta ? m.cor : '#58a6ff'; },
-    // Escala da PROPRIA serie: o minigrafico mostra forma (para onde vai);
-    // nivel quem mostra e o numero e a cor.
-    xy (arr) {
-      const min = Math.min(...arr), max = Math.max(...arr), amp = (max - min) || 1, n = arr.length - 1;
-      return arr.map((v, i) => [(i / n) * 100, 24 - ((v - min) / amp) * 20]);
+    // Escala: a da propria serie, para mostrar FORMA. Quando a curva chega
+    // perto do limite de atencao (70% dele ou mais), a escala passa a
+    // incluir o limite -- ai a faixa do normal aparece e a distancia ate o
+    // limite fica visivel, como pede a ISA-101. Longe do limite, a faixa
+    // ocuparia o grafico inteiro e nao diria nada.
+    dom (arr, m) {
+      let lo = Math.min(...arr), hi = Math.max(...arr);
+      if (m && m.lim_at && hi >= m.lim_at * 0.7) {
+        // O limite entra na escala pelos DOIS lados: curva toda acima dele
+        // (o pior caso) tambem tem de mostrar a faixa e o trecho colorido.
+        hi = Math.max(hi, m.lim_at * 1.08);
+        lo = Math.min(lo, m.lim_at * 0.85);
+      }
+      return [lo, hi];
     },
-    pontos (arr) { return this.xy(arr).map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' '); },
-    area (arr) {
-      const p = this.xy(arr);
+    xy (arr, m) {
+      const [lo, hi] = this.dom(arr, m), amp = (hi - lo) || 1, n = arr.length - 1;
+      return arr.map((v, i) => [(i / n) * 100, 24 - ((v - lo) / amp) * 20]);
+    },
+    faixa (m) {
+      if (!m.lim_at || !m.spark || m.spark.length < 3) { return null; }
+      const [lo, hi] = this.dom(m.spark, m);
+      if (m.lim_at > hi || m.lim_at < lo) { return null; }
+      return { y: 24 - ((m.lim_at - lo) / ((hi - lo) || 1)) * 20 };
+    },
+    pontos (arr, m) { return this.xy(arr, m).map(p => p[0].toFixed(1) + ',' + p[1].toFixed(1)).join(' '); },
+    area (arr, m) {
+      const p = this.xy(arr, m);
       return 'M' + p.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' L') + ' L100,26 L0,26 Z';
     }
   },
@@ -332,6 +362,8 @@ export default {
 .cd-d { font-size: 11px; font-weight: 600; height: 16px; margin-top: 2px; }
 .cd-d .up { color: #79c0ff; } .cd-d .down { color: #9fb3c8; }
 .cd-sp { width: 100%; height: 30px; margin-top: 4px; display: block; }
+.cd-fx { fill: rgba(139,152,165,.08); }
+.cd-fx-l { stroke: rgba(245,158,11,.45); stroke-width: 1; stroke-dasharray: 2 2; }
 .cd-sp-vazio { height: 30px; margin-top: 4px; border-bottom: 1px dashed #2a323c; }
 
 .cd-rod { display: flex; justify-content: space-between; margin-top: auto; padding-top: 14px;

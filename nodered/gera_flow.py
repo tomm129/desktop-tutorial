@@ -101,7 +101,10 @@ no(id=BASE, type="ui-base", name="Monitoramento", path="/dashboard",
    showPathInSidebar=False, headerContent="page", navigationStyle="default",
    titleBarStyle="default", showReconnectNotification=True,
    notificationDisplayTime="5", showDisconnectNotification=True,
-   allowInstall=True)
+   # Sem o modo instalavel (PWA): ele so servia para mostrar "App is offline
+   # ready" no canto da tela -- e o painel nao funciona offline de verdade,
+   # depende do gateway ao vivo.
+   allowInstall=False)
 
 no(id=TEMA, type="ui-theme", name="Industrial escuro",
    colors={"surface": FUNDO_CARTAO, "primary": SERIES[0],
@@ -115,7 +118,7 @@ BREAKPOINTS = [{"name": "Mobile", "px": "0", "cols": "4"},
                {"name": "Small Desktop", "px": "768", "cols": "10"},
                {"name": "Desktop", "px": "1024", "cols": "12"}]
 
-no(id=PAGINA, type="ui-page", name="Visao Geral", ui=BASE, path="/visao",
+no(id=PAGINA, type="ui-page", name="Visão Geral", ui=BASE, path="/visao",
    icon="view-dashboard", layout="grid", theme=TEMA, order=1, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
@@ -130,7 +133,7 @@ no(id=PAGINA_ATIVOS, type="ui-page", name="Ativos", ui=BASE, path="/ativos",
    icon="factory", layout="grid", theme=TEMA, order=2, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
-no(id=PAGINA_TEND, type="ui-page", name="Tendencias", ui=BASE, path="/tendencias",
+no(id=PAGINA_TEND, type="ui-page", name="Tendências", ui=BASE, path="/tendencias",
    icon="chart-line", layout="grid", theme=TEMA, order=3, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
@@ -138,11 +141,11 @@ no(id=PAGINA_IA, type="ui-page", name="IA", ui=BASE, path="/ia",
    icon="robot-outline", layout="grid", theme=TEMA, order=4, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
-no(id=PAGINA_REL, type="ui-page", name="Relatorios", ui=BASE, path="/relatorios",
+no(id=PAGINA_REL, type="ui-page", name="Relatórios", ui=BASE, path="/relatorios",
    icon="file-document-outline", layout="grid", theme=TEMA, order=6,
    className="", visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
-no(id=PAGINA_CAD, type="ui-page", name="Configuracao", ui=BASE, path="/cadastro",
+no(id=PAGINA_CAD, type="ui-page", name="Configuração", ui=BASE, path="/cadastro",
    icon="cog-outline", layout="grid", theme=TEMA, order=7, className="",
    visible=True, disabled=False, breakpoints=BREAKPOINTS)
 
@@ -207,9 +210,9 @@ grupo(G_ATIVOS_TAB, "Todos os ativos e partes", 12, 1, altura=16,
       pagina=PAGINA_ATIVOS)
 
 # --- Tela: Tendencias (as tres grandezas, planta inteira) -------------
-grupo(G_TEND_T, "Temperatura (°C) — ate 8 series, as de pior estado",  12, 1, altura=8, pagina=PAGINA_TEND)
-grupo(G_TEND_V, "Vibracao RMS (g) — ate 8 series, as de pior estado",  12, 2, altura=8, pagina=PAGINA_TEND)
-grupo(G_TEND_C, "Corrente (A) — ate 8 series, as de pior estado",      12, 3, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_T, "Temperatura (°C) — até 8 séries, as de pior estado",  12, 1, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_V, "Vibração RMS (g) — até 8 séries, as de pior estado",  12, 2, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_C, "Corrente (A) — até 8 séries, as de pior estado",      12, 3, altura=8, pagina=PAGINA_TEND)
 
 # --- Telas de roadmap -------------------------------------------------
 # Altura 9 (era 12): com a escada em duas colunas o conteudo encolheu
@@ -223,7 +226,7 @@ grupo(G_REL, "", 12, 1, altura=9, pagina=PAGINA_REL, titulo=False)
 # dois textos pequenos -- cinco retangulos grandes e vazios.
 grupo(G_ALARMES_KPI,  "Resumo de alarmes", 12, 1, altura=1,
       pagina=PAGINA_ALARMES, titulo=False)
-grupo(G_ALARMES_LISTA, "Historico",         12, 2, altura=14,
+grupo(G_ALARMES_LISTA, "Histórico",         12, 2, altura=14,
       pagina=PAGINA_ALARMES, titulo=False)
 
 # =====================================================================
@@ -787,7 +790,7 @@ const ATIVOS = flow.get('cadastro') || {};
 // ---- Limites. Calibre com o equipamento em condicao normal. ----------
 const LIM = {
     temperatura_c: { atencao: 60,  critico: 75,   nome: 'Temperatura', un: '°C' },
-    vib_rms_g:     { atencao: 0.5, critico: 1.0,  nome: 'Vibracao',    un: 'g'  },
+    vib_rms_g:     { atencao: 0.5, critico: 1.0,  nome: 'Vibração',    un: 'g'  },
     vib_vel_mm_s:  { atencao: 2.8, critico: 4.5,  nome: 'Velocidade',  un: 'mm/s' },
     corrente_a:    { atencao: 9.0, critico: 11.0, nome: 'Corrente',    un: 'A'  }
 };
@@ -1488,13 +1491,13 @@ for (const a of lista) {
         Ativo: nome,
         Temperatura: fmt(a.temperatura_c, 1, '°C'),
         Velocidade: fmt(a.vib_vel_mm_s, 2, 'mm/s'),
-        'Vibracao RMS': fmt(a.vib_rms_g, 3, 'g'),
+        'Vibração RMS': fmt(a.vib_rms_g, 3, 'g'),
         Corrente: fmt(a.corrente_a, 2, 'A'),
-        Tensao: fmt(a.tensao_v, 1, 'V'),
+        'Tensão': fmt(a.tensao_v, 1, 'V'),
         Marcha: marcha_txt(a),
         Inversor: a.tag_inversor || (a.nivel > 0 ? '--' : ''),
         Estado: SIMB[estado] + ' ' + ROTULO[estado],
-        'Visto ha': ha_quanto(a.visto_em),
+        'Visto há': ha_quanto(a.visto_em),
         // Campos de trabalho, retirados antes de exibir: servem para
         // filtrar as partes do ativo aberto na tela de detalhe.
         _chave: a.chave,
@@ -1681,7 +1684,7 @@ function recomendacao(h, item) {
             return 'ISO 20816 zona C — operar só por período limitado. Programar inspeção de mancais, alinhamento e fixação.';
         }
     }
-    if (/vibracao/.test(m)) {
+    if (/vibra[cç][aã]o/.test(m)) {
         return 'Conferir a fixação do sensor e da máquina; comparar com a velocidade (mm/s) no Detalhe.';
     }
     if (/temperatura/.test(m)) {
@@ -1820,13 +1823,13 @@ const h_esp = (registro[alvo.fonte_esp32] || {}).hist || {};
 const tiles = [
     tile('Temperatura',  'temperatura_c', 1, '°C', h_esp.temp || []),
     tile_velocidade(h_esp.vel || []),
-    tile('Vibracao RMS', 'vib_rms_g',     3, 'g',  h_esp.vib || []),
+    tile('Vibração RMS', 'vib_rms_g',     3, 'g',  h_esp.vib || []),
     tile_crista(h_esp.crista || []),
     tile('Corrente',     'corrente_a',    2, 'A',
          ((registro[alvo.fonte_inversor] || {}).hist || {}).corr || []),
-    tile_simples('Tensao',    'tensao_v', 1, 'V'),
+    tile_simples('Tensão',    'tensao_v', 1, 'V'),
     tile_simples('Barramento CC', 'dc_bus_v', 1, 'V'),
-    tile_simples('Frequencia', 'frequencia_hz', 1, 'Hz')
+    tile_simples('Frequência', 'frequencia_hz', 1, 'Hz')
 ];
 
 // ---- Saida 3: tela de Detalhe (painel principal + lateral) -----------
@@ -1930,7 +1933,10 @@ function serie_dono(x, id) {
             ? (((registro[y.fonte_inversor] || {}).st_corr) || []).map(function (r) { return [r[0], r[1]]; })
             : (((registro[y.fonte_esp32] || {}).st) || []).map(function (r) { return [r[0], r[col]]; });
         const ok = pts.filter(function (q) { return q[1] !== null; });
-        if (ok.length && (!mel.length || ok[ok.length - 1][1] > mel[mel.length - 1][1])) { mel = ok; }
+        if (ok.length && (!mel.length || ok[ok.length - 1][1] > mel[mel.length - 1][1])) {
+            mel = ok;
+            mel.item = y;   // de qual parte veio: o limite do minigrafico e o DELA
+        }
     }
     return mel;
 }
@@ -1980,9 +1986,13 @@ function m4_cards() {
                 ? sd.filter(function (q, i) { return i % passo === 0 || i === sd.length - 1; })
                     .map(function (q) { return q[1]; })
                 : serie;
+            // Limite da parte dona da curva: num ativo com varias partes cada
+            // uma tem a sua corrente nominal, e o limite do pai nao serve.
+            const lim_sp = (sd.item ? limites_de(sd.item)[campo] : null) || lim;
             return { nome: nome, texto: v.toFixed(casas), un: un,
                      pct: Math.max(0, Math.min(100, (v / lim.critico) * 100)),
                      cor: COR[n], vazio: false, spark: spark,
+                     lim_at: lim_sp ? lim_sp.atencao : null,
                      alerta: n === 'atencao' || n === 'critico',
                      delta: variacao(sd, v) };
         }
@@ -2073,20 +2083,20 @@ function ficha_de(a, titulo) {
     const defs = [
         ['Fabricante',        p.fabricante],
         ['Modelo',            p.modelo],
-        ['Numero de serie',   p.numero_serie],
+        ['Número de série',   p.numero_serie],
         ['Ano',               p.ano],
-        ['Potencia',          p.potencia_cv, ' cv'],
+        ['Potência',          p.potencia_cv, ' cv'],
         ['',                  p.potencia_kw, ' kW'],
-        ['Tensao',            p.tensao_v, ' V'],
+        ['Tensão',            p.tensao_v, ' V'],
         ['Corrente nominal',  p.corrente_nominal_a, ' A'],
-        ['Rotacao',           p.rpm, ' rpm'],
-        ['Frequencia',        p.frequencia_hz, ' Hz'],
+        ['Rotação',           p.rpm, ' rpm'],
+        ['Frequência',        p.frequencia_hz, ' Hz'],
         ['Polos',             p.polos],
-        ['Fator de servico',  p.fator_servico],
+        ['Fator de serviço',  p.fator_servico],
         ['Rendimento',        p.rendimento_pct, ' %'],
-        ['Fator de potencia', p.fator_potencia],
-        ['Carcaca',           p.carcaca],
-        ['Grau de protecao',  p.grau_protecao],
+        ['Fator de potência', p.fator_potencia],
+        ['Carcaça',           p.carcaca],
+        ['Grau de proteção',  p.grau_protecao],
         ['Isolamento',        p.classe_isolamento],
         ['Peso',              p.peso_kg, ' kg']
     ];
@@ -2533,7 +2543,7 @@ no(id="voltar_visao", type="function", z="flow_monitor", name="voltar",
    outputs=1, timeout=0, noerr=0, initialize="", finalize="", libs=[],
    x=340, y=660, wires=[["nav_detalhe"]],
    func=r"""
-return { payload: { page: 'Visao Geral' } };
+return { payload: { page: 'Visão Geral' } };
 """)
 
 # height 2, nao 1: com o inversor em falha o cabecalho ganha uma segunda
@@ -2624,22 +2634,22 @@ export default {
         // que ela ainda nao conheca cai num grupo "Outros" em vez de sumir.
         grupos (f) {
             const gs = [
-                { nome: 'Identificacao',
-                  rots: ['Fabricante', 'Modelo', 'Numero de serie', 'Ano'],
+                { nome: 'Identificação',
+                  rots: ['Fabricante', 'Modelo', 'Número de série', 'Ano'],
                   campos: [] },
-                { nome: 'Eletrico',
-                  rots: ['Potencia', 'Tensao', 'Corrente nominal', 'Rotacao',
-                         'Frequencia', 'Polos', 'Fator de servico',
-                         'Rendimento', 'Fator de potencia', 'Limite de alarme'],
+                { nome: 'Elétrico',
+                  rots: ['Potência', 'Tensão', 'Corrente nominal', 'Rotação',
+                         'Frequência', 'Polos', 'Fator de serviço',
+                         'Rendimento', 'Fator de potência', 'Limite de alarme'],
                   campos: [] },
-                { nome: 'Mecanico',
-                  rots: ['Carcaca', 'Grau de protecao', 'Isolamento', 'Peso'],
+                { nome: 'Mecânico',
+                  rots: ['Carcaça', 'Grau de proteção', 'Isolamento', 'Peso'],
                   campos: [] }
             ];
             // Campos que MUDAM O COMPORTAMENTO do alarme: a corrente nominal
             // define os limites de 90%/110%; potencia e carcaca definem o
             // grupo da ISO 20816 (a zona do mesmo mm/s muda com o porte).
-            const CRITICOS = ['Potencia', 'Corrente nominal', 'Carcaca',
+            const CRITICOS = ['Potência', 'Corrente nominal', 'Carcaça',
                               'Limite de alarme'];
             let atual = null, imp = false;
             for (const c of f.campos) {
@@ -4508,7 +4518,7 @@ def grafico(nid, grupo_id, rotulo, eixo_y, ymin, ymax, largura=6):
 
 
 grafico("tend_temp", G_TEND_T, "Temperatura",  "°C", "", "", largura=12)
-grafico("tend_vib",  G_TEND_V, "Vibracao RMS", "g",  "0", "", largura=12)
+grafico("tend_vib",  G_TEND_V, "Vibração RMS", "g",  "0", "", largura=12)
 grafico("tend_corr", G_TEND_C, "Corrente",     "A",  "0", "", largura=12)
 
 
