@@ -11,6 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from marca import LOGO_LOCKUP, LOGO_ICONE
 from detalhe_ui import DET_PRINCIPAL, DET_LATERAL
+from visao_ui import RESUMO, CARDS as CARDS_VISAO
 import estilo   # linguagem visual do simulador: paleta + CSS global
 from inversores_ui import TELA as TELA_INV, VALIDADOR_JS as VALIDADOR_INV
 
@@ -1582,44 +1583,33 @@ for (const a of lista) {
     if (a.nivel === 0) { cnt[estados[a.chave].estado] = (cnt[estados[a.chave].estado] || 0) + 1; }
 }
 
-function kpi(cor, simb, rot, val, sub) {
-    return '<div style="display:inline-block;min-width:130px;margin:6px 10px 6px 0;' +
-           'background:#151518;border:1px solid #3f3f46;border-radius:10px;padding:10px 14px;' +
-           'box-shadow:0 2px 6px rgba(0,0,0,0.2)">' +
-           '<div style="font-size:11px;color:#71717a;text-transform:uppercase;letter-spacing:.4px">' + rot + '</div>' +
-           '<div style="font-size:24px;font-weight:600;color:' + cor + ';line-height:1.2">' + simb + ' ' + val + '</div>' +
-           (sub ? '<div style="font-size:11px;color:#52525b;margin-top:2px">' + sub + '</div>' : '') +
-           '</div>';
+// Saude da planta: % do tempo em OK, somando todos os ativos, na ultima
+// hora. Conta so desde que o painel subiu: antes disso nao ha o que dizer.
+if (!flow.get('inicio_painel')) { flow.set('inicio_painel', agora); }
+const JANELA_SAUDE = 3600000;
+const ini_saude = Math.max(agora - JANELA_SAUDE, flow.get('inicio_painel'));
+let saude = null;
+if (n_pai && agora - ini_saude >= 60000) {
+    let ruim = 0;
+    for (const a of lista) {
+        if (a.nivel !== 0) { continue; }
+        // Uniao dos trechos fora de OK do ativo (ele e as partes): dois
+        // eventos simultaneos nao contam em dobro.
+        const tr = hist
+            .filter(function (h) { return h.ativo === a.chave || h.ativo === a.rotulo; })
+            .map(function (h) { return [Math.max(h.inicio_ms, ini_saude), h.fim_ms || agora]; })
+            .filter(function (x) { return x[1] > x[0]; })
+            .sort(function (x, y) { return x[0] - y[0]; });
+        let fim = -Infinity;
+        for (const x of tr) {
+            if (x[0] > fim) { ruim += x[1] - x[0]; fim = x[1]; }
+            else if (x[1] > fim) { ruim += x[1] - fim; fim = x[1]; }
+        }
+    }
+    saude = Math.max(0, Math.round(100 * (1 - ruim / (n_pai * (agora - ini_saude)))));
 }
-
-let html;
-if (!lista.length) {
-    html = '<span style="color:#71717a;font-size:14px">Aguardando o primeiro ativo publicar...</span>';
-} else {
-    html = '<img src="' + LOGO + '" alt="insightX" ' +
-           // vertical-align:top + a MESMA margem superior dos cards (6px):
-           // com 'middle' a logo era centrada na linha e, sendo mais baixa
-           // que os cards, descia uns 16px em relacao ao topo deles.
-           'style="height:44px;vertical-align:top;margin:6px 20px 6px 0;' +
-           'padding-right:20px;border-right:1px solid #3f3f46">' +
-           kpi(COR.normal, SIMB.normal, 'Normais', cnt.normal, 'ativos OK') +
-           kpi(COR.atencao, SIMB.atencao, 'Atenção', cnt.atencao, 'revisar') +
-           kpi(COR.critico, SIMB.critico, 'Críticos', cnt.critico, 'ação urgente') +
-           elos.map(function (e) {
-               return '<div style="display:inline-block;margin:6px 10px 6px 0;' +
-                      'background:#151518;border:1px solid #3f3f46;border-radius:10px;' +
-                      'padding:10px 14px;min-width:150px">' +
-                      '<div style="font-size:11px;color:#71717a;text-transform:uppercase;' +
-                      'letter-spacing:.4px">' + e.nome + '</div>' +
-                      '<div style="font-size:14px;color:' +
-                      (e.ok ? COR.normal : COR.critico) + ';margin-top:2px">' +
-                      (e.ok ? '● conectado' : '■ sem resposta') + '</div>' +
-                      '<div style="font-size:11px;color:#52525b;margin-top:2px">' +
-                      e.det + '</div></div>';
-           }).join('') +
-           kpi(COR.sem_dados, SIMB.sem_dados, 'Sem dados', cnt.sem_dados, 'offline/mudo');
-}
-const m2 = { payload: html };
+const m2 = { payload: lista.length ? { logo: LOGO, total: n_pai, cnt: cnt, saude: saude,
+                                       elos: elos } : null };
 
 // ---- Saidas 3..5: a tela de detalhe ----------------------------------
 const alvo = lista.find(function (x) { return x.chave === sel; }) || lista[0];
@@ -1819,6 +1809,33 @@ const m3 = { topic: alvo.chave, payload: {
 
 // ---- Saida 4: os cards da visao geral --------------------------------
 // Um card por ativo PRINCIPAL. As partes aparecem quando o card e aberto.
+// Serie com horario da metrica de um ativo: a da parte "dona" do valor
+// mostrado (o maior, que e o que o ativo principal exibe). Funcoes
+// declaradas -- e nao const -- porque m4_cards tambem roda no retorno
+// antecipado, antes de os const da tela de Detalhe existirem.
+function serie_dono(x, id) {
+    const col = { temp: 1, vel: 2, vib: 3 }[id];
+    const filhos = (x.nivel === 0)
+        ? lista.filter(function (y) { return y.nivel > 0 && y.chave.split('/')[0] === x.chave; }) : [];
+    let mel = [];
+    for (const y of (filhos.length ? filhos : [x])) {
+        const pts = (id === 'corr')
+            ? (((registro[y.fonte_inversor] || {}).st_corr) || []).map(function (r) { return [r[0], r[1]]; })
+            : (((registro[y.fonte_esp32] || {}).st) || []).map(function (r) { return [r[0], r[col]]; });
+        const ok = pts.filter(function (q) { return q[1] !== null; });
+        if (ok.length && (!mel.length || ok[ok.length - 1][1] > mel[mel.length - 1][1])) { mel = ok; }
+    }
+    return mel;
+}
+// Variacao contra a media da serie (ate 1 h). Com menos de 5 min, nada.
+function variacao(pts, v) {
+    if (typeof v !== 'number' || pts.length < 15 || agora - pts[0][0] < 300000) { return null; }
+    let s = 0;
+    for (const q of pts) { s += q[1]; }
+    const media = s / pts.length;
+    return media ? Math.round(((v - media) / Math.abs(media)) * 100) : null;
+}
+
 function m4_cards() {
     const cards = lista.filter(function (x) { return x.nivel === 0; })
     .map(function (a) {
@@ -1848,9 +1865,19 @@ function m4_cards() {
             // que avaliamos aqui.
             const n = (a.niveis && a.niveis[campo])
                     || avaliar(v, lim, a.chave + '::' + campo);
+            const sd = serie_dono(a, { temperatura_c: 'temp', vib_vel_mm_s: 'vel',
+                                       vib_rms_g: 'vib', corrente_a: 'corr' }[campo]);
+            // Ate 48 pontos no minigrafico: mais que isso nao se ve em 100px.
+            const passo = Math.max(1, Math.ceil(sd.length / 48));
+            const spark = sd.length > 2
+                ? sd.filter(function (q, i) { return i % passo === 0 || i === sd.length - 1; })
+                    .map(function (q) { return q[1]; })
+                : serie;
             return { nome: nome, texto: v.toFixed(casas), un: un,
                      pct: Math.max(0, Math.min(100, (v / lim.critico) * 100)),
-                     cor: COR[n], vazio: false, spark: serie };
+                     cor: COR[n], vazio: false, spark: spark,
+                     alerta: n === 'atencao' || n === 'critico',
+                     delta: variacao(sd, v) };
         }
 
         const partes_txt = partes ? (partes + (partes > 1 ? ' partes' : ' parte'))
@@ -1867,6 +1894,7 @@ function m4_cards() {
             });
         return {
             chave: a.chave,
+            estado: e,
             tag: a.rotulo,
             descricao: nomes_partes.join(' • '),
             cor: COR[e], simb: SIMB[e], rotulo: ROTULO[e],
@@ -2289,170 +2317,11 @@ return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9, m10, m11];
 # =====================================================================
 #  Widgets
 # =====================================================================
-CARDS = r"""
-<template>
-    <div class="parede">
-        <div v-if="!cards.length" class="vazio">
-            Aguardando o primeiro ativo publicar...
-        </div>
-        <div v-for="c in cards" :key="c.chave" class="card"
-             :style="{ borderLeftColor: c.cor }"
-             role="button" tabindex="0"
-             @click="abrir(c)" @keyup.enter="abrir(c)">
-
-            <div class="topo">
-                <div class="nome">
-                    <div class="tag">{{ c.tag }}</div>
-                    <!-- Sem v-if: a .desc tem altura minima reservada (2
-                         linhas) para alinhar as medidas entre os cards;
-                         esconder o div vazio quebraria o alinhamento. -->
-                    <div class="desc">{{ c.descricao }}</div>
-                </div>
-                <!-- simbolo + texto: a cor nunca carrega o estado sozinha -->
-                <div class="chip" :style="{ color: c.cor, borderColor: c.cor }">
-                    {{ c.simb }} {{ c.rotulo }}
-                </div>
-            </div>
-
-            <div class="medidas">
-                <div v-for="m in c.medidas" :key="m.nome" class="medida">
-                    <div class="mrot">{{ m.nome }}</div>
-                    <div class="mval" :class="{ vazio: m.vazio }">
-                        {{ m.texto }}<span v-if="m.un" class="mun">{{ m.un }}</span>
-                    </div>
-                    <!-- Sparkline: mesma altura que a barra ocupava, mas
-                         mostrando PARA ONDE o valor vai, nao so onde esta.
-                         A barra logo abaixo continua dando o nivel. -->
-                    <svg v-if="m.spark && m.spark.length > 2" class="mini"
-                         viewBox="0 0 100 22" preserveAspectRatio="none">
-                        <polyline :points="pontos(m.spark)" fill="none"
-                                  :stroke="m.cor" stroke-width="1.6"
-                                  vector-effect="non-scaling-stroke"
-                                  stroke-linejoin="round" stroke-linecap="round" />
-                    </svg>
-                    <div class="trilho">
-                        <div class="preenche"
-                             :style="{ width: m.pct + '%', background: m.cor }"></div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="rodape">
-                <span>
-                    {{ c.n_partes }}
-                    <span v-if="c.marcha" class="marcha" :class="c.marcha_cls">
-                        {{ c.marcha }}
-                    </span>
-                </span>
-                <span>visto ha {{ c.visto }}</span>
-            </div>
-        </div>
-    </div>
-</template>
-
-<script>
-export default {
-    data () { return { cards: [] } },
-    methods: {
-        // Manda a chave para o fluxo, que guarda a selecao e navega.
-        abrir (c) { this.send({ payload: c.chave }) },
-
-        // Projeta a serie no viewBox 100x22 usando a escala da PROPRIA
-        // serie (min..max), nao a do limite: numa faixa estreita o
-        // sparkline continua legivel -- o papel dele e mostrar forma.
-        // Quem mostra nivel e a barra logo abaixo.
-        pontos (arr) {
-            if (!arr || arr.length < 2) { return ''; }
-            const min = Math.min(...arr), max = Math.max(...arr);
-            const amp = (max - min) || 1;
-            const n = arr.length - 1;
-            return arr.map(function (v, i) {
-                const x = (i / n) * 100;
-                const y = 20 - ((v - min) / amp) * 18;
-                return x.toFixed(1) + ',' + y.toFixed(1);
-            }).join(' ');
-        }
-    },
-    watch: {
-        msg: {
-            immediate: true,
-            handler (m) { if (m && Array.isArray(m.payload)) { this.cards = m.payload } }
-        }
-    }
-}
-</script>
-
-<style scoped>
-/* align-content em start: sem isso o grid estica as FILEIRAS para preencher
-   a altura do grupo, e cada fileira vira uma faixa vazia enorme. Ja o
-   align-items: stretch e o que IGUALA os cards da mesma fileira: o card com
-   menos conteudo estica ate a altura do vizinho mais alto, e o flex column
-   interno empurra o rodape para baixo (margin-top: auto no .rodape). */
-.parede { display: grid; gap: 16px; align-content: start; align-items: stretch;
-          grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-.vazio  { color: #71717a; padding: 12px; font-size: 14px; }
-
-.card {
-    display: flex;
-    flex-direction: column;
-    background: #151518;
-    border: 1px solid #3f3f46;
-    border-left: 5px solid #71717a;   /* faixa de estado */
-    border-radius: 12px;
-    padding: 16px 18px;
-    cursor: pointer;
-    transition: border-color .2s ease, background .2s ease, transform .2s ease, box-shadow .2s ease;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
-}
-.card:hover, .card:focus-visible {
-    border-color: #52525b;
-    background: #1e1e22;
-    transform: translateY(-2px);
-    box-shadow: 0 6px 18px rgba(0,0,0,0.35);
-    outline: none;
-}
-
-.topo { display: flex; justify-content: space-between; align-items: flex-start;
-        gap: 10px; margin-bottom: 14px; }
-/* Altura minima de 2 linhas no titulo e na descricao: e o que faz o bloco
-   de medidas comecar na MESMA altura em todos os cards da fileira, tenha o
-   texto quebrado ou nao. Nada e cortado -- so se reserva o espaco. */
-.tag  { font-size: 17px; font-weight: 600; color: #f4f4f5; letter-spacing: -0.2px;
-        line-height: 1.25; min-height: 2.5em; }
-.desc { font-size: 12px; color: #a1a1aa; margin-top: 2px; line-height: 1.3;
-        min-height: 2.6em; }
-.chip { font-size: 11px; font-weight: 600; white-space: nowrap; border: 1px solid;
-        border-radius: 12px; padding: 2px 10px; text-transform: uppercase;
-        letter-spacing: .4px; }
-
-.medidas { display: flex; gap: 14px; }
-.medida  { flex: 1; min-width: 0; }
-.mrot { font-size: 10px; color: #71717a; text-transform: uppercase;
-        letter-spacing: .5px; margin-bottom: 3px; }
-/* Figuras proporcionais: tabular deixa o numero solto nesse tamanho */
-.mval { font-size: 22px; color: #f4f4f5; line-height: 1.2;
-        font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
-.mval.vazio { font-size: 15px; color: #71717a; }
-.mun  { font-size: 12px; color: #a1a1aa; margin-left: 3px; }
-.mini     { width: 100%; height: 22px; display: block; margin-top: 3px; opacity: .85; }
-.trilho   { height: 4px; background: #27272a; border-radius: 2px; margin-top: 3px; overflow: hidden; }
-.preenche { height: 100%; border-radius: 2px; transition: width .4s ease, background .3s ease; }
-
-/* margin-top: auto cola o rodape embaixo quando o card foi esticado pela
-   fileira; o padding-top garante o respiro de 14px na altura natural. */
-.rodape { display: flex; justify-content: space-between; margin-top: auto;
-          padding-top: 14px; font-size: 11px; color: #71717a; }
-/* Marcha e contexto, nao saude: fica discreta e nunca usa a cor de status,
-   senao "rodando" leria como "OK" e "parado" como alarme. */
-.marcha        { margin-left: 6px; font-weight: 500; }
-.marcha.on     { color: #a1a1aa; }
-.marcha.off    { color: #52525b; }
-</style>
-"""
+# Cards da Visao Geral: ver nodered/visao_ui.py
 
 no(id="cards_ativos", type="ui-template", z="flow_monitor", group=G_CARDS,
    name="cards dos ativos", order=1, width="12", height="0",
-   head="", format=CARDS, storeOutMessages=True, passthru=False,
+   head="", format=CARDS_VISAO, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    x=640, y=340, wires=[["abrir_ativo"]])
 
@@ -3657,7 +3526,7 @@ LINHA_TEMPO = r"""
     <div class="tl">
         <!-- cabecalho: legenda a esquerda, janela a direita -->
         <div class="tl-top">
-            <span class="tl-leg"><i class="tl-bola" style="background:#22c55e"></i>OK</span>
+            <span class="tl-leg"><i class="tl-bola" style="background:#58a6ff"></i>OK</span>
             <span class="tl-leg"><i class="tl-bola" style="background:#f59e0b"></i>Atenção</span>
             <span class="tl-leg"><i class="tl-bola" style="background:#ef4444"></i>Crítico</span>
             <span class="tl-leg"><i class="tl-bola tl-bola-sd"></i>Sem dados</span>
@@ -3675,7 +3544,7 @@ LINHA_TEMPO = r"""
                 <div class="tl-nome">
                     <i class="tl-bola" :class="{ 'tl-bola-sd': l.estado === 'sem_dados',
                                                  'tl-pulsa': l.estado === 'critico' }"
-                       :style="l.estado === 'sem_dados' ? {} : { background: l.cor }"></i>
+                       :style="l.estado === 'sem_dados' ? {} : { background: l.estado === 'normal' ? '#58a6ff' : l.cor }"></i>
                     <span class="tl-nm">{{ l.nome }}</span>
                 </div>
                 <div class="tl-trilho">
@@ -3906,7 +3775,7 @@ export default {
 .tl-jan.on { color: #2f81f7; border-color: #2f81f7; background: rgba(47,129,247,.14); }
 
 /* --- linhas: nome | trilho | estado agora --------------------------- */
-.tl-linha { display: grid; grid-template-columns: 190px 1fr 150px; align-items: center;
+.tl-linha { display: grid; grid-template-columns: 190px 1fr 180px; align-items: center;
             gap: 14px; height: 34px; border-radius: 6px; cursor: pointer; }
 .tl-linha:hover { background: #1c232c; }
 .tl-linha-cob, .tl-eixo { cursor: default; }
@@ -3920,7 +3789,7 @@ export default {
 
 .tl-trilho { position: relative; height: 100%; }
 .tl-base { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px;
-           background: rgba(34,197,94,.22); border-radius: 1px; }
+           background: rgba(88,166,255,.20); border-radius: 1px; }
 
 /* trecho de estado: barra de 8px, cantos redondos */
 .tl-seg { position: absolute; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px;
@@ -4212,11 +4081,11 @@ no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
    action="replace", selectionType="none", className="",
    x=620, y=340, wires=[[]])
 
-no(id="txt_resumo", type="ui-text", z="flow_monitor", group=G_RESUMO,
-   order=1, width="12", height="0", name="resumo", label="",
-   format="{{msg.payload}}", layout="row-left", style=False, font="",
-   fontSize=16, color="#717171", wrapText=True, className="",
-   x=620, y=380, wires=[])
+no(id="txt_resumo", type="ui-template", z="flow_monitor", group=G_RESUMO,
+   name="resumo da planta", order=1, width="12", height="0",
+   head="", format=RESUMO, storeOutMessages=True, passthru=False,
+   resendOnRefresh=True, templateScope="local", className="",
+   x=620, y=380, wires=[[]])
 
 
 # Painel de detalhe: STAT TILES, nao medidores de ponteiro.
