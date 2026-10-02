@@ -2014,6 +2014,9 @@ function m4_cards() {
             chave: a.chave,
             estado: e,
             alarme: al,
+            // Area = o campo "Local" do cadastro: e por ela que a tela agrupa
+            // (ISA-101 e as plataformas de monitoramento organizam por setor).
+            local: ((ATIVOS[a.chave] || {}).local || '').trim(),
             tag: a.rotulo,
             descricao: nomes_partes.join(' • '),
             cor: COR[e], simb: SIMB[e], rotulo: ROTULO[e],

@@ -11,7 +11,7 @@ RESUMO = r"""
     <img v-if="r.logo" :src="r.logo" alt="InsightX" class="rs-logo">
 
     <!-- anel: estado atual dos ativos, com a saude da ultima hora no centro -->
-    <div class="rs-anel" :title="'% do tempo em OK, somando todos os ativos, na última hora'">
+    <div class="rs-anel" title="Saúde da planta: quanto do tempo os ativos ficaram em OK na última hora, somando todos. O anel mostra quantos ativos estão em cada estado agora.">
       <svg viewBox="0 0 120 120" width="104" height="104">
         <circle cx="60" cy="60" r="48" class="rs-trilha"/>
         <circle v-for="s in arcos" :key="s.k" cx="60" cy="60" r="48" fill="none"
@@ -20,8 +20,9 @@ RESUMO = r"""
       </svg>
       <div class="rs-centro">
         <b>{{ r.saude === null ? '—' : r.saude + '%' }}</b>
-        <span>em OK · 1 h</span>
+        <span>do tempo em OK</span>
       </div>
+      <div class="rs-anel-rot">Saúde da planta · última hora</div>
     </div>
 
     <div class="rs-cont">
@@ -111,7 +112,10 @@ export default {
 .rs-centro { position: absolute; inset: 0; display: flex; flex-direction: column;
              align-items: center; justify-content: center; }
 .rs-centro b { font-size: 22px; font-weight: 650; color: #e6edf3; letter-spacing: -.02em; }
-.rs-centro span { font-size: 10px; color: #6e7a87; }
+.rs-centro span { font-size: 9px; color: #6e7a87; }
+.rs-anel { margin-bottom: 14px; }
+.rs-anel-rot { position: absolute; left: 50%; bottom: -16px; transform: translateX(-50%);
+               white-space: nowrap; font-size: 10px; color: #6e7a87; letter-spacing: .02em; }
 .rs-cont { display: flex; gap: 26px; }
 .rs-c { display: flex; flex-direction: column; gap: 4px; min-width: 70px; }
 .rs-cr { font-size: 11px; color: #6e7a87; text-transform: uppercase; letter-spacing: .07em;
@@ -174,9 +178,44 @@ export default {
 
 CARDS = r"""
 <template>
-  <div class="pa">
-    <div v-if="!cards.length" class="pa-vazio">Aguardando o primeiro ativo publicar...</div>
-    <div v-for="c in cards" :key="c.chave" class="cd"
+  <div class="pa-barra" v-if="cards.length">
+    <span class="pa-tit">Ativos</span>
+    <span class="pa-n">{{ cards.length }}</span>
+    <label v-if="temArea" class="pa-chk"><input type="checkbox" v-model="porArea"> por área</label>
+    <div class="pa-seg">
+      <button :class="{ on: modo === 'cards' }" @click="modo = 'cards'">Cards</button>
+      <button :class="{ on: modo === 'lista' }" @click="modo = 'lista'">Lista</button>
+    </div>
+  </div>
+  <div v-if="!cards.length" class="pa-vazio">Aguardando o primeiro ativo publicar...</div>
+
+  <div v-for="g in grupos" :key="g.nome" class="pa-area">
+  <div v-if="g.nome !== null" class="pa-ah">
+    <span class="pa-an">{{ g.nome || 'Sem área definida' }}</span>
+    <span class="pa-ac">{{ g.cards.length }} {{ g.cards.length > 1 ? 'ativos' : 'ativo' }}</span>
+    <span v-for="e in g.resumo" :key="e.k" class="pa-ae" :class="'e-' + e.k">{{ e.simb }} {{ e.n }} {{ e.rot }}</span>
+  </div>
+
+  <!-- modo lista: uma linha por ativo, para planta grande -->
+  <div v-if="modo === 'lista'" class="ls">
+    <div v-for="c in g.cards" :key="c.chave" class="ls-l" :class="['e-' + (c.alarme && c.alarme.silenciado ? 'silenciado' : c.estado), { pend: c.alarme && c.alarme.pendente }]"
+         role="button" tabindex="0" @click="abrir(c)" @keyup.enter="abrir(c)">
+      <span class="cd-chip ls-chip">{{ c.alarme && c.alarme.silenciado ? '🔕 SILENCIADO' : c.simb + ' ' + c.rotulo }}</span>
+      <span class="ls-nome">{{ c.tag }}<small v-if="c.descricao">{{ c.descricao }}</small></span>
+      <span v-for="m in c.medidas" :key="m.nome" class="ls-m">
+        <small>{{ m.nome }}</small>
+        <b :style="m.alerta ? { color: m.cor } : {}">{{ m.texto }}<i v-if="m.un"> {{ m.un }}</i></b>
+      </span>
+      <span class="ls-al" @click.stop>
+        <button v-if="c.alarme && c.alarme.pendente" class="cd-b pri" @click="acao(c, 'reconhecer')">Reconhecer</button>
+        <span v-else-if="c.alarme && c.alarme.reconhecido" class="ls-rec">✓</span>
+      </span>
+      <span class="ls-visto">{{ c.visto }}</span>
+    </div>
+  </div>
+
+  <div v-else class="pa">
+    <div v-for="c in g.cards" :key="c.chave" class="cd"
          :class="['e-' + (c.alarme && c.alarme.silenciado ? 'silenciado' : c.estado),
                   { pend: c.alarme && c.alarme.pendente }]"
          role="button" tabindex="0" @click="abrir(c)" @keyup.enter="abrir(c)">
@@ -256,11 +295,49 @@ CARDS = r"""
       </div>
     </div>
   </div>
+  </div>
 </template>
 
 <script>
 export default {
-  data () { return { cards: [], menu: null } },
+  data () { return { cards: [], menu: null, modo: 'cards', porArea: true } },
+  computed: {
+    // So agrupa quando AGRUPA: com cada ativo numa area diferente, os
+    // cabecalhos so repetiriam o nome de cada card.
+    temArea () {
+      const areas = new Set(this.cards.map(c => c.local));
+      return this.cards.some(c => c.local) && areas.size < this.cards.length;
+    },
+    // Grupos por area, em ordem alfabetica; dentro de cada um, a ordem do
+    // cadastro (estavel: o card nao muda de lugar quando o estado muda).
+    grupos () {
+      if (!this.temArea || !this.porArea) { return [{ nome: null, cards: this.cards, resumo: [] }]; }
+      const mapa = {};
+      for (const c of this.cards) { (mapa[c.local] = mapa[c.local] || []).push(c); }
+      const ROT = { critico: ['■', 'crítico', 'críticos'], atencao: ['▲', 'atenção', 'atenção'],
+                    sem_dados: ['○', 'sem dados', 'sem dados'] };
+      return Object.keys(mapa).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b))
+        .map(nome => {
+          const resumo = ['critico', 'atencao', 'sem_dados'].map(k => {
+            const n = mapa[nome].filter(c => c.estado === k && !(c.alarme && c.alarme.silenciado)).length;
+            return n ? { k: k, n: n, simb: ROT[k][0], rot: n > 1 ? ROT[k][2] : ROT[k][1] } : null;
+          }).filter(Boolean);
+          return { nome: nome, cards: mapa[nome], resumo: resumo };
+        });
+    }
+  },
+  watch: {
+    modo (v) { try { localStorage.setItem('ix_vis_modo', v); } catch (e) {} },
+    porArea (v) { try { localStorage.setItem('ix_vis_area', v ? '1' : '0'); } catch (e) {} },
+    msg: { immediate: true,
+           handler (m) { if (m && Array.isArray(m.payload)) { this.cards = m.payload } } }
+  },
+  mounted () {
+    try {
+      const m = localStorage.getItem('ix_vis_modo'); if (m === 'lista' || m === 'cards') { this.modo = m; }
+      const a = localStorage.getItem('ix_vis_area'); if (a !== null) { this.porArea = a === '1'; }
+    } catch (e) {}
+  },
   methods: {
     abrir (c) { this.send({ payload: c.chave }) },
     acao (c, a, horas) {
@@ -299,14 +376,53 @@ export default {
       return 'M' + p.map(q => q[0].toFixed(1) + ',' + q[1].toFixed(1)).join(' L') + ' L100,26 L0,26 Z';
     }
   },
-  watch: {
-    msg: { immediate: true,
-           handler (m) { if (m && Array.isArray(m.payload)) { this.cards = m.payload } } }
-  }
 }
 </script>
 
 <style scoped>
+.pa-barra { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.pa-tit { font-size: 13px; font-weight: 650; color: #e6edf3; }
+.pa-n { font-size: 12px; color: #6e7a87; }
+.pa-chk { margin-left: auto; font-size: 12px; color: #8b98a5; display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+.pa-chk input { accent-color: #2f81f7; }
+.pa-seg { display: flex; gap: 3px; background: #161b22; border: 1px solid #2a323c; border-radius: 9px; padding: 3px; }
+.pa-barra .pa-seg:first-child { margin-left: auto; }
+.pa-seg button { background: transparent; border: 0; color: #8b98a5; font-size: 12px; padding: 4px 12px; border-radius: 7px; cursor: pointer; }
+.pa-seg button.on { background: #2f81f7; color: #fff; }
+.pa-area + .pa-area { margin-top: 20px; }
+.pa-ah { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 4px 2px 10px;
+         padding-bottom: 6px; border-bottom: 1px solid #222a33; }
+.pa-an { font-size: 13px; font-weight: 600; color: #c9d4df; }
+.pa-ac { font-size: 12px; color: #6e7a87; }
+.pa-ae { font-size: 12px; color: #8b98a5; }
+.pa-ae.e-critico { color: #ef4444; } .pa-ae.e-atencao { color: #f59e0b; }
+
+/* --- modo lista --- */
+.ls { display: flex; flex-direction: column; gap: 4px; }
+.ls-l { display: grid; grid-template-columns: 118px minmax(160px, 1.6fr) repeat(3, minmax(70px, .7fr)) 110px 70px;
+        align-items: center; gap: 12px; padding: 8px 12px; background: #161b22; border: 1px solid #2a323c;
+        border-left: 3px solid #2a3a52; border-radius: 8px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.ls-l:hover { background: #1c232c; }
+.ls-l.e-atencao { border-left-color: #f59e0b; } .ls-l.e-critico { border-left-color: #ef4444; }
+.ls-l.e-sem_dados, .ls-l.e-silenciado { border-left-color: #5c6773; }
+.ls-chip { justify-self: start; }
+.ls-nome { font-size: 13px; color: #e6edf3; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-nome small { display: block; font-weight: 400; font-size: 11px; color: #6e7a87; overflow: hidden; text-overflow: ellipsis; }
+.ls-m { display: flex; flex-direction: column; }
+.ls-m small { font-size: 10px; color: #6e7a87; text-transform: uppercase; letter-spacing: .06em; }
+.ls-m b { font-size: 15px; color: #e6edf3; font-weight: 650; }
+.ls-m i { font-style: normal; font-size: 11px; color: #8b98a5; font-weight: 400; }
+.ls-al { justify-self: end; cursor: default; }
+.ls-rec { color: #8bb4e8; font-size: 12px; }
+.ls-visto { font-size: 12px; color: #6e7a87; text-align: right; }
+.ls-l.pend .ls-chip { animation: cd-pisca 1.2s ease-in-out infinite; }
+@media (max-width: 760px) {
+  .ls-l { grid-template-columns: 1fr 1fr 1fr; }
+  .ls-nome { grid-column: 1 / -1; order: -1; }
+  .ls-chip { grid-column: 1 / -1; order: -2; }
+  .ls-al, .ls-visto { display: none; }
+}
+
 .pa { display: grid; gap: 16px; align-content: start; align-items: stretch;
       grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); font-variant-numeric: tabular-nums; }
 .pa-vazio { color: #6e7a87; padding: 12px; font-size: 14px; }
