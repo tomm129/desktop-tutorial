@@ -452,8 +452,13 @@ console.log('\n=== Grafico do Detalhe: so as partes do ativo aberto ===');
 
     const nav = rodar(abrir, { payload: 'Caldeira' }, ctx);
     ok(nav.payload.page === 'Detalhe', 'abrir navega para o Detalhe');
-    const det = rodar(montar, { payload: Date.now() }, ctx)[
-        montar.wires.findIndex(w => w.includes('det_principal'))].payload;
+    const saidas = rodar(montar, { payload: Date.now() }, ctx);
+    const det = saidas[montar.wires.findIndex(w => w.includes('det_principal'))].payload;
+    ok(!('lateral' in det), 'o painel principal nao leva o bloco lateral');
+    const lat = saidas[montar.wires.findIndex(w => w.includes('det_lateral'))].payload;
+    ok(lat && lat.lateral && !('series' in lat),
+       'painel lateral em saida propria, sem as series do grafico');
+    det.lateral = lat.lateral;
     const nomes = (d, id) => (d.series[id] || []).map(x => x.nome).sort().join(',');
     ok(nomes(det, 'temp') === 'Bomba,Vent', 'temperatura: uma curva por parte da Caldeira',
        `-> ${nomes(det, 'temp')}`);

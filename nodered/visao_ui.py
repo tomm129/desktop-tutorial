@@ -8,7 +8,7 @@ a media da ultima hora. Os dados chegam prontos do no "montar painel".
 RESUMO = r"""
 <template>
   <div class="rs" v-if="r">
-    <img v-if="r.logo" :src="r.logo" alt="InsightX" class="rs-logo">
+    <img src="__LOGO__" alt="InsightX" class="rs-logo">
 
     <!-- anel: estado atual dos ativos, com a saude da ultima hora no centro -->
     <div class="rs-anel" title="Saúde da planta: quanto do tempo os ativos ficaram em OK na última hora, somando todos. O anel mostra quantos ativos estão em cada estado agora.">

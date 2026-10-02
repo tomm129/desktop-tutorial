@@ -245,7 +245,14 @@ export default {
       handler (m) {
         const p = (m && m.payload) || {};
         if (!p.kpis) { return; }
-        this.kpis = p.kpis; this.sec = p.sec || []; this.series = p.series || {};
+        this.kpis = p.kpis; this.sec = p.sec || [];
+        // Series chegam compactas (t0 + deslocamentos em s): volta a [t, v].
+        const s = {};
+        for (const k of Object.keys(p.series || {})) {
+          s[k] = p.series[k].map(x => ({ nome: x.nome,
+            pts: x.dt.map((d, i) => [x.t0 + d * 1000, x.v[i]]) }));
+        }
+        this.series = s;
         this.agora = p.agora || Date.now();
         // Ativo sem a metrica escolhida (ex.: sem inversor): cai na primeira que tenha dado.
         if (!(this.series[this.metrica] || []).length) {

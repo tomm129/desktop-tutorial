@@ -744,12 +744,12 @@ no(id="tick", type="inject", z="flow_monitor", name="a cada 2s",
    x=140, y=380, wires=[["montar_painel"]])
 
 no(id="montar_painel", type="function", z="flow_monitor",
-   name="montar painel", outputs=11, timeout=0, noerr=0,
+   name="montar painel", outputs=12, timeout=0, noerr=0,
    initialize="", finalize="", libs=[], x=350, y=380,
-   wires=[["tabela_ativos"], ["txt_resumo"], ["det_principal", "det_lateral"],
+   wires=[["tabela_ativos"], ["txt_resumo"], ["det_principal"],
           ["cards_ativos"], ["cab_detalhe"], ["painel_placa"],
           ["alarmes_kpi"], ["alarmes_lista"], ["tabela_planta"], ["linha_tempo"],
-          ["alvo_cmd"]],
+          ["alvo_cmd"], ["det_lateral"]],
    func=r"""
 // Unico ponto que decide estado, cor e texto -- se os limites mudarem,
 // mudam aqui e valem para a tabela, os alarmes e os medidores.
@@ -1589,9 +1589,8 @@ const elos = [
 ];
 
 // ---- Saida 2: faixa de resumo da visao geral -------------------------
-// A logo vem embutida como data URI (ver nodered/marca.py): assim a marca
-// acompanha o flows.json, sem depender de httpStatic no destino.
-const LOGO = '__LOGO_LOCKUP__';
+// A logo nao vem daqui: vai fixa no template do resumo (ver o no
+// txt_resumo), para nao trafegar a cada 2 s.
 const n_pai = lista.filter(function (x) { return x.nivel === 0; }).length;
 const cnt = { normal: 0, atencao: 0, critico: 0, sem_dados: 0, silenciado: 0, pendentes: 0 };
 for (const a of lista) {
@@ -1695,7 +1694,7 @@ fila.sort(function (x, y) {
            (x.desde_ms - y.desde_ms);
 });
 
-const m2 = { payload: lista.length ? { logo: LOGO, total: n_pai, cnt: cnt, saude: saude,
+const m2 = { payload: lista.length ? { total: n_pai, cnt: cnt, saude: saude,
                                        elos: elos, fila: fila, agora: agora } : null };
 
 // ---- Saidas 3..5: a tela de detalhe ----------------------------------
@@ -1864,15 +1863,32 @@ const cfg_ativo = ATIVOS[alvo.chave.split('/')[0]] || {};
 const inv_alvo = [alvo].concat(partes_alvo)
     .map(function (x) { return registro[x.fonte_inversor] || {}; })
     .filter(function (r) { return r.ultima_falha_codigo; })[0] || {};
+// Series compactas: horario inicial + deslocamentos em segundos. Com o
+// horario completo em cada ponto eram ~20 bytes/ponto, e isto sai a cada
+// 2 s para TODO navegador aberto (o Dashboard entrega a mensagem mesmo a
+// quem esta noutra pagina). A tela reconstroi os pares [t, v].
+function compactar(sr) {
+    return sr.map(function (x) {
+        const t0 = x.pts.length ? x.pts[0][0] : 0;
+        return { nome: x.nome, t0: t0,
+                 dt: x.pts.map(function (q) { return Math.round((q[0] - t0) / 1000); }),
+                 v: x.pts.map(function (q) { return q[1]; }) };
+    });
+}
+const series_c = {};
+for (const k of Object.keys(series_det)) { series_c[k] = compactar(series_det[k]); }
 const m3 = { topic: alvo.chave, payload: {
     chave: alvo.chave,
     kpis: kpis,
     sec: [tiles[3], tiles[5], tiles[6], tiles[7]].map(function (x) {
         return { nome: x.nome, texto: x.texto, un: x.un, rotulo: x.rotulo };
     }),
-    series: series_det,
-    agora: agora,
-    lateral: {
+    series: series_c,
+    agora: agora
+} };
+// Saida 12: o painel lateral recebe SO o que usa (antes recebia a mensagem
+// inteira do Detalhe, com todas as series do grafico).
+const m12 = { topic: alvo.chave, payload: { lateral: {
         nome: alvo.nivel > 0 ? alvo.chave.split('/')[0] + ' › ' + alvo.rotulo : alvo.rotulo,
         local: cfg_ativo.local || '',
         estado: (estados[alvo.chave] || {}).estado || 'sem_dados',
@@ -2392,7 +2408,9 @@ const linhas_tl = lista
                (x.nome < y.nome ? -1 : x.nome > y.nome ? 1 : 0);
     });
 
-const m10 = { payload: { eventos: eventos, marcas: marcas, dias: dias, pontos: pontos,
+// So o que a tela usa: as faixas empilhadas (eventos) e os 150 pontos de
+// cobertura eram da versao anterior da linha do tempo.
+const m10 = { payload: { marcas: marcas, dias: dias,
                          linhas: linhas_tl, agora: agora,
                          // Lacunas e trechos recuperados em ms crus, para a
                          // tela redesenhar a cobertura na janela escolhida.
@@ -2404,15 +2422,9 @@ const m10 = { payload: { eventos: eventos, marcas: marcas, dias: dias, pontos: p
                                  .filter(function (r) { return r && r.de && r.ate; })
                                  .map(function (r) { return { ini: r.de, fim: r.ate }; }));
                          }, []),
-                         // Teto de 6 faixas: cada uma soma 13px de altura, e
-                         // sem limite uma planta com muitos eventos
-                         // simultaneos estoura o grupo e cria barra de
-                         // rolagem. Eventos alem da 6a faixa continuam
-                         // desenhados, empilhados na ultima.
-                         faixas: Math.max(1, Math.min(6, fim_faixa.length)),
                          janela: rotulo_janela(JANELA_MS) } };
 
-return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9, m10, m11];
+return [m1, m2, m3, m4_cards(), m5, montar_placa(), m7, m8, m9, m10, m11, m12];
 """)
 
 # =====================================================================
@@ -4232,7 +4244,8 @@ no(id="tabela_ativos", type="ui-table", z="flow_monitor", group=G_PARTES,
 
 no(id="txt_resumo", type="ui-template", z="flow_monitor", group=G_RESUMO,
    name="resumo da planta", order=1, width="12", height="0",
-   head="", format=RESUMO, storeOutMessages=True, passthru=False,
+   # A logo vai FIXA no template, e nao na mensagem: eram 6,7 KB a cada 2 s.
+   head="", format=RESUMO.replace("__LOGO__", LOGO_LOCKUP), storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
    # A fila de acao abre o Detalhe e reconhece alarmes, como os cards.
    x=620, y=380, wires=[["abrir_ativo", "acao_alarme"]])
@@ -4670,11 +4683,8 @@ if __name__ == "__main__":
                os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             "flows.json"))
 
-    # Injeta a logo no codigo do no de funcao. Fica so aqui: o corpo da
-    # funcao acima usa um marcador, para o gerador seguir legivel.
     for _n in flows:
         if _n.get("id") == "montar_painel":
-            _n["func"] = _n["func"].replace("__LOGO_LOCKUP__", LOGO_LOCKUP)
             # Nomes dos modelos de inversor: lidos do MESMO catalogo que o
             # servico de inversores usa (integracoes/inversores/catalogo.json),
             # para o painel e o gateway nunca discordarem.
