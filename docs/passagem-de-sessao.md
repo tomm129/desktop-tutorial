@@ -1,7 +1,30 @@
-# Passagem de sessão — estado em 2026-10-01
+# Passagem de sessão — estado em 2026-10-02
 
 Documento para continuar o trabalho em outra máquina com o Claude Code.
 **Leia inteiro antes de agir.** Não contém senha nenhuma.
+
+## Feito em 2026-10-02 (no PC): painel redesenhado
+
+Na branch `estilo-painel`, juntada à principal depois de uma varredura
+completa (testes, navegador em PC e celular, tráfego):
+
+- **Linguagem visual do simulador** em todo o painel, em tons de azul; cor
+  forte só para atenção/crítico (ISA-101). Paleta e CSS global em
+  `nodered/estilo.py`.
+- **Visão Geral** (`nodered/visao_ui.py`): anel de saúde da planta (% do
+  tempo em OK na última hora), fila **"O que fazer agora"** com
+  recomendação por problema (zona ISO 20816 na vibração), linha do tempo com
+  uma linha por ativo, cards/lista agrupados por área, minigráficos com a
+  faixa do normal.
+- **Detalhe** (`nodered/detalhe_ui.py`): KPIs com variação vs média da
+  última hora, gráfico próprio (última hora, cursor, curva monótona),
+  painel lateral com falha ativa/última falha e as ações.
+- **Alarmes ISA-18.2**: reconhecer e silenciar por prazo; no fim do prazo
+  voltam não reconhecidos. Ainda só em memória e sem registrar quem.
+- **Nomes**: "Vibração" = velocidade de vibração (mm/s, ISO 20816);
+  "Aceleração" = RMS em g. Acentos em páginas e rótulos.
+- **Tráfego**: de 59 para ~20 KB/s por navegador (o Dashboard manda cada
+  mensagem a todo navegador aberto, a cada 2 s).
 
 ## Feito em 2026-10-01 (no notebook)
 
@@ -104,6 +127,10 @@ o(s) arquivo(s) para os dois lugares (com backup) e reiniciar o serviço.
    encadeados (o Identity é um por nó) — eles publicam só a última falha.
 4. **Doc de comissionamento**: trocar `nmtui` por netplan e registrar o IP
    fixo extra para rede de inversor (como foi feito hoje).
+6. **Levar o painel novo ao Orange Pi** e conferir com o PowerFlex real.
+7. **Alarmes no banco**: gravar reconhecimento/silêncio na tabela `eventos`
+   (hoje somem no reinício) e registrar quem reconheceu junto com a fase 3
+   (senha nas telas de configuração).
 5. Placas ESP32-S3 Super Mini (quando chegarem): instalar o alvo `esp32s3`
    no ESP-IDF, LED WS2812 provavelmente no GPIO48, escolher pinos I²C que
    existam na placa e repetir a varredura de potência de rádio.
@@ -115,7 +142,7 @@ o(s) arquivo(s) para os dois lugares (com backup) e reiniciar o serviço.
 | 1. Painel | ✅ feita (widgets cortando conteúdo; gráficos do Detalhe mostravam a planta inteira) |
 | 2. Gateway | ✅ feita e validada na placa (setup quebrava no passo 2; sudo; dialout; etc.) |
 | 3. Firmware | ✅ firmwares corrigidos e compilados; ✅ **PowerFlex 525 validado em drive real** (falha ativa corrigida); ⬜ Danfoss ainda só em simulador |
-| 4. Documentação | ⬜ acentos nos nomes das páginas ("Visao Geral", "Configuracao"…), `nmtui`, contagens |
+| 4. Documentação | ✅ acentos, telas novas e contagens (02/10); ⬜ `nmtui` → netplan no comissionamento |
 
 ## Firmware — estado da bancada
 
