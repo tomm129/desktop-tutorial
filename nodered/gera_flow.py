@@ -10,6 +10,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from marca import LOGO_LOCKUP, LOGO_ICONE
+import estilo   # linguagem visual do simulador: paleta + CSS global
 from inversores_ui import TELA as TELA_INV, VALIDADOR_JS as VALIDADOR_INV
 
 # Catalogo de modelos de inversor: o MESMO arquivo que o servico do gateway
@@ -4440,6 +4441,14 @@ if __name__ == "__main__":
             _nomes = {k: v["nome"] for k, v in _cat["modelos"].items()}
             _n["func"] = ("const NOMES_MODELO = " + json.dumps(_nomes, ensure_ascii=False)
                           + ";\n" + _n["func"])
+    # Estilo global dos componentes nativos e troca da paleta neutra pela
+    # do simulador (ver nodered/estilo.py).
+    flows.append(dict(id="estilo_site", type="ui-template", z="flow_monitor",
+                      name="estilo do painel (CSS global)", ui=BASE, page="",
+                      group="", templateScope="site:style", format=estilo.CSS_SITE,
+                      storeOutMessages=False, passthru=False, resendOnRefresh=False,
+                      order=0, width=0, height=0, className="", x=160, y=40, wires=[[]]))
+    flows[:] = [estilo.aplicar_paleta(_n) for _n in flows]
     with open(destino, "w", encoding="utf-8", newline="\n") as f:
         json.dump(flows, f, indent=4, ensure_ascii=False)
         f.write("\n")
