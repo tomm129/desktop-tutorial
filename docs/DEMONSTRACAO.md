@@ -112,24 +112,23 @@ Em [`img/demo/`](img/demo/), na ordem em que eu apresentaria:
 
 A mesma estrutura em todos os ativos — o que muda é o que os dados dizem:
 
-1. **Cabeçalho** — nome, estado, marcha (`▶ rodando 60,0 Hz`), código de
-   falha se houver, e a procedência (`sensor motor-01 · inversor U31`)
-2. **Leituras agora** — oito valores. Temperatura, **velocidade em mm/s**,
-   vibração em g e corrente com barra contra o limite e estado; **fator de
-   crista** como leitura de diagnóstico; tensão, barramento CC e frequência
-   como referência (sem limite, porque não são critério de alarme).
-
-   A velocidade traz a **zona da ISO 20816** no lugar do rótulo genérico —
-   `ZONA C` diz por quanto tempo ainda se pode operar assim, o que
-   `ATENÇÃO` não diz. E o grupo da norma é derivado da própria plaqueta: um
-   motor de 7,5 kW é julgado por limites mais apertados que um de 30 kW,
-   sem ninguém configurar nada.
-3. **Partes deste ativo** — uma linha por motor + a linha consolidada, com
-   a coluna `Inversor` trazendo a TAG do drive no painel
-4. **Dados de placa e sobressalentes** — ficha, foto da plaqueta e peças
-5. **Gráficos** — temperatura, vibração e corrente ao longo do tempo, uma
-   série por dispositivo
-6. **Publicar agora** — força leitura imediata em todas as partes do ativo
+1. **Cabeçalho** — nome, estado, marcha (`▶ rodando 60,0 Hz`) e código de
+   falha, se houver.
+2. **KPIs** — temperatura, **vibração** (velocidade de vibração em mm/s, a
+   grandeza da ISO 20816), **aceleração** (g) e corrente, em número grande,
+   com a **variação contra a média da última hora** e o estado. A vibração
+   traz a **zona da ISO 20816** no lugar do rótulo genérico — `ZONA C` diz
+   por quanto tempo ainda se pode operar assim, o que `ATENÇÃO` não diz. O
+   grupo da norma vem da própria plaqueta: um motor de 7,5 kW é julgado por
+   limites mais apertados que um de 30 kW, sem ninguém configurar nada.
+   Fator de crista, tensão, barramento CC e frequência ficam numa linha de
+   referência (não são critério de alarme).
+3. **Gráfico** — a última hora de cada grandeza, uma curva por parte, com
+   cursor que mostra o valor **medido** de cada uma.
+4. **Painel lateral** — partes com a TAG do drive, **falha ativa e última
+   falha** do inversor, e as ações: publicar agora, intervalo, piscar o
+   módulo, reiniciar.
+5. **Partes deste ativo** e **dados de placa** — tabela e ficha do motor.
 
 ### Capturar em resolução maior
 

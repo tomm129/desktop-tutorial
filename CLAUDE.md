@@ -47,9 +47,16 @@ Branch de trabalho: `claude/iot-monitoring-repo-18ccwm`. Remoto
 
 ## ⚠️ O flow do Node-RED é GERADO
 
-`nodered/gera_flow.py` (~3800 linhas) **gera** o JSON do flow. Editar o JSON
+`nodered/gera_flow.py` (~4700 linhas) **gera** o JSON do flow. Editar o JSON
 direto é trabalho perdido — a próxima geração sobrescreve. Toda alteração de
-painel se faz no gerador.
+painel se faz no gerador. As telas grandes ficam em módulos à parte, que o
+gerador importa: `estilo.py` (paleta + CSS global), `visao_ui.py` (Visão
+Geral), `detalhe_ui.py` (Detalhe), `inversores_ui.py` (menu Inversores).
+
+Templates do Dashboard 2.0: o `<script>` só pode ter `export default {...}`,
+e o widget com `height="0"` (altura automática) — altura fixa corta o
+conteúdo. Toda mensagem do "montar painel" vai a **todo navegador** a cada
+2 s: meça o tráfego antes de mandar mais dado (hoje ~20 KB/s).
 
 ## Preferência do usuário: ESP-IDF, não Arduino
 

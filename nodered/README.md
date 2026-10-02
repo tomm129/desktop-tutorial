@@ -71,41 +71,63 @@ e o dashboard em `http://<IP_DO_ORANGE_PI>:1880/dashboard`.
 2. Selecione o arquivo [`flows.json`](flows.json) (ou cole o conteúdo).
 3. Clique em **Import** e depois em **Deploy**.
 
-## Três telas
+## As telas
 
-**1. Visão Geral** (`/dashboard/visao`) — uma **parede de cards**, um por
-ativo principal. Cada card traz a TAG, a descrição, o estado (símbolo +
-texto + faixa colorida na lateral), as três grandezas com barra contra o
-limite, quantas partes tem e há quanto tempo foi visto.
+Linguagem visual única, a do simulador do PowerFlex: tons de azul para o que
+está normal e **cor forte só para atenção/crítico** — a regra da ISA-101,
+"planta saudável não tem cor". Paleta e CSS global em
+[`estilo.py`](estilo.py); telas em [`visao_ui.py`](visao_ui.py),
+[`detalhe_ui.py`](detalhe_ui.py) e [`inversores_ui.py`](inversores_ui.py).
 
-**Clicar no card abre o detalhe daquele ativo.** Acima dos cards, uma faixa
-de resumo mostra **KPIs** (normais, atenção, críticos, sem dados) e lista os
-alarmes atuais.
+**1. Visão Geral** (`/dashboard/visao`):
 
-**2. Cadastro** (`/dashboard/cadastro`) — todo ESP32 ou inversor que começa a
-publicar aparece aqui até ser atribuído a um ativo. Ligue o dispositivo na
-rede e ele surge sozinho; escolha o ativo e a parte, e pronto. **Não há nada
-a digitar antes, nem arquivo a editar.**
+- **Resumo** — anel com o estado atual dos ativos e, no centro, a **saúde da
+  planta** (% do tempo em OK na última hora); contagens; broker, inversores
+  e painel em pílulas.
+- **O que fazer agora** — cada problema aberto, com o motivo **atual** e uma
+  recomendação de primeira resposta (na vibração, pela zona da ISO 20816).
+  Ordem: não reconhecido, mais grave, mais antigo. Botões Reconhecer e Abrir.
+- **Linha do tempo** — uma linha por ativo, com o estado colorido no tempo,
+  etiqueta do evento sobre a linha e "crítico há X min". Janela Auto /
+  15 min / 1 h / turno 8 h / 24 h. Clique na linha abre o Detalhe.
+- **Ativos** — cards ou lista, agrupados por área (campo *Local* do
+  cadastro) quando alguma área tem mais de um ativo. Cada medida traz a
+  variação contra a média da última hora e um minigráfico com a **faixa do
+  normal** (o trecho acima do limite fica âmbar).
 
-**3. Detalhe** (`/dashboard/detalhe`) — do ativo aberto:
+**2. Detalhe** (`/dashboard/detalhe`, ao clicar num card) — KPIs grandes
+(temperatura, **vibração** em mm/s, **aceleração** em g, corrente) com a
+variação; gráfico próprio com a última hora, cursor com o valor **medido**
+de cada parte e abas por grandeza; painel lateral com partes, **falha ativa
+e última falha** do inversor e as ações (publicar, intervalo, piscar,
+reiniciar); tabela de partes; dados de placa.
 
-- Cabeçalho com nome, estado e botão **← Todos os ativos**
-- *Stat tiles* — valor, barra contra o limite, estado, **tendência** (seta
-  subindo/estável/descendo) e **mini sparkline** das últimas leituras
-- **Partes deste ativo** — tabela só com as partes dele, não da planta
-  inteira. É também a *table view* que garante acesso a todo valor sem
-  depender de cor
-- **Dados de placa e sobressalentes** — ficha do motor, foto da plaqueta e
-  lista de peças de reposição (ver abaixo)
-- Gráficos de temperatura, vibração RMS e corrente, uma série por
-  dispositivo
-- **Publicar agora** — força leitura imediata. Num ativo principal, dispara
-  em **todas** as suas partes de uma vez
+**3. Configuração** (`/dashboard/cadastro`) — todo ESP32 ou inversor que
+começa a publicar aparece aqui até ser atribuído a um ativo. **Não há nada a
+digitar antes, nem arquivo a editar.**
 
-**4. Alarmes** (`/dashboard/alarmes`) — histórico de eventos (atenção,
-crítico, sem dados) com timestamp, duração, ativo, parte e motivo. Um
-conjunto de KPIs no topo resume a fila. Use **Limpar histórico** para zerar
-a lista em memória.
+**4. Inversores** (`/dashboard/inversores`) — cadastro dos drives pela tela:
+escolhe o modelo, o formulário pede só os campos dele e o gateway aplica
+sozinho.
+
+**5. Alarmes** (`/dashboard/alarmes`) — histórico de eventos com duração,
+ativo, parte e motivo.
+
+### Alarmes: reconhecer e silenciar (ISA-18.2)
+
+- Alarme novo **pisca** e conta em "N alarmes não reconhecidos".
+- **Reconhecer** = "já vimos": para de piscar, o estado continua na tela.
+- **Silenciar** por 1/2/4/8/24 h (manutenção): o ativo sai das contagens de
+  alarme. No fim do prazo os alarmes abertos voltam **não reconhecidos**.
+- Normalizou e voltou, ou piorou: é evento novo, pisca de novo.
+- Hoje vivem na memória do Node-RED (reiniciar zera) e não registram quem
+  reconheceu — isso vem com o login das telas de configuração.
+
+### Tráfego
+
+O Dashboard entrega cada mensagem a **todo navegador aberto**, qualquer que
+seja a página, a cada 2 s. Medido: cerca de **20 KB/s por navegador**. Ao
+mudar uma saída do "montar painel", meça de novo antes de mandar mais dado.
 
 ### Três estados, não dois
 
@@ -339,8 +361,10 @@ Todo o elo entre campo e painel é MQTT. Broker: Mosquitto no Orange Pi.
 **Comandos aceitos pelo ESP32** (tópico `cmd`):
 
 ```json
-{ "comando": "publicar" }        // força uma leitura/publicação imediata
-{ "intervalo_ms": 2000 }          // altera o intervalo de publicação (ms)
+{ "comando": "publicar" }                // força uma leitura/publicação imediata
+{ "intervalo_ms": 2000 }                  // altera o intervalo de publicação (ms)
+{ "comando": "identificar", "seg": 15 }   // pisca o LED do módulo (achar no painel)
+{ "comando": "reiniciar" }                // reboot (o painel pede dois cliques)
 ```
 
 O botão *Publicar agora* manda para o ativo escolhido no seletor. Para
@@ -371,32 +395,27 @@ propósito no equipamento real, e são onde o painel precisa acertar.
   em outra máquina, edite o nó de configuração do broker.
 - **Limites de alarme:** edite a constante `LIM` na função
   **"montar painel"** — calibre com o equipamento em condição normal. É o
-  único lugar que decide estado e cor; muda ali e vale para a tabela, os
-  alarmes e os *stat tiles*.
+  único lugar que decide estado e cor; muda ali e vale para cards, Detalhe,
+  linha do tempo e alarmes. Corrente e vibração usam os limites derivados da
+  placa de cada motor quando ela está cadastrada.
 - **Credenciais do broker:** o `flows.json` vem sem senha. Com o Mosquitto
   autenticado, abra qualquer nó MQTT → edite o broker → aba **Security** →
   usuário e senha → **Deploy**. Uma vez só.
-- **Corrente:** o gauge é alimentado por MQTT. Quem lê o drive é o sidecar
-  [`integracoes/powerflex525`](../integracoes/powerflex525/README.md)
-  (parâmetro *b003 [Output Current]*, manual *520COM-UM001*). Configure o IP
-  do inversor lá, no `config.env`.
+- **Corrente:** vem do serviço de inversores
+  ([`integracoes/inversores`](../integracoes/inversores/README.md)), que lê
+  cada drive e republica em MQTT. Os inversores se cadastram pelo **menu
+  Inversores** do painel — sem `config.env` para editar.
 
-## O que mudou visualmente e na robustez
+## Robustez
 
-- **Tema escuro refinado:** superfícies em camadas, bordas sutis, sombras,
-  tipografia com hierarquia e transições suaves nos cards e tiles.
-- **Resumo com KPIs:** na Visão Geral, cards rápidos mostram quantos ativos
-  estão normais, em atenção, críticos ou sem dados.
-- **Tendência e sparkline:** os tiles do detalhe exibem uma seta de tendência
-  e um mini gráfico das últimas leituras, ajudando a ver para onde o número
-  está indo.
-- **Histórico de alarmes:** nova página `/dashboard/alarmes` mantém os
-  últimos eventos com timestamp e duração, sem depender de banco de dados.
 - **Validação de dados:** telemetria com valores fisicamente impossíveis
   (temperatura > 200 °C, vibração negativa, corrente > 500 A) é descartada
   com aviso no log do Node-RED.
-- **Cache curto:** as últimas 30 leituras de cada device são mantidas em
-  memória para alimentar as tendências.
+- **Série com horário da última hora** (um ponto a cada 20 s por
+  dispositivo), em memória: é o que deixa o gráfico do Detalhe e os
+  minigráficos abrirem já desenhados.
+- **Histórico de alarmes** em memória (`/dashboard/alarmes`), gravado também
+  no banco quando o PostgreSQL está instalado.
 
 ## Verificar a chegada dos dados
 

@@ -115,7 +115,16 @@ Executa o código real dos nós contra mensagens simuladas. Cobre:
   antes, que tem de aparecer como "aguardando", não em vermelho;
 - o validador do painel (JS) e o do serviço (Python) rodam os **mesmos
   casos** de `casos_validacao_inversores.json` e têm de dar as mesmas
-  mensagens.
+  mensagens;
+- **alarmes (ISA-18.2)**: alarme novo começa não reconhecido; reconhecer
+  para o pisca mas mantém o estado; normalizar e voltar abre evento novo;
+  silenciar tira das contagens, prazo inválido vira 8 h e, no fim do prazo,
+  os alarmes voltam **não reconhecidos**;
+- **fila "O que fazer agora"**: só ativos com problema, recomendação pela
+  zona da ISO 20816, reconhecido desce, silenciado sai — inclusive para
+  ativo de equipamento único (sem partes);
+- **gráfico do Detalhe**: só as partes do ativo aberto, corrente só de quem
+  tem inversor, painel lateral em saída própria (sem as séries).
 
 ## `testa_inversores.py` — drivers de inversor e sonda de MCSA
 
