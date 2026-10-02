@@ -10,8 +10,10 @@ PowerFlex 525 ──EtherNet/IP──> powerflex_mqtt.py ──MQTT──> Node-
 ```
 
 > **Estado:** conferido contra os manuais oficiais (520-UM001 e
-> 520COM-UM001) e testado contra um drive simulado por EtherNet/IP de
-> verdade. **Ainda não rodou num drive real.** Rode a `--bancada` antes de
+> 520COM-UM001), testado contra um drive simulado e **rodado num PowerFlex
+> 525 real em 2026-10-01** (0,5 HP, 460 V, firmware de fábrica), a partir do
+> Orange Pi, pela rede do drive. Leituras batendo com o teclado; a falha ativa
+> foi corrigida nessa bancada (item 6 abaixo). Rode a `--bancada` antes de
 > ligar em produção.
 
 Publica em `monitoramento/<DEVICE_ID>/inversor`:
@@ -43,12 +45,21 @@ Cinco problemas da primeira versão, nenhum visível sem drive na mão:
 | 2 | **`b005` com escala 0,1.** O barramento é em **volts inteiros** (0–1200 V DC) | 311 V aparecia como **31,1 V** | 520-UM001, b005 |
 | 3 | **Classe 0x93 lendo o atributo 1.** Na DPI o valor fica no **atributo 9**; o 1 é a senha de proteção | trocar de classe, como o próprio README sugeria, passava a ler **outro dado, sem erro** | 520COM-UM001, Ap. C |
 | 4 | **Quatro traduções de falha erradas** (F3, F42, F43, F63) e oito códigos ausentes | F42/F43 com as fases **trocadas**; F3 (perda de alimentação) descrito como outra coisa | 520-UM001, *Drive Error Codes* |
-| 5 | **Unconnected Send fixo.** O manual não esclarece se o adaptador aceita o envelope | se o drive recusar, **nenhuma leitura** funciona | — |
+| 5 | **Unconnected Send fixo.** O manual não esclarece se o adaptador aceita o envelope | se o drive recusar, **nenhuma leitura** funciona | — (o drive real **recusa**: responde só sem o envelope) |
+| 6 | **Falha ativa lida do DPI Fault Object (0x97, atributo de classe 4).** No drive real ele é o **ponteiro da fila de falhas**: fica em 1 com ou sem falha ativa e não muda no rearme | todo drive que já teve qualquer falha (até a subtensão de uma religada) ficava **DESARMADO para sempre** | **medido** no drive real |
 
-**Como a falha ativa é lida agora:** pelo *DPI Fault Object* (classe
-`0x97`), atributo de classe 4, *Fault Trip Instance* — "fault that tripped
-the device". Diferente de zero enquanto o drive está desarmado; aí a falha
-que o desarmou é a mais recente, `b007`.
+**Como a falha ativa é lida agora:** pela palavra de status do *Identity
+Object* (classe `0x01`, instância 1, atributo 5), bits 10/11 (*Major
+Recoverable / Unrecoverable Fault*). Medido no drive real, provocando F004:
+`0x0030` sem falha → `0x0430` com F004 no display → `0x0030` depois do
+rearme. Desarmado, a falha que o desarmou é a mais recente, `b007`.
+
+O *Fault Trip Instance* (0x97/4), que a versão anterior usava a partir da
+frase "fault that tripped the device" do manual, ficou em 1 o tempo todo
+nessa mesma bancada. A `--bancada` ainda o mostra, marcado como informativo.
+
+**Limite:** o Identity é um por nó. Para drives encadeados em Multi-Drive não
+há indicador conhecido de falha ativa: eles publicam só `ultima_falha`.
 
 Se o drive não responder a esse objeto, o sidecar **não afirma falha
 nenhuma**: um alarme falso permanente é pior que nenhum, e a última falha

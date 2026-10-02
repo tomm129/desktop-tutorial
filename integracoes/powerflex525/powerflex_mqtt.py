@@ -68,11 +68,24 @@ ATRIBUTO_VALOR = {0x0F: 1, 0x93: 9}.get(CLASSE)
 if ATRIBUTO_VALOR is None:
     sys.exit(f"PF525_CLASSE={CLASSE:#04x} não suportada: use 0x0F ou 0x93")
 
-# DPI Fault Object, atributo de CLASSE 4 "Fault Trip Instance Read":
-# "Fault that tripped the device" (520COM-UM001). É daqui que sai se há
-# falha ATIVA -- ver ler_inversor.
+# FALHA ATIVA = bits de falha grave da palavra de status do Identity Object
+# (classe 0x01, instância 1, atributo 5; CIP Vol. 1, 5A-2.2):
+#   bit 10 Major Recoverable Fault · bit 11 Major Unrecoverable Fault
+# MEDIDO num PowerFlex 525 real (2026-10-01): 0x0030 sem falha -> 0x0430 com
+# F004 no display -> 0x0030 depois do rearme.
+#
+# NÃO usar o DPI Fault Object (0x97), atributo de classe 4 ("Fault Trip
+# Instance"), como falha ativa. A primeira versão usava, lendo a frase do
+# 520COM-UM001 "fault that tripped the device": no drive real ele é o
+# PONTEIRO para a entrada mais recente da fila de falhas, fica em 1 com ou sem
+# falha ativa e não muda no rearme. Todo drive que já teve qualquer falha
+# (até a subtensão de uma religada) aparecia DESARMADO PARA SEMPRE.
+CLASSE_IDENTITY = 0x01
+ATRIB_STATUS_IDENTITY = 5
+BITS_FALHA_GRAVE = 0x0C00
+# O 0x97 continua sendo lido só na --bancada, como informação.
 CLASSE_FALHA = 0x97
-ATRIB_FALHA_ATIVA = 4
+ATRIB_PONTEIRO_FILA = 4
 
 # Como a mensagem vai ao drive. O adaptador embarcado não é um roteador, e
 # a documentação não deixa claro se ele aceita Unconnected Send (0x52)
@@ -195,22 +208,21 @@ def traduzir_falha(codigo: int):
     return FALHAS.get(codigo, f"falha F{codigo:03d} (ver manual)")
 
 
-def montar_falhas(trip, ultima: int) -> tuple:
+def montar_falhas(desarmado, ultima: int) -> tuple:
     """Decide a falha ATIVA e a ÚLTIMA falha, separadamente.
 
     b007 guarda a falha mais recente e continua com ela depois que a falha
     é rearmada. A versão anterior publicava b007 como falha atual: uma
     falha da semana passada deixava o painel em alarme para sempre.
 
-    'trip' é o Fault Trip Instance do DPI Fault Object: diferente de zero
-    enquanto o drive está desarmado por falha. Nesse caso a falha que
-    desarmou é justamente a mais recente, b007. Se o drive não respondeu
-    ao objeto de falha (trip is None), não se AFIRMA falha nenhuma: um
-    alarme falso permanente é pior que nenhum, e a última falha continua
-    visível em 'ultima_falha'.
+    'desarmado' vem da palavra de status do Identity (ver ler_desarmado).
+    Desarmado, a falha que desarmou é justamente a mais recente, b007. Se não
+    há como saber (None: drive encadeado, ou o drive não respondeu), não se
+    AFIRMA falha nenhuma: um alarme falso permanente é pior que nenhum, e a
+    última falha continua visível em 'ultima_falha'.
     """
     ultima_d = {"codigo": ultima, "texto": traduzir_falha(ultima)}
-    if trip:
+    if desarmado:
         ativa = dict(ultima_d)
     else:
         ativa = {"codigo": 0, "texto": None}
@@ -231,8 +243,11 @@ def montar_falhas(trip, ultima: int) -> tuple:
 #      drive 4  parâmetro n  -> instância 20480 + n   (0x5000)
 #
 #  A instância "0" de cada faixa (a própria base) é a "Class (Drive k)", e
-#  é por ela que se chega aos atributos de classe do drive k -- entre eles o
-#  Fault Trip Instance do DPI Fault Object.
+#  é por ela que se chega aos atributos de classe do drive k.
+#
+#  LIMITE: a falha ativa vem do Identity Object, que é UM por nó (o drive 0
+#  na Ethernet). Para os drives encadeados não há indicador conhecido: eles
+#  publicam só a 'ultima_falha' (b007), nunca falha ativa afirmada.
 #
 #  Antes disto o sidecar lia só o drive 0: num painel montado em Multi-Drive,
 #  o InsightX mostrava o primeiro inversor de cada grupo e os outros ficavam
@@ -268,7 +283,7 @@ class Inversor:
                                   else INTERVALO_ENCADEADO_S))
         self.topic_inversor = f"monitoramento/{self.device_id}/inversor"
         self.topic_status = f"monitoramento/{self.device_id}/status"
-        self.sem_objeto_falha = False   # não respondeu ao 0x97: para de insistir
+        self.sem_objeto_falha = False   # não respondeu ao status de falha: para de insistir
         self.online = None              # último status publicado
         self.falha_anterior = None
         self.proxima = 0.0
@@ -414,20 +429,40 @@ def ler_parametro(conn, pnu: int, inv=None) -> int:
                   INT, nome)
 
 
-def ler_trip(conn, inv=None):
-    """Fault Trip Instance do drive; None se ele não oferece o objeto."""
+def ler_status_identity(conn, inv=None):
+    """Palavra de status do Identity Object do nó; None se não respondeu."""
     from pycomm3 import UINT
     inv = inv or PADRAO
-    if inv.sem_objeto_falha:
+    return _pedir(conn, inv.ip, CLASSE_IDENTITY, 1, ATRIB_STATUS_IDENTITY,
+                  UINT, "identity_status")
+
+
+def ler_desarmado(conn, inv=None):
+    """True/False = drive desarmado agora; None = não há como saber.
+
+    Só o drive 0 do nó: o Identity é um por nó (ver LIMITE no Multi-Drive)."""
+    inv = inv or PADRAO
+    if inv.drive != 0 or inv.sem_objeto_falha:
         return None
     try:
-        return _pedir(conn, inv.ip, CLASSE_FALHA, inv.inst_trip(),
-                      ATRIB_FALHA_ATIVA, UINT, f"fault_trip@drive{inv.drive}")
+        return bool(ler_status_identity(conn, inv) & BITS_FALHA_GRAVE)
     except Exception as e:
         inv.sem_objeto_falha = True
-        log.warning("%s não respondeu ao DPI Fault Object (%s): sem como "
+        log.warning("%s não respondeu ao status do Identity (%s): sem como "
                     "saber se há falha ATIVA. A última falha segue em "
                     "'ultima_falha'.", inv.rotulo, e)
+        return None
+
+
+def ler_ponteiro_fila(conn, inv=None):
+    """DPI Fault Object, atributo de classe 4. SÓ INFORMATIVO (bancada): é o
+    ponteiro da fila de falhas, NÃO indica falha ativa (medido no drive real)."""
+    from pycomm3 import UINT
+    inv = inv or PADRAO
+    try:
+        return _pedir(conn, inv.ip, CLASSE_FALHA, inv.inst_trip(),
+                      ATRIB_PONTEIRO_FILA, UINT, f"fila_falhas@drive{inv.drive}")
+    except Exception:
         return None
 
 
@@ -440,8 +475,8 @@ def ler_inversor(conn, inv=None) -> dict:
         v = ler_parametro(conn, pnu, inv)
         bruto[campo] = v
         dados[campo] = round(v * escala, casas) if casas else int(v)
-    trip = ler_trip(conn, inv)
-    bruto["fault_trip"] = trip
+    desarmado = ler_desarmado(conn, inv)
+    bruto["desarmado"] = desarmado
 
     if LOG_BRUTO:
         log.info("%s bruto: %s", inv.rotulo, bruto)
@@ -455,7 +490,7 @@ def ler_inversor(conn, inv=None) -> dict:
     freq = dados.get("frequencia_hz", 0.0)
     dados["rodando"] = freq > FREQ_PARADO_HZ
 
-    dados["falha"], dados["ultima_falha"] = montar_falhas(trip, ultima)
+    dados["falha"], dados["ultima_falha"] = montar_falhas(desarmado, ultima)
     # O status cru vai junto de propósito: se precisar dos bits, decodifique
     # contra o SEU manual em vez de confiar num mapa que pode não ser o seu.
     dados["status_bruto"] = status
@@ -603,9 +638,17 @@ def bancada(invs) -> None:
                     except Exception as e:
                         print(f"  {campo:<16} b{pnu:03d} {inv.inst_param(pnu):>9} "
                               f"{'ERRO':>8}   {e}")
-                trip = ler_trip(conn, inv)
-                print(f"  falha ativa (Fault Trip Instance): "
-                      f"{'NÃO RESPONDEU' if trip is None else trip}")
+                desarmado = ler_desarmado(conn, inv)
+                if inv.drive == 0:
+                    try:
+                        st = f"{ler_status_identity(conn, inv):#06x}"
+                    except Exception:
+                        st = "NÃO RESPONDEU"
+                    print(f"  status do Identity: {st}  (bits 10/11 = falha grave)")
+                print(f"  DESARMADO agora: "
+                      f"{'sem como saber' if desarmado is None else ('SIM' if desarmado else 'não')}")
+                print(f"  ponteiro da fila de falhas (0x97 attr 4, só informativo): "
+                      f"{ler_ponteiro_fila(conn, inv)}")
         finally:
             conn.close()
         modo = modo_envio(ip)

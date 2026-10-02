@@ -8,7 +8,9 @@ Unconnected Send (0x52).
 O que o drive simulado reproduz, do manual (520COM-UM001, Apendice C):
   * Parameter Object 0x0F: instancia = numero do parametro, valor no atrib. 1
   * DPI Parameter Object 0x93: mesma instancia, valor no atributo 9
-  * DPI Fault Object 0x97: atributo de classe 4 = Fault Trip Instance
+  * Identity 0x01 atributo 5: bit 10 = desarmado (MEDIDO no drive real)
+  * DPI Fault Object 0x97 atributo 4: ponteiro da fila, 1 com qualquer
+    historico (MEDIDO no drive real) -- NAO indica falha ativa
 E dos parametros (520-UM001): b005 em volts inteiros, b007 = falha MAIS
 RECENTE, que continua la depois do rearme.
 
@@ -93,6 +95,20 @@ ok(d["falha"]["codigo"] == 0,
    "falha de ONTEM no b007 NAO vira falha ativa", f"-> {d['falha']}")
 ok(d["ultima_falha"]["codigo"] == 7 and "Sobrecarga do motor" in d["ultima_falha"]["texto"],
    "mas continua visivel em ultima_falha", f"-> {d['ultima_falha']}")
+
+print("\n=== 1b. Caso MEDIDO no PowerFlex 525 real (2026-10-01) ===")
+# Drive sem falha no display: b007 = F4 (subtensao da religada), ponteiro da
+# fila 0x97/4 = 1, Identity 0x0030. A 1a versao lia o ponteiro como falha
+# ativa e marcava o drive DESARMADO PARA SEMPRE.
+drv = DrivePF525({1: 0, 3: 0, 4: 0, 5: 519, 6: 2, 7: 4}, trip=0).subir()
+_, d = ler(drv)
+ok(d["falha"]["codigo"] == 0, "ponteiro da fila em 1 NAO vira falha ativa",
+   f"-> {d['falha']}")
+ok(d["ultima_falha"]["codigo"] == 4, "F4 fica como ultima falha")
+ok(any(p[1] == 0x01 and p[3] == 5 for p in drv.pedidos),
+   "falha ativa vem do status do Identity (0x01, atributo 5)")
+ok(not any(p[1] == 0x97 for p in drv.pedidos),
+   "o ponteiro da fila (0x97) nem e lido na telemetria")
 lidas = {p[2] for p in drv.pedidos if p[1] == 0x0F}
 ok(lidas == {1, 3, 4, 5, 6, 7}, "leu b001, b003..b007 na classe 0x0F",
    f"-> {sorted(lidas)}")
@@ -130,7 +146,7 @@ ok(d.get("corrente_a") == 12.34, "corrente certa pela classe 0x93",
 ok(all(p[3] == 9 for p in drv.pedidos if p[1] == 0x93),
    "pediu o atributo 9 (o 1 e a senha de protecao)")
 
-print("\n=== 6. Drive sem DPI Fault Object ===")
+print("\n=== 6. Drive que nao responde ao status do Identity ===")
 drv = DrivePF525({**PARAMS, 7: 13}, trip=1, tem_obj_falha=False).subir()
 pf, d = ler(drv)
 ok(d.get("corrente_a") == 12.34, "o resto da leitura chega")
@@ -182,11 +198,11 @@ ok(L["u12"]["corrente_a"] == 7.8 and L["u12"]["frequencia_hz"] == 40.0,
 insts = {p[2] for p in no.pedidos if p[1] == 0x0F}
 ok({17408 + 3, 18432 + 3} <= insts,
    "drive 1 pela instancia 17408+n, drive 2 pela 18432+n (manual, Ap. C)")
-ok(L["u13"]["falha"]["codigo"] == 12 and L["u12"]["falha"]["codigo"] == 0
-   and L["u11"]["falha"]["codigo"] == 0,
-   "falha ativa so no drive 2, nao contamina os outros")
-ok(any(p[1] == 0x97 and p[2] == 18432 for p in no.pedidos),
-   "falha ativa do drive 2 lida na base 18432 do objeto 0x97")
+ok(L["u12"]["falha"]["codigo"] == 0 and L["u11"]["falha"]["codigo"] == 0,
+   "falha de um encadeado nao contamina os outros drives")
+ok(L["u13"]["falha"]["codigo"] == 0 and L["u13"]["ultima_falha"]["codigo"] == 12,
+   "encadeado: sem indicador de falha ativa, so a ultima falha (limite conhecido)",
+   f"-> {L['u13']['falha']} / {L['u13']['ultima_falha']}")
 ok(L["u12"]["origem"] == {"no": "127.0.0.1", "drive": 1, "modelo": "pf525", "nome": "Exaustor 2", "tag": "U12"},
    "origem vai no pacote: o cadastro sabe qual drive e qual", f"-> {L['u12']['origem']}")
 

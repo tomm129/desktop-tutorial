@@ -80,7 +80,7 @@ valor de cada ponto.
 
 | Caixa | De onde vem | O que significa |
 |---|---|---|
-| **Falha ativa** | objeto 0x97, atributo 4 | o drive está desarmado **agora**. É o que acende o CRÍTICO no painel |
+| **Falha ativa** | Identity 0x01, atributo 5, bit 10 | o drive está desarmado **agora**. É o que acende o CRÍTICO no painel (medido no drive real; o 0x97/4 é só o ponteiro da fila) |
 | **Última falha** | parâmetro b007 | histórico. **Continua lá depois do rearme** |
 
 Confundir as duas foi o bug mais grave da primeira versão do sidecar: uma

@@ -18,7 +18,11 @@ O que ele reproduz, e de onde veio (conferido nos manuais da Rockwell):
   * Parameter Object 0x0F: instância = nº do parâmetro, valor no atributo 1
   * DPI Parameter Object 0x93: mesma instância, valor no atributo 9
     (520COM-UM001, Apêndice C)
-  * DPI Fault Object 0x97, atributo de classe 4 = Fault Trip Instance
+  * Identity 0x01, inst 1, atributo 5 (status): 0x0030 sem falha, 0x0430
+    desarmado (bit 10) -- MEDIDO num PowerFlex 525 real em 2026-10-01
+  * DPI Fault Object 0x97, atributo de classe 4: ponteiro da fila de falhas,
+    em 1 sempre que há histórico -- COMO NO DRIVE REAL, e NÃO indica falha
+    ativa (a versão anterior deste simulador seguia o mesmo erro do sidecar)
   * b001 0,01 Hz · b003 0,01 A · b004 0,1 V · b005 1 V · b007 = falha MAIS
     RECENTE, que continua lá depois do rearme (520-UM001)
 
@@ -87,7 +91,9 @@ class DrivePF525:
     def __init__(self, params, trip=0, aceita_ucmm_send=True, tem_obj_falha=True):
         self.params = dict(params)      # {instância: valor bruto} -- o que é lido
         self.base = dict(params)        # valores "de repouso" em volta dos quais oscila
-        self.trip = trip                # Fault Trip Instance (0 = sem falha)
+        self.trip = trip                # desarmado agora? (0 = não)
+        # tem_obj_falha=False: o drive não responde ao status do Identity --
+        # o sidecar não pode saber se há falha ativa.
         self.aceita_ucmm_send = aceita_ucmm_send
         self.tem_obj_falha = tem_obj_falha
         self.cenario = None
@@ -196,11 +202,21 @@ class DrivePF525:
                 v = alvo.params[pnu]
                 self._anotar(classe, inst, atrib, via_0x52, ST_OK, v, drive=k, pnu=pnu)
                 return self._resposta(servico, ST_OK, struct.pack("<h", v))
-            if classe == 0x97 and self.tem_obj_falha:
+            if classe == 0x01 and inst == 1 and self.tem_obj_falha:
+                # Identity do NÓ (um só, do drive 0): bit 10 = falha grave
+                if atrib == 5:
+                    st = 0x0030 | (0x0400 if self.trip else 0)
+                    self._anotar(classe, inst, atrib, via_0x52, ST_OK, st, pnu=0)
+                    return self._resposta(servico, ST_OK, struct.pack("<H", st))
+                self._anotar(classe, inst, atrib, via_0x52, ST_ATRIBUTO)
+                return self._resposta(servico, ST_ATRIBUTO)
+            if classe == 0x97:
                 if pnu == 0 and atrib == 4:
-                    self._anotar(classe, inst, atrib, via_0x52, ST_OK, alvo.trip, drive=k, pnu=0)
-                    return self._resposta(servico, ST_OK,
-                                          struct.pack("<H", alvo.trip))
+                    # ponteiro da fila: 1 se há QUALQUER falha no histórico,
+                    # desarmado ou não (como o drive real)
+                    pont = 1 if alvo.params.get(7) else 0
+                    self._anotar(classe, inst, atrib, via_0x52, ST_OK, pont, drive=k, pnu=0)
+                    return self._resposta(servico, ST_OK, struct.pack("<H", pont))
                 self._anotar(classe, inst, atrib, via_0x52, ST_ATRIBUTO, drive=k)
                 return self._resposta(servico, ST_ATRIBUTO)
         self._anotar(classe, inst, atrib, via_0x52, ST_OBJETO, drive=k)

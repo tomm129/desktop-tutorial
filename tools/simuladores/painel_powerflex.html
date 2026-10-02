@@ -182,7 +182,7 @@
       <h2>Falhas</h2>
       <div class="falhas">
         <div class="caixa" id="cx-ativa">
-          <div class="rot"><span id="ic-ativa">✓</span> Falha ativa <span class="par">0x97 · attr 4</span></div>
+          <div class="rot"><span id="ic-ativa">✓</span> Falha ativa <span class="par">Identity 0x01 · attr 5 · bit 10</span></div>
           <div class="cod num" id="f-ativa">—</div>
           <div class="txt" id="f-ativa-txt"></div>
           <div class="nota">É o que acende o CRÍTICO no painel.</div>
@@ -232,7 +232,7 @@
       </div>
       <div class="opcao">
         <label class="chave"><input type="checkbox" id="o-falha"><span></span></label>
-        <div class="desc"><b>Oferece o objeto de falha (0x97)</b>
+        <div class="desc"><b>Responde o status de falha (Identity)</b>
           <p>Desligado, o sidecar não tem como saber se há falha ativa — e não pode inventar uma.</p></div>
       </div>
       <div class="opcao">
@@ -302,7 +302,7 @@ function pintar(e) {
   if (!e.tem_obj_falha) {
     cx.className = "caixa"; $("ic-ativa").textContent = "?";
     $("f-ativa").textContent = "sem resposta";
-    $("f-ativa-txt").textContent = "objeto 0x97 desligado";
+    $("f-ativa-txt").textContent = "status do Identity desligado";
   } else if (e.trip) {
     cx.className = "caixa crit"; $("ic-ativa").textContent = "⚠";
     $("f-ativa").textContent = "F" + e.ultima_falha;
@@ -340,12 +340,14 @@ function pintarLog(itens) {
     } else {
       caminho = "0x" + p.classe.toString(16).padStart(2, "0").toUpperCase() + " · " + p.inst + " · " + p.atrib;
       const n = (p.pnu === undefined || p.pnu === null) ? p.inst : p.pnu;
-      if (p.classe === 0x97) pedido = "Falha ativa (Fault Trip)";
+      if (p.classe === 0x01) pedido = "Falha ativa (status do Identity)";
+      else if (p.classe === 0x97) pedido = "Ponteiro da fila de falhas";
       else pedido = PARAM[n] ? PARAM[n][0] + " " + PARAM[n][1] : "parâmetro " + n;
       // Multi-Drive: drive encadeado pela RS-485 atrás deste
       if (p.drive) pedido = "<span class='via'>drive " + p.drive + "</span> " + pedido;
       if (p.status !== 0) resp = '<span class="erro">✕ ' + (p.drive && p.status === 22 ? "drive " + p.drive + " não responde (desligado ou ausente)" : ({5:"caminho inválido",8:"serviço recusado",20:"atributo inexistente",22:"objeto inexistente"}[p.status] || "erro " + p.status)) + "</span>";
-      else if (p.classe === 0x97) resp = p.valor ? "⚠ " + p.valor + " (desarmado)" : "0 (sem falha)";
+      else if (p.classe === 0x01) resp = (p.valor & 0x0C00) ? "⚠ 0x" + p.valor.toString(16) + " (desarmado)" : "0x" + p.valor.toString(16) + " (sem falha)";
+      else if (p.classe === 0x97) resp = p.valor + " (só informativo)";
       else if (PARAM[n] && (p.classe === 0x0F && p.atrib === 1 || p.classe === 0x93 && p.atrib === 9)) resp = PARAM[n][2](p.valor);
       else resp = '<span class="erro">' + p.valor + " — atributo errado para esta classe</span>";
     }
