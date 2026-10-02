@@ -211,7 +211,7 @@ grupo(G_ATIVOS_TAB, "Todos os ativos e partes", 12, 1, altura=16,
 
 # --- Tela: Tendencias (as tres grandezas, planta inteira) -------------
 grupo(G_TEND_T, "Temperatura (°C) — até 8 séries, as de pior estado",  12, 1, altura=8, pagina=PAGINA_TEND)
-grupo(G_TEND_V, "Vibração RMS (g) — até 8 séries, as de pior estado",  12, 2, altura=8, pagina=PAGINA_TEND)
+grupo(G_TEND_V, "Aceleração de vibração (g) — até 8 séries, as de pior estado",  12, 2, altura=8, pagina=PAGINA_TEND)
 grupo(G_TEND_C, "Corrente (A) — até 8 séries, as de pior estado",      12, 3, altura=8, pagina=PAGINA_TEND)
 
 # --- Telas de roadmap -------------------------------------------------
@@ -790,8 +790,8 @@ const ATIVOS = flow.get('cadastro') || {};
 // ---- Limites. Calibre com o equipamento em condicao normal. ----------
 const LIM = {
     temperatura_c: { atencao: 60,  critico: 75,   nome: 'Temperatura', un: '°C' },
-    vib_rms_g:     { atencao: 0.5, critico: 1.0,  nome: 'Vibração',    un: 'g'  },
-    vib_vel_mm_s:  { atencao: 2.8, critico: 4.5,  nome: 'Velocidade',  un: 'mm/s' },
+    vib_rms_g:     { atencao: 0.5, critico: 1.0,  nome: 'Aceleração',  un: 'g'  },
+    vib_vel_mm_s:  { atencao: 2.8, critico: 4.5,  nome: 'Vibração',    un: 'mm/s' },
     corrente_a:    { atencao: 9.0, critico: 11.0, nome: 'Corrente',    un: 'A'  }
 };
 
@@ -965,7 +965,7 @@ function limites_de(a) {
     // de velocidade vem da norma, nao de chute -- so o GRUPO e escolha.
     if (z) {
         l.vib_vel_mm_s = { atencao: z.bc, critico: z.cd,
-                           nome: 'Velocidade', un: 'mm/s', iso_grupo: grupo };
+                           nome: 'Vibração', un: 'mm/s', iso_grupo: grupo };
     }
     return l;
 }
@@ -1490,8 +1490,8 @@ for (const a of lista) {
     linhas.push({
         Ativo: nome,
         Temperatura: fmt(a.temperatura_c, 1, '°C'),
-        Velocidade: fmt(a.vib_vel_mm_s, 2, 'mm/s'),
-        'Vibração RMS': fmt(a.vib_rms_g, 3, 'g'),
+        'Vibração': fmt(a.vib_vel_mm_s, 2, 'mm/s'),
+        'Aceleração': fmt(a.vib_rms_g, 3, 'g'),
         Corrente: fmt(a.corrente_a, 2, 'A'),
         'Tensão': fmt(a.tensao_v, 1, 'V'),
         Marcha: marcha_txt(a),
@@ -1675,7 +1675,7 @@ function recomendacao(h, item) {
     if (/sem leitura/.test(m)) {
         return 'O sensor não respondeu: conferir cabo e conexão do sensor no módulo.';
     }
-    if (/velocidade/.test(m) && item && typeof item.vib_vel_mm_s === 'number') {
+    if (/vibra[cç][aã]o/.test(m) && item && typeof item.vib_vel_mm_s === 'number') {
         const z = zona_iso(item.vib_vel_mm_s, grupo_iso(item.placa));
         if (z === 'D') {
             return 'ISO 20816 zona D — risco de dano. Reduzir carga ou parar assim que possível e inspecionar mancais, alinhamento e fixação.';
@@ -1684,8 +1684,8 @@ function recomendacao(h, item) {
             return 'ISO 20816 zona C — operar só por período limitado. Programar inspeção de mancais, alinhamento e fixação.';
         }
     }
-    if (/vibra[cç][aã]o/.test(m)) {
-        return 'Conferir a fixação do sensor e da máquina; comparar com a velocidade (mm/s) no Detalhe.';
+    if (/acelera[cç][aã]o/.test(m)) {
+        return 'Conferir a fixação do sensor e da máquina; comparar com a vibração (mm/s) no Detalhe.';
     }
     if (/temperatura/.test(m)) {
         return crit ? 'Temperatura crítica: reduzir carga e inspecionar ventilação e lubrificação dos mancais.'
@@ -1708,7 +1708,11 @@ for (const a of lista) {
         const parte = (h.parte && h.parte !== a.rotulo) ? h.parte : '';
         fila.push({ chave: a.chave, ativo: a.rotulo, parte: parte,
                     estado: h.estado, cor: COR[h.estado], simb: SIMB[h.estado],
-                    rotulo: ROTULO[h.estado], motivo: (h.motivos || []).join(' · '),
+                    // Motivo ATUAL (valor de agora), nao o gravado quando o
+                    // evento abriu: a fila e sobre o que esta acontecendo.
+                    rotulo: ROTULO[h.estado],
+                    motivo: (((estados[item.chave] || {}).estado === h.estado &&
+                              (estados[item.chave] || {}).motivos) || h.motivos || []).join(' · '),
                     desde_ms: h.inicio_ms, pendente: !h.rec_em,
                     recomendacao: recomendacao(h, item) });
     }
@@ -1777,7 +1781,8 @@ function tile_simples(nome, campo, casas, un) {
 // vez do nosso rotulo generico. "ZONA C" e uma informacao a mais que
 // "ATENÇÃO": diz quanto tempo ainda se pode operar assim.
 function tile_velocidade(hist) {
-    const t = tile('Velocidade', 'vib_vel_mm_s', 2, 'mm/s', hist);
+    const t = tile('Vibração', 'vib_vel_mm_s', 2, 'mm/s', hist);
+    t.dica_nome = 'Velocidade de vibração RMS (mm/s), a grandeza da ISO 20816';
     const v = alvo.vib_vel_mm_s;
     if (v === null || v === undefined) { return t; }
     const grupo = grupo_iso(alvo.placa);
@@ -1823,7 +1828,7 @@ const h_esp = (registro[alvo.fonte_esp32] || {}).hist || {};
 const tiles = [
     tile('Temperatura',  'temperatura_c', 1, '°C', h_esp.temp || []),
     tile_velocidade(h_esp.vel || []),
-    tile('Vibração RMS', 'vib_rms_g',     3, 'g',  h_esp.vib || []),
+    tile('Aceleração', 'vib_rms_g',     3, 'g',  h_esp.vib || []),
     tile_crista(h_esp.crista || []),
     tile('Corrente',     'corrente_a',    2, 'A',
          ((registro[alvo.fonte_inversor] || {}).hist || {}).corr || []),
@@ -2029,9 +2034,9 @@ function m4_cards() {
             // que a ISO 20816 julga severidade, e a que o mantenedor sabe
             // interpretar de cabeca. O g continua na tela de detalhe, onde
             // ha espaco para as duas.
-            medidas: [ medida('Temp', 'temperatura_c', 1, '°C'),
-                       medida('Vel',  'vib_vel_mm_s',  2, 'mm/s'),
-                       medida('Corr', 'corrente_a',    2, 'A') ]
+            medidas: [ medida('Temperatura', 'temperatura_c', 1, '°C'),
+                       medida('Vibração', 'vib_vel_mm_s', 2, 'mm/s'),
+                       medida('Corrente', 'corrente_a',    2, 'A') ]
         };
     });
     return { payload: cards };
@@ -4521,7 +4526,7 @@ def grafico(nid, grupo_id, rotulo, eixo_y, ymin, ymax, largura=6):
 
 
 grafico("tend_temp", G_TEND_T, "Temperatura",  "°C", "", "", largura=12)
-grafico("tend_vib",  G_TEND_V, "Vibração RMS", "g",  "0", "", largura=12)
+grafico("tend_vib",  G_TEND_V, "Aceleração", "g",  "0", "", largura=12)
 grafico("tend_corr", G_TEND_C, "Corrente",     "A",  "0", "", largura=12)
 
 

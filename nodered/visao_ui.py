@@ -203,7 +203,7 @@ CARDS = r"""
       <span class="cd-chip ls-chip">{{ c.alarme && c.alarme.silenciado ? '🔕 SILENCIADO' : c.simb + ' ' + c.rotulo }}</span>
       <span class="ls-nome">{{ c.tag }}<small v-if="c.descricao">{{ c.descricao }}</small></span>
       <span v-for="m in c.medidas" :key="m.nome" class="ls-m">
-        <small>{{ m.nome }}</small>
+        <small :title="DICA[m.nome] || ''">{{ m.nome }}</small>
         <b :style="m.alerta ? { color: m.cor } : {}">{{ m.texto }}<i v-if="m.un"> {{ m.un }}</i></b>
       </span>
       <span class="ls-al" @click.stop>
@@ -230,7 +230,7 @@ CARDS = r"""
 
       <div class="cd-med">
         <div v-for="(m, i) in c.medidas" :key="m.nome" class="cd-m">
-          <div class="cd-mr">{{ m.nome }}</div>
+          <div class="cd-mr" :title="DICA[m.nome] || ''">{{ m.nome }}</div>
           <div class="cd-mv" :class="{ vazio: m.vazio, alerta: m.alerta }"
                :style="m.alerta ? { color: m.cor } : {}">
             {{ m.texto }}<small v-if="m.un">{{ m.un }}</small>
@@ -300,7 +300,9 @@ CARDS = r"""
 
 <script>
 export default {
-  data () { return { cards: [], menu: null, modo: 'cards', porArea: true } },
+  data () { return { cards: [], menu: null, modo: 'cards', porArea: true,
+                     DICA: { 'Vibração': 'Velocidade de vibração RMS (mm/s) — a grandeza da ISO 20816',
+                             'Corrente': 'Corrente do motor, lida do inversor' } } },
   computed: {
     // So agrupa quando AGRUPA: com cada ativo numa area diferente, os
     // cabecalhos so repetiriam o nome de cada card.

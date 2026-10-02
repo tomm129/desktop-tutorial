@@ -23,7 +23,7 @@ DET_PRINCIPAL = r"""
       <div v-for="k in kpis" :key="k.id" class="dp-kpi" :class="{ sel: metrica === k.id }"
            @click="metrica = k.id" :title="k.dica || ''">
         <div class="dp-k-top">
-          <span class="dp-k-nome">{{ k.nome }}</span>
+          <span class="dp-k-nome" :title="k.nome === 'Vibração' ? 'Velocidade de vibração RMS (mm/s) — a grandeza da ISO 20816' : (k.nome === 'Aceleração' ? 'Aceleração de vibração RMS (g)' : '')">{{ k.nome }}</span>
           <span class="dp-tag" :style="tagEstilo(k)">{{ k.rotulo || '—' }}</span>
         </div>
         <div class="dp-k-val">{{ k.texto }}<small>{{ k.un }}</small></div>
