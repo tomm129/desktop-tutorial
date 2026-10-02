@@ -2107,7 +2107,62 @@ function eleger(tipo) {
 
 flow.set('devices_grafico', eleger('esp32').concat(eleger('inversor')));
 
+// ---- Linha do tempo POR ATIVO ----------------------------------------
+// Uma linha por ativo principal, com o nome a vista. As faixas acima
+// (eventos empilhados) diziam QUANDO, mas QUAL maquina so aparecia ao
+// passar o mouse -- e num monitor de painel ou no celular ninguem passa.
+// Vai em milissegundos crus: a tela escolhe a janela (15 min, 1 h, turno,
+// 24 h) sem pedir nada ao fluxo.
+//
+// Etiqueta curta do evento, desenhada em cima da linha sem hover:
+// "F013" para falha de drive, "Vibracao 5.24mm/s" para limite.
+function etiqueta(h) {
+    if (h.estado === 'sem_dados') { return 'sem dados'; }
+    const m = String((h.motivos || [])[0] || '');
+    const f = m.match(/F\d{3}/);
+    if (f) { return f[0]; }
+    return m.replace(/ (aten[cç][aã]o|cr[ií]tico):\s*/i, ' ').slice(0, 24);
+}
+const linhas_tl = lista
+    .filter(function (a) { return a.nivel === 0; })
+    .map(function (a) {
+        const e = (estados[a.chave] || {}).estado || 'normal';
+        const segs = hist
+            .filter(function (h) {
+                return (h.ativo === a.chave || h.ativo === a.rotulo) &&
+                       (h.fim_ms || agora) >= agora - MAX_JANELA;
+            })
+            .map(function (h) {
+                return { ini_ms: h.inicio_ms, fim_ms: h.fim_ms || null,
+                         estado: h.estado, cor: COR[h.estado], simb: SIMB[h.estado],
+                         rot_estado: ROTULO[h.estado], parte: h.parte || '',
+                         motivos: (h.motivos || []).join(' | '), etiqueta: etiqueta(h) };
+            })
+            .sort(function (x, y) { return x.ini_ms - y.ini_ms; });
+        // "desde quando" no estado atual: o evento aberto mais antigo dele.
+        const aberto = segs.filter(function (s) { return !s.fim_ms && s.estado === e; })[0];
+        return { nome: a.rotulo, chave: a.chave, estado: e, cor: COR[e], simb: SIMB[e],
+                 rot_estado: ROTULO[e], desde_ms: aberto ? aberto.ini_ms : null,
+                 segs: segs };
+    })
+    // Mesma ordem dos cards: o pior primeiro.
+    .sort(function (x, y) {
+        return (ORDEM_PIOR[x.estado] - ORDEM_PIOR[y.estado]) ||
+               (x.nome < y.nome ? -1 : x.nome > y.nome ? 1 : 0);
+    });
+
 const m10 = { payload: { eventos: eventos, marcas: marcas, dias: dias, pontos: pontos,
+                         linhas: linhas_tl, agora: agora,
+                         // Lacunas e trechos recuperados em ms crus, para a
+                         // tela redesenhar a cobertura na janela escolhida.
+                         lacunas_ms: lacunas
+                             .filter(function (l) { return (l.fim || agora) >= agora - MAX_JANELA; })
+                             .map(function (l) { return { ini: l.ini, fim: l.fim || null }; }),
+                         recs_ms: Object.keys(recs).reduce(function (acc, k) {
+                             return acc.concat((Array.isArray(recs[k]) ? recs[k] : [])
+                                 .filter(function (r) { return r && r.de && r.ate; })
+                                 .map(function (r) { return { ini: r.de, fim: r.ate }; }));
+                         }, []),
                          // Teto de 6 faixas: cada uma soma 13px de altura, e
                          // sem limite uma planta com muitos eventos
                          // simultaneos estoura o grupo e cria barra de
@@ -3487,73 +3542,87 @@ no(id="pg_rel_conteudo", type="ui-template", z="flow_monitor", group=G_REL,
 # linhas existiam no DOM e ficavam cortadas, dando cara de tela vazia.
 LINHA_TEMPO = r"""
 <template>
-    <div class="lt">
-        <!-- legenda a esquerda, como na referencia -->
-        <div class="lt-leg">
-            <span class="lt-li"><i class="lt-dot"></i>Dados</span>
-            <span class="lt-li"><i class="lt-dot lt-rec"></i>Recuperado</span>
-            <span class="lt-li"><i class="lt-dia lt-c-at"></i>Atencao</span>
-            <span class="lt-li"><i class="lt-dia lt-c-cr"></i>Critico</span>
-            <span class="lt-li"><i class="lt-dia lt-c-sd"></i>Sem dados</span>
-            <span class="lt-jan">{{ janela }}</span>
-        </div>
-
-        <div class="lt-faixa" ref="faixa" @mouseleave="dica = null"
-             :style="{ paddingTop: (faixas * 13) + 'px' }">
-
-            <!-- eventos: losango no inicio + barra da duracao -->
-            <template v-for="(e, i) in eventos">
-                <div :key="'b'+i" class="lt-bar"
-                     :style="{ left: e.ini + '%', width: e.larg + '%',
-                               top: (e.faixa * 13) + 'px', background: e.cor }"
-                     @mouseenter="mostrar(e, $event)"></div>
-                <div :key="'d'+i" class="lt-dia lt-mk"
-                     :class="{ 'lt-aberto': e.aberto }"
-                     :style="{ left: e.ini + '%', top: (e.faixa * 13 + 1) + 'px',
-                               background: e.cor }"
-                     @mouseenter="mostrar(e, $event)"></div>
-            </template>
-
-            <!-- faixa de cobertura -->
-            <div class="lt-cob">
-                <i v-for="(p, i) in pontos" :key="'p'+i"
-                   class="lt-dot" :class="{ 'lt-off': !p.ok, 'lt-rec': p.rec }"
-                   :title="p.rec ? 'sem comunicacao — dado recuperado do buffer do sensor'
-                                 : (p.ok ? '' : 'sem dados')"
-                   :style="{ left: p.pct + '%' }"></i>
-            </div>
-
-            <!-- grade e rotulos -->
-            <div v-for="m in marcas" :key="'m'+m.pct" class="lt-tick"
-                 :style="{ left: m.pct + '%' }">
-                <span class="lt-rot">{{ m.rot }}</span>
-            </div>
-
-            <!-- viradas de dia dentro da janela -->
-            <div v-for="d in dias" :key="'dia'+d.pct" class="lt-dialinha"
-                 :style="{ left: d.pct + '%' }">
-                <!-- Perto da borda direita o rotulo vira para a esquerda da
-                     linha: com o overflow escondido no container, ele seria
-                     cortado. Acontece quando acabou de passar da meia-noite. -->
-                <span class="lt-diarot" :class="{ 'lt-diarot-esq': d.pct > 88 }">{{ d.rot }}</span>
-            </div>
-
-            <!-- agora -->
-            <div class="lt-agora"></div>
-
-            <div v-if="!eventos.length && !pontos.length" class="lt-vazio">
-                Aguardando dados
+    <div class="tl">
+        <!-- cabecalho: legenda a esquerda, janela a direita -->
+        <div class="tl-top">
+            <span class="tl-leg"><i class="tl-bola" style="background:#22c55e"></i>OK</span>
+            <span class="tl-leg"><i class="tl-bola" style="background:#f59e0b"></i>Atenção</span>
+            <span class="tl-leg"><i class="tl-bola" style="background:#ef4444"></i>Crítico</span>
+            <span class="tl-leg"><i class="tl-bola tl-bola-sd"></i>Sem dados</span>
+            <span class="tl-leg"><i class="tl-rec-mk"></i>Recuperado do sensor</span>
+            <div class="tl-jans">
+                <button v-for="j in JANELAS" :key="j.id" class="tl-jan"
+                        :class="{ on: janela === j.id }" @click="escolher(j.id)">{{ j.rot }}</button>
             </div>
         </div>
 
-        <div v-if="dica" class="lt-dica" :style="{ left: dica.x + 'px' }">
-            <div class="lt-d1">
-                <span :style="{ color: dica.cor }">{{ dica.simb }}</span>
-                <b>{{ dica.ativo }}</b>
-                <span v-if="dica.parte" class="lt-dp">&rsaquo; {{ dica.parte }}</span>
-                <span class="lt-dt">{{ dica.quando }} &middot; {{ dica.duracao }}</span>
+        <div class="tl-corpo" ref="corpo" @mouseleave="dica = null">
+            <!-- uma linha por ativo -->
+            <div v-for="l in visiveis" :key="l.chave" class="tl-linha" @click="abrir(l)"
+                 :title="'Abrir ' + l.nome">
+                <div class="tl-nome">
+                    <i class="tl-bola" :class="{ 'tl-bola-sd': l.estado === 'sem_dados',
+                                                 'tl-pulsa': l.estado === 'critico' }"
+                       :style="l.estado === 'sem_dados' ? {} : { background: l.cor }"></i>
+                    <span class="tl-nm">{{ l.nome }}</span>
+                </div>
+                <div class="tl-trilho">
+                    <div class="tl-base"></div>
+                    <template v-for="(s, i) in segs(l)" :key="i">
+                        <div class="tl-seg" :class="['tl-' + s.estado, { 'tl-aberto': s.aberto }]"
+                             :style="{ left: s.x + '%', width: s.w + '%', background: s.cor }"
+                             @mouseenter="mostrar(l, s, $event)"></div>
+                        <span v-if="s.mostrar_etiqueta" class="tl-etq"
+                              :style="{ left: s.x + '%', borderColor: s.cor, color: s.cor }">{{ s.etiqueta }}</span>
+                    </template>
+                </div>
+                <div class="tl-agora-txt" :style="{ color: l.estado === 'normal' ? '#8b98a5' : l.cor }">
+                    {{ l.simb }} {{ l.rot_estado }}<span v-if="l.desde_ms" class="tl-ha"> há {{ dur(agora_cli - l.desde_ms) }}</span>
+                </div>
             </div>
-            <div class="lt-dm">{{ dica.motivos }}</div>
+            <div v-if="ocultos" class="tl-mais">+ {{ ocultos }} ativo(s) sem ocorrência nesta janela</div>
+            <div v-if="!linhas.length" class="tl-vazio">Aguardando dados</div>
+
+            <!-- cobertura de dados da planta -->
+            <div class="tl-linha tl-linha-cob">
+                <div class="tl-nome"><span class="tl-nm tl-sub">Dados recebidos</span></div>
+                <div class="tl-trilho">
+                    <div class="tl-cob" :style="{ background: '#2f81f7' }"></div>
+                    <div v-for="(g, i) in lacunas_vis" :key="'g'+i" class="tl-gap"
+                         :class="{ 'tl-gap-rec': g.rec }"
+                         :title="g.rec ? 'sem comunicação — dado recuperado do buffer do sensor' : 'sem dados'"
+                         :style="{ left: g.x + '%', width: g.w + '%' }"></div>
+                </div>
+                <div class="tl-agora-txt tl-sub">{{ cobertura }}% coberto</div>
+            </div>
+
+            <!-- eixo de horarios -->
+            <div class="tl-linha tl-eixo">
+                <div class="tl-nome"></div>
+                <div class="tl-trilho">
+                    <span v-for="m in marcas" :key="m.pct" class="tl-tick" :style="{ left: m.pct + '%' }">{{ m.rot }}</span>
+                    <span class="tl-tick tl-tick-agora" style="left:100%">agora</span>
+                </div>
+                <div class="tl-agora-txt"></div>
+            </div>
+        </div>
+
+        <!-- rodape de resumo -->
+        <div class="tl-rodape">
+            <div class="tl-kpi"><span class="tl-k">ativos</span><b>{{ linhas.length }}</b></div>
+            <div class="tl-kpi"><span class="tl-k">ocorrências na janela</span><b>{{ n_eventos }}</b></div>
+            <div class="tl-kpi"><span class="tl-k">tempo em crítico</span>
+                <b :style="{ color: t_critico ? '#ef4444' : '' }">{{ t_critico ? dur(t_critico) : '—' }}</b></div>
+            <div class="tl-kpi"><span class="tl-k">cobertura de dados</span><b>{{ cobertura }}%</b></div>
+        </div>
+
+        <div v-if="dica" class="tl-dica" :style="{ left: dica.x + 'px', top: dica.y + 'px' }">
+            <div class="tl-d1">
+                <span :style="{ color: dica.cor }">{{ dica.simb }} {{ dica.rot_estado }}</span>
+                <b>{{ dica.nome }}</b><span v-if="dica.parte" class="tl-dp">› {{ dica.parte }}</span>
+            </div>
+            <div class="tl-dt">{{ dica.quando }} · {{ dica.duracao }}<span v-if="dica.aberto"> · em andamento</span></div>
+            <div class="tl-dm">{{ dica.motivos }}</div>
         </div>
     </div>
 </template>
@@ -3561,28 +3630,147 @@ LINHA_TEMPO = r"""
 <script>
 export default {
     data () {
-        return { eventos: [], marcas: [], dias: [], pontos: [], janela: '',
-                 faixas: 1, dica: null }
-    },
-    methods: {
-        mostrar (e, ev) {
-            const f = this.$refs.faixa.getBoundingClientRect();
-            const x = Math.min(Math.max(ev.clientX - f.left - 150, 0), f.width - 320);
-            this.dica = Object.assign({}, e, { x: x });
+        return {
+            JANELAS: [{ id: 'auto', rot: 'Auto' }, { id: 15, rot: '15 min' },
+                      { id: 60, rot: '1 h' }, { id: 480, rot: 'Turno 8 h' },
+                      { id: 1440, rot: '24 h' }],
+            janela: 'auto', linhas: [], lacunas: [], recs: [], agora_srv: 0,
+            agora_cli: Date.now(), delta: 0, dica: null, MAX_LINHAS: 8
         }
     },
+    computed: {
+        // Janela em ms. "Auto" cobre do evento mais antigo ate agora, com
+        // folga, entre 15 min e 24 h -- o comportamento de antes.
+        jan_ms () {
+            if (this.janela !== 'auto') { return this.janela * 60000; }
+            let antigo = this.agora_cli;
+            for (const l of this.linhas) for (const s of l.segs) {
+                if (s.ini_ms < antigo) { antigo = s.ini_ms; }
+            }
+            return Math.max(15 * 60000, Math.min(1440 * 60000, (this.agora_cli - antigo) * 1.1));
+        },
+        t0 () { return this.agora_cli - this.jan_ms; },
+        // Ativos sem nada na janela e em OK nao ganham linha quando a planta
+        // e grande: o espaco vai para quem tem historia.
+        visiveis () {
+            const com = this.linhas.filter(l => l.estado !== 'normal' ||
+                l.segs.some(s => (s.fim_ms || this.agora_cli) >= this.t0));
+            const sem = this.linhas.filter(l => com.indexOf(l) < 0);
+            const lista = com.concat(sem);
+            return lista.slice(0, Math.max(this.MAX_LINHAS, com.length));
+        },
+        ocultos () { return this.linhas.length - this.visiveis.length; },
+        n_eventos () {
+            let n = 0;
+            for (const l of this.linhas) for (const s of l.segs) {
+                if ((s.fim_ms || this.agora_cli) >= this.t0) { n++; }
+            }
+            return n;
+        },
+        t_critico () {
+            let t = 0;
+            for (const l of this.linhas) for (const s of l.segs) {
+                if (s.estado !== 'critico') { continue; }
+                const a = Math.max(s.ini_ms, this.t0), b = s.fim_ms || this.agora_cli;
+                if (b > a) { t += b - a; }
+            }
+            return t;
+        },
+        lacunas_vis () {
+            const tr = (x, rec) => {
+                const a = Math.max(x.ini, this.t0), b = x.fim || this.agora_cli;
+                if (b <= a) { return null; }
+                return { x: this.pct(a), w: Math.max(0.3, this.pct(b) - this.pct(a)), rec: rec, ms: b - a };
+            };
+            const recs = this.recs.map(r => tr(r, true)).filter(Boolean);
+            return this.lacunas.map(l => tr(l, false)).filter(Boolean).concat(recs);
+        },
+        cobertura () {
+            const perdido = this.lacunas_vis.filter(g => !g.rec).reduce((s, g) => s + g.ms, 0);
+            return Math.max(0, Math.round(100 * (1 - perdido / this.jan_ms)));
+        },
+        marcas () {
+            const r = [];
+            for (let k = 0; k < 6; k++) {
+                const t = this.t0 + this.jan_ms * k / 6;
+                const d = new Date(t);
+                r.push({ pct: (k / 6) * 100,
+                         rot: d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+            }
+            return r;
+        }
+    },
+    methods: {
+        pct (ms) { return Math.max(0, Math.min(100, (ms - this.t0) / this.jan_ms * 100)); },
+        dur (ms) {
+            const s = Math.round(ms / 1000);
+            if (s < 60) { return s + ' s'; }
+            const m = Math.round(s / 60);
+            if (m < 60) { return m + ' min'; }
+            const h = Math.floor(m / 60);
+            return h + ' h' + (m % 60 ? ' ' + (m % 60) + ' min' : '');
+        },
+        segs (l) {
+            const r = [];
+            for (const s of l.segs) {
+                const fim = s.fim_ms || this.agora_cli;
+                if (fim < this.t0) { continue; }
+                const x = this.pct(s.ini_ms), w = Math.max(0.5, this.pct(fim) - x);
+                r.push(Object.assign({}, s, { x: x, w: w, aberto: !s.fim_ms,
+                                              mostrar_etiqueta: false }));
+            }
+            // Etiquetas por prioridade: o evento EM ANDAMENTO primeiro, depois
+            // critico, depois atencao. "Sem dados" curto (o instante em que o
+            // painel reinicia) nao ganha etiqueta: e ruido, nao ocorrencia.
+            // Duas etiquetas a menos de 12% uma da outra se atropelariam.
+            const PRI = { critico: 0, atencao: 1, sem_dados: 2 };
+            const usadas = [];
+            r.slice()
+             .filter(s => s.estado !== 'sem_dados' || s.w >= 15)
+             .sort((a, b) => (b.aberto - a.aberto) || (PRI[a.estado] - PRI[b.estado]))
+             .forEach(s => {
+                 if (usadas.every(u => Math.abs(u - s.x) > 12)) {
+                     s.mostrar_etiqueta = true; usadas.push(s.x);
+                 }
+             });
+            return r;
+        },
+        mostrar (l, s, ev) {
+            const c = this.$refs.corpo.getBoundingClientRect();
+            const x = Math.min(Math.max(ev.clientX - c.left - 160, 0), c.width - 340);
+            const y = ev.clientY - c.top + 14;
+            const fim = s.fim_ms || this.agora_cli;
+            this.dica = Object.assign({}, s, {
+                nome: l.nome, x: x, y: y,
+                quando: new Date(s.ini_ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                duracao: this.dur(fim - s.ini_ms) });
+        },
+        escolher (j) {
+            this.janela = j;
+            try { localStorage.setItem('ix_tl_janela', String(j)); } catch (e) {}
+        },
+        abrir (l) { this.send({ payload: l.chave }); }
+    },
+    mounted () {
+        try {
+            const j = localStorage.getItem('ix_tl_janela');
+            if (j) { this.janela = (j === 'auto') ? 'auto' : Number(j); }
+        } catch (e) {}
+        // O relogio da tela anda sozinho: "ha 3 min" nao espera o proximo
+        // ciclo do fluxo. Corrigido pela diferenca para o relogio do gateway.
+        this._tick = setInterval(() => { this.agora_cli = Date.now() + this.delta; }, 1000);
+    },
+    unmounted () { clearInterval(this._tick); },
     watch: {
         msg: {
             immediate: true,
             handler (m) {
                 const p = (m && m.payload) || {};
-                if (!p.pontos && !p.eventos) { return; }
-                this.eventos = p.eventos || [];
-                this.marcas = p.marcas || [];
-                this.dias = p.dias || [];
-                this.pontos = p.pontos || [];
-                this.janela = p.janela || '';
-                this.faixas = p.faixas || 1;
+                if (!p.linhas) { return; }
+                this.linhas = p.linhas;
+                this.lacunas = p.lacunas_ms || [];
+                this.recs = p.recs_ms || [];
+                if (p.agora) { this.delta = p.agora - Date.now(); this.agora_cli = p.agora; }
             }
         }
     }
@@ -3590,106 +3778,98 @@ export default {
 </script>
 
 <style scoped>
-/* overflow hidden: sem isso o grupo cria barra de rolagem propria quando
-   ha muitas faixas de evento, e o Node-RED a desenha com o estilo padrao do
-   navegador -- cinza e branco no meio do fundo escuro. O numero de faixas
-   e limitado no lado do fluxo, entao esconder aqui nao esconde dado. */
-.lt { position: relative; overflow: hidden; }
+.tl { position: relative; font-variant-numeric: tabular-nums; }
 
-/* Se alguma barra ainda escapar (zoom, fonte grande), que ao menos combine
-   com o tema em vez de aparecer clara. */
-.lt ::-webkit-scrollbar { width: 6px; height: 6px; }
-.lt ::-webkit-scrollbar-track { background: transparent; }
-.lt ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+/* --- cabecalho ---------------------------------------------------- */
+.tl-top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+          margin-bottom: 12px; font-size: 12px; color: #8b98a5; }
+.tl-leg { display: inline-flex; align-items: center; gap: 6px; }
+.tl-bola { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.tl-bola-sd { background: transparent; border: 1.5px solid #6e7a87; width: 7px; height: 7px; }
+.tl-rec-mk { width: 10px; height: 4px; border-radius: 2px; background: #a78bfa; display: inline-block; }
+.tl-jans { margin-left: auto; display: flex; gap: 6px; }
+.tl-jan { background: transparent; color: #8b98a5; border: 1px solid #2a323c;
+          border-radius: 999px; padding: 3px 11px; font-size: 12px; cursor: pointer; }
+.tl-jan:hover { color: #e6edf3; }
+.tl-jan.on { color: #2f81f7; border-color: #2f81f7; background: rgba(47,129,247,.14); }
 
-/* --- legenda ------------------------------------------------------- */
-.lt-leg { display: flex; align-items: center; gap: 18px; margin-bottom: 10px;
-          font-size: 11px; color: #71717a; }
-.lt-li  { display: inline-flex; align-items: center; gap: 6px; }
-.lt-jan { margin-left: auto; text-transform: uppercase; letter-spacing: .4px; }
+/* --- linhas: nome | trilho | estado agora --------------------------- */
+.tl-linha { display: grid; grid-template-columns: 190px 1fr 150px; align-items: center;
+            gap: 14px; height: 34px; border-radius: 6px; cursor: pointer; }
+.tl-linha:hover { background: #1c232c; }
+.tl-linha-cob, .tl-eixo { cursor: default; }
+.tl-linha-cob:hover, .tl-eixo:hover { background: transparent; }
+.tl-linha-cob { height: 26px; border-top: 1px solid #222a33; margin-top: 4px; }
+.tl-eixo { height: 18px; }
 
-/* --- marcadores ---------------------------------------------------- */
-.lt-dot { position: absolute; width: 3px; height: 3px; border-radius: 50%;
-          background: #3987e5; transform: translateX(-50%); }
-.lt-leg .lt-dot { position: static; transform: none; }
-.lt-dot.lt-off  { background: #52525b; opacity: .45; }
+.tl-nome { display: flex; align-items: center; gap: 9px; min-width: 0; padding-left: 8px; }
+.tl-nm { font-size: 13px; color: #e6edf3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-sub { color: #6e7a87 !important; font-size: 12px; }
 
-/* Recuperado do buffer do sensor: houve queda de comunicacao, mas o dado
-   nao se perdeu. Precisa vir DEPOIS de .lt-off -- mesma especificidade,
-   e o ponto recuperado tambem carrega a classe .lt-off (ok=false).
+.tl-trilho { position: relative; height: 100%; }
+.tl-base { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px;
+           background: rgba(34,197,94,.22); border-radius: 1px; }
 
-   Alem da cor, e mais ALTO que os outros pontos. Distinguir so por matiz
-   num marcador de 3px falharia para quem tem baixa visao de cor -- e, a
-   rigor, para qualquer um: 3px de azul contra 3px de violeta ninguem
-   separa de relance. A altura resolve sem depender de cor. */
-.lt-dot.lt-rec  { background: #a78bfa; opacity: 1;
-                  height: 7px; width: 2px; border-radius: 1px;
-                  margin-top: -2px; }
-.lt-leg .lt-dot.lt-rec { height: 7px; width: 2px; margin-top: 0; }
+/* trecho de estado: barra de 8px, cantos redondos */
+.tl-seg { position: absolute; top: 50%; height: 8px; margin-top: -4px; border-radius: 4px;
+          opacity: .85; min-width: 3px; }
+.tl-seg:hover { opacity: 1; }
+.tl-sem_dados { background: repeating-linear-gradient(45deg, #5c6773 0 4px, #3a434e 4px 8px) !important; }
+/* So o evento EM ANDAMENTO brilha: e o que pede acao agora. */
+.tl-aberto { opacity: 1; box-shadow: 0 0 10px currentColor; }
+.tl-aberto.tl-critico { box-shadow: 0 0 10px rgba(239,68,68,.6); }
+.tl-aberto.tl-atencao { box-shadow: 0 0 10px rgba(245,158,11,.5); }
+.tl-aberto.tl-sem_dados { box-shadow: none; }
 
-/* Losango: o quadrado girado da referencia. Marca o INICIO do evento --
-   e a barra ao lado diz quanto durou, que a referencia nao mostra. */
-.lt-dia { width: 7px; height: 7px; transform: rotate(45deg);
-          background: #71717a; flex: none; }
-.lt-c-at { background: #f59e0b; }
-.lt-c-cr { background: #ef4444; }
-.lt-c-sd { background: #71717a; }
+.tl-etq { position: absolute; top: 1px; font-size: 10px; line-height: 13px; padding: 0 5px;
+          border: 1px solid; border-radius: 999px; background: #161b22; white-space: nowrap;
+          pointer-events: none; transform: translateX(-2px); }
 
-/* --- faixa --------------------------------------------------------- */
-.lt-faixa { position: relative; padding-bottom: 26px; }
+.tl-agora-txt { font-size: 12px; font-weight: 600; white-space: nowrap; text-align: right;
+                padding-right: 8px; }
+.tl-ha { font-weight: 400; color: #8b98a5; }
 
-.lt-bar { position: absolute; height: 3px; margin-top: 3px; opacity: .55;
-          border-radius: 2px; cursor: pointer; min-width: 2px; }
-.lt-bar:hover { opacity: .9; }
+.tl-pulsa { animation: tl-pulso 1.6s ease-in-out infinite; }
+@keyframes tl-pulso { 0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,.55); }
+                      50% { box-shadow: 0 0 0 5px rgba(239,68,68,0); } }
 
-.lt-mk  { position: absolute; margin-left: -3px; cursor: pointer;
-          transition: transform .15s; }
-.lt-mk:hover { transform: rotate(45deg) scale(1.5); }
-/* Alvo de acerto invisivel de 22px em volta do losango de 7px: mirar num
-   marcador desse tamanho com o mouse e frustrante, e a informacao dele so
-   existe no hover -- se e dificil acertar, e como se nao estivesse la. */
-.lt-mk::before { content: ''; position: absolute; top: -8px; left: -8px;
-                 right: -8px; bottom: -8px; }
+/* cobertura */
+.tl-cob { position: absolute; left: 0; right: 0; top: 50%; height: 3px; margin-top: -1.5px;
+          border-radius: 2px; opacity: .7; }
+.tl-gap { position: absolute; top: 50%; height: 7px; margin-top: -3.5px; background: #161b22;
+          border: 1px dashed #5c6773; border-radius: 2px; }
+.tl-gap-rec { background: #a78bfa; border: none; height: 4px; margin-top: -2px; }
 
-/* Mesma logica na barra: 3px de altura nao se acerta. */
-.lt-bar::before { content: ''; position: absolute; top: -5px; left: 0;
-                  right: 0; bottom: -5px; }
-/* Evento ainda aberto: anel claro. E o que exige acao agora. */
-.lt-mk.lt-aberto { box-shadow: 0 0 0 1.5px #f4f4f5; }
+/* eixo */
+.tl-tick { position: absolute; top: 2px; font-size: 10px; color: #5c6773; white-space: nowrap; }
+.tl-tick-agora { transform: translateX(-100%); color: #6e7a87; }
 
-.lt-cob { position: relative; height: 3px; margin-top: 6px; }
+.tl-mais { font-size: 12px; color: #6e7a87; padding: 4px 8px 6px; }
+.tl-vazio { font-size: 12px; color: #5c6773; padding: 8px; }
 
-/* --- grade --------------------------------------------------------- */
-.lt-tick { position: absolute; bottom: 18px; height: 5px; width: 1px;
-           background: #3f3f46; }
-.lt-rot  { position: absolute; top: 7px; left: 3px; font-size: 10px;
-           color: #52525b; white-space: nowrap; }
+/* --- rodape ------------------------------------------------------- */
+.tl-rodape { display: flex; gap: 28px; flex-wrap: wrap; margin-top: 10px; padding: 10px 8px 2px;
+             border-top: 1px solid #222a33; }
+.tl-kpi { display: flex; flex-direction: column; gap: 2px; }
+.tl-k { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: #6e7a87; }
+.tl-kpi b { font-size: 16px; font-weight: 650; color: #e6edf3; }
 
-/* "agora": a linha tracejada da referencia */
-.lt-agora { position: absolute; right: 0; top: 0; bottom: 18px; width: 0;
-            border-left: 1px dashed #52525b; }
-
-/* Virada de dia: mesma linha tracejada do "agora", mas com rotulo no
-   topo -- embaixo ja ha os rotulos da grade de horarios. */
-.lt-dialinha { position: absolute; top: 0; bottom: 18px; width: 0;
-               border-left: 1px dashed #52525b; }
-.lt-diarot   { position: absolute; top: -2px; left: 3px; font-size: 10px;
-               color: #71717a; white-space: nowrap; }
-.lt-diarot-esq { left: auto; right: 3px; }
-
-.lt-vazio { position: absolute; top: 0; left: 4px; font-size: 12px;
-            color: #52525b; }
-
-/* --- tooltip ------------------------------------------------------- */
-.lt-dica { position: absolute; top: -4px; z-index: 20; min-width: 300px;
-           max-width: 460px; background: #1e1e22; border: 1px solid #3f3f46;
-           border-radius: 8px; padding: 7px 12px;
+/* --- tooltip ------------------------------------------------------ */
+.tl-dica { position: absolute; z-index: 20; min-width: 300px; max-width: 460px;
+           background: #1c232c; border: 1px solid #2a323c; border-radius: 8px; padding: 8px 12px;
            box-shadow: 0 6px 18px rgba(0,0,0,.55); pointer-events: none; }
-.lt-d1  { font-size: 12px; color: #f4f4f5; white-space: nowrap; }
-.lt-d1 b { font-weight: 600; margin-left: 4px; }
-.lt-dp  { color: #a1a1aa; margin-left: 4px; }
-.lt-dt  { color: #71717a; font-size: 11px; margin-left: 10px; }
-.lt-dm  { color: #a1a1aa; font-size: 12px; margin-top: 3px; line-height: 1.35; }
+.tl-d1 { font-size: 12px; color: #e6edf3; white-space: nowrap; }
+.tl-d1 b { margin-left: 8px; font-weight: 600; }
+.tl-dp { color: #8b98a5; margin-left: 4px; }
+.tl-dt { font-size: 11px; color: #6e7a87; margin-top: 2px; }
+.tl-dm { font-size: 12px; color: #8b98a5; margin-top: 4px; line-height: 1.35; }
+
+/* celular: nome mais estreito, estado embaixo do nome */
+@media (max-width: 640px) {
+    .tl-linha { grid-template-columns: 110px 1fr; height: 40px; }
+    .tl-agora-txt { display: none; }
+    .tl-jans { margin-left: 0; }
+}
 </style>
 """
 
@@ -3697,7 +3877,8 @@ no(id="linha_tempo", type="ui-template", z="flow_monitor", group=G_LINHA,
    name="linha do tempo de eventos", order=1, width="0", height="0",
    head="", format=LINHA_TEMPO, storeOutMessages=True, passthru=False,
    resendOnRefresh=True, templateScope="local", className="",
-   x=640, y=1000, wires=[[]])
+   # Clique numa linha abre o Detalhe do ativo, como o clique no card.
+   x=640, y=1000, wires=[["abrir_ativo"]])
 
 
 # =====================================================================
